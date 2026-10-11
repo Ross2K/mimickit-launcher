@@ -4,7 +4,7 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.1.5"
+VERSION = "a0.2.5"
 import codecs, json, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -92,7 +92,18 @@ HELP = {
              "Runs with no window (fast). Watch the graph and log here. Can take hours.",
     "resume": "Resume training: continues from the newest saved model.pt.\n"
               "The old model is copied into a new folder (..._resume1, _resume2, ...) so nothing gets overwritten.",
-    "watch": "Watch latest model: shows 4 characters controlled by the newest saved model.pt (test mode).",
+    "watch": "Watch latest model: plays the newest saved model.pt in order - one character, starting at the beginning of the clip,\n"
+             "no random start and no early resets (a generated view copy of the env yaml; your data folder is not changed).",
+    "continue": "Continue from another run: pick a finished or older run folder (anything with model.pt in it or its _resumeN\n"
+                "folders). Its newest model.pt becomes the start of a new training run of the CURRENT config in the current\n"
+                "output folder (or its next _resumeN if that folder is already used). Training time, session count and the\n"
+                "source run's chart history are carried over (shown grey with dotted links in front of the new run).",
+    "preview": "Render preview MP4: records the newest model.pt for one clip length in a separate background process (CPU by\n"
+               "default, so no GPU memory is used and training is not disturbed), renders it with MuJoCo and opens the video.\n"
+               "Saved as preview_<iteration>.mp4 next to the model. Uses at most 80% of the RAM that is free when it starts.\n"
+               "Press again while it runs to cancel it.",
+    "pdevice": "Where the preview recording runs. Auto = CPU first, the GPU only if the CPU fails or is far too slow.\n"
+               "CPU only = never touches the GPU. GPU = cuda:0, refused if less than ~600 MB of VRAM is free. Rendering is always on the CPU.",
     "stop": "Stop: kills the running MimicKit process and all its child processes (taskkill /T /F).\n"
             "Training keeps the last saved model.pt. (Windows: taskkill /T /F, Linux: kills the process group.)",
     "envs": "How many simulated characters train at once. More = faster but more GPU memory.\n"
@@ -193,6 +204,80 @@ def chain_total(dirs):
             W = [w for w in parse_log(os.path.join(d, "log.txt")).get("Wall_Time", []) if w == w]
             if W: total += W[-1] * 3600; sessions += 1
     return total, sessions
+
+LINK_FILE = "launcher_link.json"   # written when a run continues from another run folder
+_RESUME_RE = re.compile(r"^(.*)_resume(\d+)$")
+
+def chain_folders(base):
+    """base folder + its _resumeN folders, as sorted (N, abs path)"""
+    parent, name = os.path.split(os.path.normpath(base)); out = [(0, base)]
+    if os.path.isdir(parent):
+        for d in os.listdir(parent):
+            if d.startswith(name + "_resume") and d[len(name) + 7:].isdigit():
+                out.append((int(d[len(name) + 7:]), os.path.join(parent, d)))
+    return sorted(out)
+
+def base_of(d):
+    m = _RESUME_RE.match(os.path.basename(os.path.normpath(d)))
+    return os.path.join(os.path.dirname(os.path.normpath(d)), m.group(1)) if m else d
+
+def parent_of(d):
+    """The run folder d continued from: the parent in launcher_time.json / launcher_link.json (may be another output folder),
+    else for a _resumeN folder without JSON the previous folder of its own chain."""
+    cands = []
+    j = read_time(d)
+    if j and j.get("parent"): cands.append(j["parent"])
+    try:
+        l = json.load(open(os.path.join(d, LINK_FILE)))
+        if l.get("parent"): cands.append(l["parent"])
+    except (OSError, ValueError, AttributeError):
+        pass
+    for c in cands:
+        if os.path.isdir(c): return c
+        alt = os.path.join(os.path.dirname(os.path.normpath(d)), os.path.basename(os.path.normpath(c)))   # MimicKit folder moved
+        if os.path.isdir(alt): return alt
+    if cands: return None
+    m = _RESUME_RE.match(os.path.basename(os.path.normpath(d)))
+    if m:
+        base = base_of(d)
+        for k in range(int(m.group(2)) - 1, 0, -1):
+            if os.path.isdir(base + "_resume%d" % k): return base + "_resume%d" % k
+        if os.path.isdir(base): return base
+    return None
+
+def run_chain(d, limit=500):
+    """All run folders leading to d, oldest first, following parent links across output folders (cycle-safe)."""
+    out, seen, cur = [d], {os.path.normcase(os.path.abspath(d))}, d
+    while len(out) < limit:
+        p = parent_of(cur)
+        if not p: break
+        n = os.path.normcase(os.path.abspath(p))
+        if n in seen: break
+        seen.add(n); out.insert(0, p); cur = p
+    return out
+
+def make_view_env(mk, env_rel, dst, episode_length=1000.0):
+    """Copy of a training env yaml for chronological playback: no random start, no early termination, long episodes.
+    Written to dst (a launcher folder under output/), never into MimicKit's data folder. Returns dst or None."""
+    try: lines = open(os.path.join(mk, env_rel), errors="replace").read().splitlines()
+    except OSError: return None
+    over = dict(rand_reset="False", enable_early_termination="False", pose_termination="False", episode_length="%g" % episode_length)
+    out, seen = ["# generated by MimicKit Launcher %s from %s (chronological view: rand_reset/early termination off)" % (VERSION, env_rel)], set()
+    for l in lines:
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:", l)
+        if m and m.group(1) in over:
+            out.append("%s: %s" % (m.group(1), over[m.group(1)])); seen.add(m.group(1))
+        else: out.append(l)
+    out += ["%s: %s" % (k, v) for k, v in over.items() if k not in seen]
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True); open(dst, "w").write("\n".join(out) + "\n")
+    except OSError: return None
+    return dst
+
+def last_iteration(d):
+    h = load_history(d) if os.path.isdir(d) else {}
+    it = [x for x in h.get("Iteration", []) if x == x]
+    return int(it[-1]) if it else None
 
 HIST_FILE = "chart_history.csv"
 CONSOLE_FILE = "console_log.txt"
@@ -392,7 +477,7 @@ class Tip:
 class App:
     def __init__(self, root):
         self.root = root; root.title("MimicKit Launcher  %s" % VERSION); root.geometry("1280x880")
-        self.s = load_settings(); self.proc = None; self.q = queue.Queue()
+        self.s = load_settings(); self.proc = None; self.q = queue.Queue(); self.preview_proc = None
         self.run_dir = None; self.run_kind = None; self.started = None
         self.live = StdoutTables(); self.live_dir = None; self.live_lock = threading.Lock()
         self.tt = None; self.tt_next = None; self.tt_lock = threading.Lock(); self.hist_n = 0
@@ -448,13 +533,20 @@ class App:
         ttk.Button(job, text="Browse...", command=self._browse_model).grid(row=4, column=4, sticky="w", padx=6)
         bf = ttk.Frame(job); bf.grid(row=5, column=0, columnspan=6, sticky="w", pady=(6, 0))
         for key, txt, fn in (("view", "View clip", self.view), ("train", "Start training", self.train),
-                             ("resume", "Resume training", self.resume), ("watch", "Watch latest model", self.watch),
+                             ("resume", "Resume training", self.resume), ("continue", "Continue from run...", self.continue_from),
+                             ("watch", "Watch latest model", self.watch), ("preview", "Render preview MP4", self.preview),
                              ("stop", "STOP", self.stop)):
-            b = ttk.Button(bf, text=txt, command=fn, width=20, style="Stop.TButton" if key == "stop" else "TButton")
+            b = ttk.Button(bf, text=txt, command=fn, width=17, style="Stop.TButton" if key == "stop" else "TButton")
             b.pack(side="left", padx=3); Tip(b, HELP[key])
-        b = ttk.Button(bf, text="Rescan args", command=self.rescan); b.pack(side="left", padx=(24, 3)); Tip(b, "Re-read MimicKit's args folder.")
-        b = ttk.Button(bf, text="Add args file...", command=self._add_custom); b.pack(side="left", padx=3); Tip(b, HELP["custom"])
-        ttk.Label(job, text="Hover over anything to see what it does.", style="Dim.TLabel").grid(row=6, column=0, columnspan=6, sticky="w")
+        bf2 = ttk.Frame(job); bf2.grid(row=6, column=0, columnspan=6, sticky="w", pady=(4, 0))
+        b = ttk.Button(bf2, text="Rescan args", command=self.rescan); b.pack(side="left", padx=3); Tip(b, "Re-read MimicKit's args folder.")
+        b = ttk.Button(bf2, text="Add args file...", command=self._add_custom); b.pack(side="left", padx=3); Tip(b, HELP["custom"])
+        ttk.Label(bf2, text="Preview device").pack(side="left", padx=(24, 4))
+        self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
+        cb = ttk.Combobox(bf2, textvariable=self.v_pdev, values=["Auto", "CPU only", "GPU"], state="readonly", width=9)
+        cb.pack(side="left"); Tip(cb, HELP["pdevice"])
+        cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__("preview_device", self.v_pdev.get()), self._save_settings_only()))
+        ttk.Label(bf2, text="   Hover over anything to see what it does.", style="Dim.TLabel").pack(side="left", padx=12)
         self.custom = list(self.s.get("custom_args", []))
         self.rescan()
 
@@ -652,18 +744,13 @@ class App:
     def _tt_total(self):
         with self.tt_lock:
             if self.tt: return self.tt["base"] + time.time() - self.tt["start"], time.time() - self.tt["start"], self.tt["sessions"]
-        try: tot, ses = chain_total([d for _, d in self._model_dirs(self.v_out.get().strip())])
+        try: tot, ses = chain_total(run_chain(self._model_dirs(self.v_out.get().strip())[-1][1]))
         except Exception: tot, ses = 0.0, 0
         return tot, None, ses
 
     def _model_dirs(self, base_rel):
         """base folder + its _resumeN folders, as (N, abs path)"""
-        base = self.outdir_abs(base_rel); parent, name = os.path.split(base); out = [(0, base)]
-        if os.path.isdir(parent):
-            for d in os.listdir(parent):
-                if d.startswith(name + "_resume") and d[len(name) + 7:].isdigit():
-                    out.append((int(d[len(name) + 7:]), os.path.join(parent, d)))
-        return sorted(out)
+        return chain_folders(self.outdir_abs(base_rel))
 
     def _latest_model(self):
         best = None
@@ -699,7 +786,7 @@ class App:
         new_rel = "%s_resume%d" % (self.v_out.get().strip().rstrip("/\\"), n); new_abs = self.outdir_abs(new_rel)
         os.makedirs(new_abs, exist_ok=True)
         start = os.path.join(new_abs, "start_model.pt"); shutil.copy2(model, start)
-        tot, ses = chain_total([d for _, d in dirs])
+        tot, ses = chain_total(run_chain(dirs[-1][1]))
         self.tt_next = dict(base=tot, sessions=ses + 1, parent=dirs[-1][1])
         self._append("[gui] carrying total training time %s (%d earlier sessions)\n" % (hms(tot), ses))
         self._append("[gui] copied %s -> %s\n" % (model, start))
@@ -715,20 +802,105 @@ class App:
             messagebox.showinfo("No model yet", "No model.pt found in the output folder yet.\nTrain first, or pick a .pt file in 'Model for Watch'."); return
         it = self._item("train")
         mrel = os.path.relpath(model, self.mk()) if os.path.isabs(model) else model
-        self._run(["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--mode", "test", "--num_envs", "4", "--visualize", "true",
-                   "--model_file", mrel.replace(os.sep, "/")] + self.extra_args(), kind="watch", out=None)
+        view = self._view_env(it, "watch")   # first occurrence of a key wins in MimicKit's arg parser -> put it first
+        self._run((["--env_config", view] if view else []) + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() +
+                  ["--mode", "test", "--num_envs", "1", "--visualize", "true", "--model_file", mrel.replace(os.sep, "/")] + self.extra_args(),
+                  kind="watch", out=None)
+
+    def _view_env(self, it, kind):
+        """Generated chronological view yaml (relative to MimicKit) for item it, or None if it has no env_config."""
+        if not it.get("env"): self._append("[gui] this config has no env_config - playing it as is\n"); return None
+        dst = os.path.join(self.mk(), "output", "_launcher_" + kind, "view_env.yaml")
+        if not make_view_env(self.mk(), it["env"], dst):
+            self._append("[gui] could not read %s - playing the config as is\n" % it["env"]); return None
+        self._append("[gui] chronological view env: %s (from %s)\n" % (os.path.relpath(dst, self.mk()).replace(os.sep, "/"), it["env"]))
+        return os.path.relpath(dst, self.mk()).replace(os.sep, "/")
+
+    def continue_from(self):
+        """Start a new training run of the current config from the newest model of another run chain."""
+        if not self._check("train"): return
+        src = filedialog.askdirectory(title="Pick the run to continue from (a folder with model.pt, or its _resumeN folders)",
+                                      initialdir=os.path.join(self.mk(), "output"))
+        if not src: return
+        src = os.path.abspath(src)
+        models = [os.path.join(d, "model.pt") for _, d in chain_folders(base_of(src)) if os.path.exists(os.path.join(d, "model.pt"))]
+        if not models:
+            messagebox.showerror("No model there", "No model.pt in %s or its _resumeN folders." % src); return
+        model = max(models, key=os.path.getmtime); src_dir = os.path.dirname(model)
+        out_rel = self.v_out.get().strip().rstrip("/\\"); out = self.outdir_abs(out_rel)
+        if os.path.isdir(out) and os.listdir(out):
+            new_rel = "%s_resume%d" % (out_rel, self._model_dirs(out_rel)[-1][0] + 1)
+        else: new_rel = out_rel
+        new_abs = self.outdir_abs(new_rel)
+        if os.path.normcase(os.path.abspath(new_abs)) in [os.path.normcase(os.path.abspath(c)) for c in run_chain(src_dir)]:
+            messagebox.showerror("Same folder", "The new run folder is part of the source run."); return
+        tot, ses = chain_total(run_chain(src_dir)); it = self._item("train")
+        if not messagebox.askyesno("Continue from another run",
+                "Continue training\n  config: %s\nfrom\n  %s\ninto\n  %s\n\nCarries %s of training (%d sessions) and the chart history." %
+                (it["name"], model, new_abs, hms(tot), ses)):
+            return
+        os.makedirs(new_abs, exist_ok=True)
+        start = os.path.join(new_abs, "start_model.pt"); shutil.copy2(model, start)
+        try:
+            json.dump(dict(parent=src_dir, parent_model=model, config=it["name"], env=it.get("env", ""), created=datetime.datetime.now()
+                           .isoformat(timespec="seconds"), launcher_version=VERSION), open(os.path.join(new_abs, LINK_FILE), "w"), indent=1)
+        except OSError: pass
+        self.tt_next = dict(base=tot, sessions=ses + 1, parent=src_dir)
+        self._append("[gui] continuing from %s (total %s, %d sessions) -> %s\n" % (src_dir, hms(tot), ses, new_rel))
+        self._run(["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--num_envs", str(self.v_envs.get()), "--visualize", "false",
+                   "--model_file", os.path.relpath(start, self.mk()).replace(os.sep, "/"), "--out_dir", new_rel] + self.extra_args(),
+                  kind="train", out=new_abs)
+
+    def preview(self):
+        """Render preview MP4 in a separate detached process (never touches the training process)."""
+        if self.preview_proc and self.preview_proc.poll() is None:
+            if messagebox.askyesno("Preview running", "A preview is being rendered. Cancel it?"): self._kill(self.preview_proc.pid, "preview")
+            return
+        if not os.path.exists(os.path.join(self.mk(), "mimickit", "run.py")):
+            messagebox.showerror("MimicKit not found", "Set the MimicKit folder in Settings."); return
+        it = self._item("train")
+        model = self.v_model.get().strip() or self._latest_model()
+        if not it or not model:
+            messagebox.showinfo("No model yet", "No model.pt found in the output folder yet.\nTrain first, or pick a .pt file in 'Model for Watch'."); return
+        model = model if os.path.isabs(model) else os.path.join(self.mk(), model)
+        pdir = os.path.join(self.mk(), "output", "_launcher_preview"); os.makedirs(pdir, exist_ok=True)
+        view = self._view_env(it, "preview")
+        if not view: messagebox.showerror("No env config", "This config has no env_config, so there is nothing to preview."); return
+        snap = os.path.join(pdir, "preview_model.pt"); shutil.copy2(model, snap)   # snapshot: training may overwrite model.pt any time
+        itn = last_iteration(os.path.dirname(model))
+        mp4 = os.path.join(os.path.dirname(model), "preview_%s.mp4" % (itn if itn is not None else time.strftime("%Y%m%d_%H%M%S")))
+        dev = {"Auto": "auto", "CPU only": "cpu", "GPU": "gpu"}.get(self.v_pdev.get(), "auto")
+        cmd = [self.python(), "-u", os.path.join(HERE, "mimickit_preview.py"), "all", "--mk", self.mk(), "--device", dev, "--out", mp4, "--",
+               "--env_config", view, "--model_file", os.path.relpath(snap, self.mk()).replace(os.sep, "/"), "--arg_file", it["file"]] + \
+              it.get("args", []) + self.engine_args()
+        logp = os.path.join(pdir, CONSOLE_FILE)
+        try:
+            offset = os.path.getsize(logp) if os.path.exists(logp) else 0
+            self.preview_proc = self._spawn_detached(cmd, logp, env=dict(os.environ, PYTHONUNBUFFERED="1"))
+        except Exception as e:
+            messagebox.showerror("Could not start the preview", str(e)); return
+        write_run_state(os.path.join(pdir, RUN_STATE), dict(pid=self.preview_proc.pid, cmd=cmd, kind="preview", started=time.time(),
+                        log=logp, offset=offset, out=None, launcher_version=VERSION))
+        self._append("\n[gui] ===== PREVIEW  %s =====\n[gui] model %s -> %s (device %s, PID %d; runs in the background)\n" % (
+            datetime.datetime.now().strftime("%H:%M:%S"), model, mp4, self.v_pdev.get(), self.preview_proc.pid))
+        threading.Thread(target=self._reader, args=(self.preview_proc, logp, offset, None, "preview"), daemon=True).start()
 
     def stop(self):
         if not self.proc or self.proc.poll() is not None:
             self._append("[gui] nothing is running\n"); return
         pid = self.proc.pid; self._tt_save(final=True)
+        self._kill(pid)
+        self._append("[gui] stopped. The last saved model.pt is kept.\n")
+
+    def _kill(self, pid, what=""):
+        """Kill a detached process and its whole tree (Windows: taskkill /T /F, Linux: its process group)."""
         if IS_WIN:
             r = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True, creationflags=NO_WINDOW)
-            self._append("[gui] taskkill: %s%s\n" % (r.stdout.strip(), r.stderr.strip()))
+            self._append("[gui] taskkill%s: %s%s\n" % (" " + what if what else "", r.stdout.strip(), r.stderr.strip()))
         else:
             try: os.killpg(pid, signal.SIGKILL)
             except Exception as e: self._append("[gui] kill failed: %s\n" % e)
-        self._append("[gui] stopped. The last saved model.pt is kept.\n")
+        if what: self._append("[gui] %s cancelled\n" % what)
 
     # ---------- process
     def _run(self, args, kind, out):
@@ -747,9 +919,7 @@ class App:
         try:
             offset = os.path.getsize(logp) if os.path.exists(logp) else 0
             # detached: MimicKit writes straight into console_log.txt, so it keeps running if this window closes or crashes
-            with open(logp, "ab", buffering=0) as logf:
-                self.proc = subprocess.Popen(cmd, cwd=self.mk(), stdout=logf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                             env=env, creationflags=DETACHED_FLAGS, start_new_session=not IS_WIN, close_fds=True)
+            self.proc = self._spawn_detached(cmd, logp, env)
         except Exception as e:
             messagebox.showerror("Could not start", str(e)); return
         self.run_kind, self.started = kind, time.time()
@@ -769,6 +939,12 @@ class App:
         self._append("[gui] started PID %d (detached; output -> %s)\n" % (self.proc.pid, logp))
         threading.Thread(target=self._reader, args=(self.proc, logp, offset, self.state_path), daemon=True).start()
         self._progress_tick(force=True)
+
+    def _spawn_detached(self, cmd, logp, env):
+        """Start cmd in MimicKit's folder, detached from this window, output appended (unbuffered) to logp."""
+        with open(logp, "ab", buffering=0) as logf:
+            return subprocess.Popen(cmd, cwd=self.mk(), stdout=logf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                    env=env, creationflags=DETACHED_FLAGS, start_new_session=not IS_WIN, close_fds=True)
 
     def _show_cmd(self, cmd, cwd=None):
         shown = " ".join('"%s"' % c if " " in c else c for c in cmd)
@@ -803,9 +979,9 @@ class App:
         self._progress_tick(force=True)
         return True
 
-    def _reader(self, proc, logp, offset, state_path=None):
+    def _reader(self, proc, logp, offset, state_path=None, kind=None):
         """Tails console_log.txt (written by the detached process) into the log panel and the live chart parser."""
-        feed = self.run_kind == "train"; tail = LineTail(); f = None
+        feed = kind is None and self.run_kind == "train"; tail = LineTail(); f = None
         def emit(lines):
             for line in lines:
                 self.q.put(line)
@@ -829,7 +1005,7 @@ class App:
             if st and st.get("pid") == proc.pid:
                 st["ended"] = datetime.datetime.now().isoformat(timespec="seconds"); st["exit_code"] = proc.returncode
                 write_run_state(state_path, st)
-        self.q.put("[gui] process ended (exit code %s)\n" % proc.returncode)
+        self.q.put("[gui] %sprocess ended (exit code %s)\n" % ("%s " % kind if kind else "", proc.returncode))
 
     def _append(self, s):
         if not hasattr(self, "t_log"): self.q.put(s); return
@@ -866,10 +1042,8 @@ class App:
         # earlier sessions of this run chain (original + _resumeN before d), offset so total samples keep growing
         earlier = []
         try:
-            chain = [c for _, c in self._model_dirs(self.v_out.get().strip())]
-            norm = [os.path.normcase(os.path.abspath(c)) for c in chain]
-            k = norm.index(os.path.normcase(os.path.abspath(d)))
-            earlier = [h for h in (load_history(c) for c in chain[:k]) if h.get("Samples")]
+            chain = run_chain(d)      # follows parent links, also into other output folders ("Continue from run")
+            earlier = [h for h in (load_history(c) for c in chain[:-1]) if h.get("Samples")]
         except (ValueError, OSError):
             pass
         self.prog_frame.configure(text="Training progress (data: %s, %d points%s; refreshed every 10 s)" % (

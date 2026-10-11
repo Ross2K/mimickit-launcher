@@ -20,9 +20,19 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
   (DeepMimic, AMP, ASE, ADD, ...) and *view* configs (`view_motion_*`), and fills in `num_envs`, output folder,
   motion file and engine from each file.
 - **Custom args files** (your own characters) and an **Extra args** box for any extra command-line options.
-- **View clip / Start training / Resume training / Watch latest model / STOP** buttons.
+- **View clip / Start training / Resume training / Continue from run / Watch latest model / Render preview MP4 / STOP** buttons.
   - Start warns before overwriting an earlier run.
   - Resume copies the newest `model.pt` into a new `_resumeN` folder and continues from it (nothing is overwritten).
+  - **Continue from run...** starts the *currently selected* config from the newest `model.pt` of any other run chain
+    (pick its folder). Typical use: train a character on one clip, then continue the same policy on a bigger dataset or
+    another motion. It goes into the current output folder, or its next `_resumeN` folder if that one is already used.
+    The source folder is recorded as the parent (`launcher_time.json` + `launcher_link.json`), so total training time,
+    session count and the chart history (grey, with dotted links) carry over - also across several hops.
+  - **Watch** is chronological: one character, starting at the beginning of the clip, no random starts and no early
+    resets. The launcher writes a copy of the config's env yaml with `rand_reset`, `enable_early_termination` and
+    `pose_termination` off and a long `episode_length` to `output/_launcher_watch/view_env.yaml` (your `data/` folder
+    is never changed) and passes it with `--env_config ... --num_envs 1`.
+  - **Render preview MP4** - see below.
   - STOP kills the whole process tree (`taskkill /T /F` on Windows, process-group kill on Linux).
 - **Runs survive the launcher closing or crashing**: MimicKit is started detached (Windows: new process group with a
   hidden console; Linux: its own session) and writes straight into the run's `console_log.txt`; the launcher tails that file.
@@ -47,6 +57,39 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
   otherwise it uses the Python that runs the launcher.
 - One file, standard library + matplotlib. Settings live in `%APPDATA%\mimickit-launcher\settings.json`
   (Windows) or `~/.config/mimickit-launcher/settings.json` (Linux).
+
+## Preview MP4 (no GPU memory needed)
+
+**Render preview MP4** makes a short video of the newest `model.pt` (or the file in *Model for Watch*) while training
+keeps running:
+
+1. A separate background process (detached like training runs, so it can't take training down) runs MimicKit's own
+   `build_env` / `build_agent` with **`--devices cpu`, 1 env, no window** and `CUDA_VISIBLE_DEVICES=""`, using the
+   chronological view env (above). It plays exactly one clip length (`ceil(clip seconds x 30)` steps, deterministic
+   actions, episode ends ignored) and logs the character's joint state per frame.
+2. Plain **MuJoCo on the CPU** loads the character's MJCF, poses it frame by frame (Newton's joint order/quaternions are
+   converted to MuJoCo's, and checked against Newton's body positions - the log shows the difference), renders with a
+   tracking camera on all CPU cores (one renderer per worker) and streams the frames into an H.264 MP4 (30 fps).
+3. The video is saved as `preview_<iteration>.mp4` next to the model and opened with your default player.
+
+Progress and messages appear in the log panel. **RAM limit:** the preview uses at most 80% of the RAM that is free
+when it starts; render workers are sized to fit, the memory of its processes is watched, and it stops cleanly with a
+message if it gets close. **Preview device** (below the buttons): *Auto* (default) = CPU, and only if the CPU fails
+or would take more than ~20x the clip length, the GPU (`cuda:0`, 1 env); *CPU only*; *GPU* (refused with a message if
+less than ~600 MB of VRAM is free). Rendering is always on the CPU.
+
+Measured on an 8-core CPU (no GPU), 3.5 s clip, 11-joint character: ~3 s setup, recording ~11 s (about 0.3x real
+time), rendering 640x480 ~4 s with 7 workers, peak RAM ~2.3 GB; about 25 s in total. The first run compiles Warp's CPU
+kernels once (~20 s extra; cached afterwards).
+
+Needs, in the MimicKit venv: `mujoco` (already there with Newton/mujoco-warp), `imageio` + `imageio-ffmpeg`
+(`pip install imageio imageio-ffmpeg`; MimicKit's `moviepy` usually brings them), optionally `psutil` (more exact RAM
+numbers; `wandb` brings it).
+
+**OpenGL note:** `mujoco.Renderer` needs a working OpenGL context. On Windows it uses the normal graphics driver -
+if the preview fails with an OpenGL/WGL error, update the GPU driver, and note that some Remote Desktop sessions have
+no OpenGL. On Linux the preview tries EGL, then OSMesa, then GLFW (needs a display) by setting `MUJOCO_GL`; set it
+yourself to force one.
 
 ## Requirements
 
@@ -170,6 +213,11 @@ STUB_REPLAY=console.txt STUB_LOG=log.txt xvfb-run -a python tests/replay_test.py
 STUB_CRLF=1 STUB_SLEEP=0.008 VERIFY_AT=24 STUB_REPLAY=console.txt xvfb-run -a python tests/replay_test.py  # Windows-like: CRLF, never flushed, slow
 xvfb-run -a python tests/time_test.py      # total training time: start/stop/resume/kill/legacy
 xvfb-run -a python tests/history_test.py   # chart history across two resumes
+xvfb-run -a python tests/detach_test.py    # runs survive the GUI: detach, reattach, stop
+xvfb-run -a python tests/chain_test.py     # Continue from run: chains across folders (time + history), view env yaml
+# preview pipeline end to end - needs a real MimicKit install; run with its venv python:
+PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python PREVIEW_TEST_ARGS=args/<training args>.txt \
+  xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
 ```
 
 ## Credits

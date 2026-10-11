@@ -45,7 +45,7 @@ def s_resume():
         app.resume(); c = cmd(); check("resume command", "_resume1/start_model.pt" in c and "--out_dir " + app.v_out.get() + "_resume1" in c, c.splitlines()[-1])
 def s_watch():
     app.stop(); time.sleep(0.5)
-    if fake: app.watch(); c = cmd(); check("watch command", "--mode test" in c and "--num_envs 4" in c and "model.pt" in c, c.splitlines()[-1])
+    if fake: app.watch(); c = cmd(); check("watch command", "--mode test" in c and "--num_envs 1" in c and "model.pt" in c and "--env_config output/_launcher_watch/view_env.yaml" in c, c.splitlines()[-1])
 def s_theme():
     app.v_light.set(True); app._toggle_theme(); root.update()
     check("light mode saved", json.load(open(cfg)).get("light_mode") is True)
