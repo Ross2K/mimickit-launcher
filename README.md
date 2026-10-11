@@ -68,17 +68,21 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
 keeps running:
 
 1. A separate background process (detached like training runs, so it can't take training down) runs MimicKit's own
-   `build_env` / `build_agent` with **`--devices cpu`, 1 env, no window** and the GPU hidden, using the
-   chronological view env (above). It plays exactly one clip length (`ceil(clip seconds x 30)` steps, deterministic
-   actions, episode ends ignored) and logs the character's joint state per frame - plus the **reference pose** of the
-   clip the policy is tracking (same motion id, same time, from the env's motion library).
+   `build_env` / `build_agent` with **`--devices cpu`, no window** and the GPU hidden, using the chronological view
+   env (above). **Every training motion is previewed (the first 4)**: the env's motion list is read (a single `.pkl`
+   or a dataset `.yaml`), one env is built per motion and each env is forced onto its own motion id from t=0
+   (MimicKit's reset would otherwise sample a motion at random). Each clip plays for its own full length
+   (`ceil(clip seconds x 30)` steps, deterministic actions, episode ends ignored); the character's joint state is
+   logged per frame - plus the **reference pose** of that clip (same motion id, same time, from the motion library).
 2. Plain **MuJoCo on the CPU** loads the character's MJCF, poses it frame by frame (Newton's joint order/quaternions are
    converted to MuJoCo's, and checked against Newton's body positions - the log shows the difference), renders with a
    tracking camera on all CPU cores (one renderer per worker) and streams the frames into an H.264 MP4 (30 fps).
-3. **Reference ghost** (dropdown next to *Preview device*, saved in the settings): *Side by side* (default) draws the
-   reference as a translucent orange character offset sideways (the env's `ref_char_offset`, default 2 m) with the
-   camera framing both; *Overlay* draws it in place on top of the policy; *Off* = policy only. A small
+3. **Reference ghost** (dropdown next to *Preview device*, saved in the settings, per clip): *Overlay* (default)
+   draws the reference as a translucent orange character in place on top of the policy; *Side by side* offsets it
+   sideways (the env's `ref_char_offset`, default 2 m) with the camera framing both; *Off* = policy only. A small
    Policy / Reference legend sits in the corner.
+   **Clip layout** (with 2+ motions): *All at once* (default) = a 1x2 or 2x2 grid, one camera per clip, shorter clips
+   hold their last frame; *One after another* = the clips in sequence. Each panel is labelled with its clip file name.
 4. The video is saved as `preview_<iteration>.mp4` next to the model and opened with your default player.
 
 Progress and messages appear in the log panel. **RAM limit:** the preview uses at most 80% of the RAM that is free
@@ -108,9 +112,12 @@ Needs, in the MimicKit venv: `mujoco` (already there with Newton/mujoco-warp), `
 (`pip install imageio imageio-ffmpeg`; MimicKit's `moviepy` usually brings them), optionally `psutil` (more exact RAM
 numbers; `wandb` brings it).
 
-**Chart navigation:** the toolbar under the charts has Home (back to auto-follow), Pan, Zoom-to-rectangle and Save.
-The mouse wheel zooms at the cursor, a double-click returns to auto-follow, and while you are zoomed the 10 s refresh
-keeps your view. Tick **Current session only** to see just the running session on the x axis.
+**Chart navigation (no modes to pick):** drag with the left mouse button to move along the time axis - both charts
+always show the same time range. The mouse wheel zooms the time axis at the cursor. The vertical scale stays at each
+chart's full data range; a chart can be dragged up/down only when it has visible data outside its vertical range.
+**Home** (or a double-click) returns to the full view and follows new data again; **Save picture...** writes a PNG/SVG/PDF.
+The view is kept through the 10 s refresh. Tick **Current session only** to see just the running session on the time axis.
+Light/dark mode switches the charts live as well.
 
 The preview uses its own Warp kernel cache (`output/_launcher_preview/warp_cache`), so it never touches the cache a
 running training uses; the first preview (and the first GPU fallback) compiles its kernels once.
@@ -247,8 +254,11 @@ xvfb-run -a python tests/chain_test.py     # Continue from run: chains across fo
 # preview pipeline end to end - needs a real MimicKit install; run with its venv python:
 PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python PREVIEW_TEST_ARGS=args/<training args>.txt \
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
+xvfb-run -a python tests/nav_test.py      # chart navigation, light/dark charts, single-instance tooltips
 # same env vars: reference ghost (both modes), staged CPU fallback (simulated crash), diagnostics
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/ghost_test.py
+# + PREVIEW_TEST_MULTI_ENV=data/envs/<env with a 2+ motion dataset>.yaml: multi-motion preview, both layouts
+  xvfb-run -a /path/MimicKit/.venv/bin/python tests/multi_test.py
 ```
 
 ## Credits

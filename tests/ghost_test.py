@@ -25,8 +25,8 @@ rc, out = run("record", ["--device", "cpu", "--out", npz])
 check("record exits 0", rc == 0, out[-400:] if rc else "")
 z = np.load(npz); n = int(z["frames"]); fps = float(z["fps"])
 check("reference pose recorded", bool(z["has_ref"]) and z["ref_joint_q"].shape == z["joint_q"].shape)
-check("reference follows the policy's motion id and clock", np.allclose(z["ref_time"], (np.arange(n) + 1) / fps, atol=1e-3),
-      "t[0]=%.4f t[-1]=%.4f" % (z["ref_time"][0], z["ref_time"][-1]))
+check("reference follows the policy's motion id and clock", np.allclose(z["ref_time"].reshape(n, -1)[:, 0], (np.arange(n) + 1) / fps, atol=1e-3),
+      "t[-1]=%s" % (z["ref_time"][-1],))
 err = P.verify_mapping(str(z["char_file"]), npz, ref=True)
 check("ghost pose matches the motion at t (MuJoCo FK vs motion-lib FK)", err < 0.01, "%.6f m" % err)
 check("frame 0 of the ghost equals the policy's start pose (reset to the reference)",

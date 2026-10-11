@@ -137,10 +137,10 @@ def _maybe_simulated_crash(variant, where):
     if v and v.split(":")[0] == variant and (v.split(":")[1] if ":" in v else "build_env") == where:
         import ctypes; ckpt("simulated native crash"); ctypes.string_at(0)
 
-def _ref_joint_q(env, jtypes, jstart, nq):
+def _ref_joint_q(env, jtypes, jstart, nq, e=0):
     """Reference pose of the motion the policy is tracking (same motion id, same time), in Newton's joint_q layout."""
     import torch
-    lib = env._motion_lib; mids = env._motion_ids[:1]; t = env._get_motion_times()[:1]
+    lib = env._motion_lib; mids = env._motion_ids[e:e + 1]; t = env._get_motion_times()[e:e + 1]
     rp, rr, _, _, jr, _ = lib.calc_motion_frame(mids, t)
     kin = env._kin_char_model; dof = kin.rot_to_dof(jr)[0]; q = torch.zeros(nq)
     bp = kin.forward_kinematics(rp, rr, jr)[0][0]
@@ -181,8 +181,12 @@ def cmd_record(a):
     t0 = time.time()
     _maybe_simulated_crash(a.variant, "build_env")
     ckpt("build_env"); 
+    clips = dataset_motions(mk, args.parse_string("env_config"))
+    K = max(1, min(a.motions, MAX_CLIPS, len(clips))) if a.motions > 0 else 1
+    log("training motions: %d%s; previewing %d (one env per motion, each from t=0)" % (len(clips),
+        " (" + ", ".join(os.path.basename(c) for c in clips[:8]) + ")" if clips else "", K))
     with wp.ScopedDevice(a.device):
-        env = mk_run.build_env(args, 1, a.device, False)
+        env = mk_run.build_env(args, K, a.device, False)
     ckpt("build_agent"); agent = mk_run.build_agent(args, env, a.device)
     import newton
     bad = [m for m in ("newton._src.solvers.mujoco.kernels",) if wp.get_module(m).options.get("enable_backward")]
@@ -199,14 +203,23 @@ def cmd_record(a):
     dt = eng.get_timestep(); fps = 1.0 / dt
     scope = wp.ScopedDevice(a.device); scope.__enter__()      # MimicKit launches some kernels without a device
     ckpt("env.reset")
+    forced = torch.arange(K, device=a.device, dtype=torch.long)
+    if hasattr(env, "_sample_motion_times"):
+        # deepmimic_env._reset_ref_motion() asks _sample_motion_times(n) for (motion ids, start times): with rand_reset
+        # False it samples a random motion by weight at t=0. Override on this instance: env e plays motion e from t=0.
+        env._sample_motion_times = lambda n: (forced[:n].clone(), torch.zeros(n, device=a.device))
     with torch.no_grad():
         obs, info = env.reset()
-    mid = int(env._motion_ids[0]) if hasattr(env, "_motion_ids") else 0
-    clip_len = float(env._motion_lib.get_motion_length(torch.tensor([mid], device=a.device))[0]) if hasattr(env, "_motion_lib") else a.seconds
-    n = a.frames or int(math.ceil(clip_len * fps))
+    lib = getattr(env, "_motion_lib", None)
+    mids = [int(v) for v in env._motion_ids[:K]] if hasattr(env, "_motion_ids") else [0]
+    lens = [float(lib.get_motion_length(torch.tensor([m], device=a.device))[0]) for m in mids] if lib is not None else [a.seconds]
+    names = [os.path.basename(str(lib.get_motion_file(m))) for m in mids] if lib is not None and hasattr(lib, "get_motion_file") else ["clip"]
+    nper = [int(math.ceil(L_ * fps)) for L_ in lens]
+    if a.frames: nper = [min(v, a.frames) for v in nper]
+    n = max(nper); clip_len = max(lens)
     setup = time.time() - t0
-    log("setup %.1f s on %s; clip %.2f s -> %d frames at %.0f fps" % (setup, a.device, clip_len, n, fps))
-    # articulation 0 = the character; joint and body layout for the MuJoCo mapping
+    for k in range(K): log("clip %d: motion id %d %s, %.2f s -> %d frames" % (k + 1, mids[k], names[k], lens[k], nper[k]))
+    log("setup %.1f s on %s; %d clip(s), %d steps at %.0f fps" % (setup, a.device, K, n, fps))
     art = sm.articulation_start.numpy(); j0, j1 = int(art[0]), int(art[1])
     jqs = sm.joint_q_start.numpy(); jt = sm.joint_type.numpy()
     jl = getattr(sm, "joint_label", None) or getattr(sm, "joint_key", None) or []
@@ -215,12 +228,11 @@ def cmd_record(a):
     jtypes = [newton.JointType(int(t)).name for t in jt[j0:j1]]
     q0, q1 = int(jqs[j0]), int(jqs[j1])
     jstart = [int(jqs[j]) - q0 for j in range(j0, j1)]
-    nb = j1 - j0      # one body per joint in an articulation
+    nb = j1 - j0
     bnames = [os.path.basename(str(x)) for x in list(bl)[j0:j1]]
-    nqtot = sm.joint_q.shape[0] // 1
-    Q = np.zeros((n, q1 - q0), np.float32); BP = np.zeros((n, nb, 3), np.float32)
+    Q = np.zeros((n, K, q1 - q0), np.float32); BP = np.zeros((n, K, nb, 3), np.float32)
     has_ref = all(hasattr(env, k) for k in ("_motion_lib", "_motion_ids", "_get_motion_times", "_kin_char_model"))
-    RQ = np.zeros_like(Q); RBP = np.zeros_like(BP); RT = np.zeros(n, np.float32)
+    RQ = np.zeros_like(Q); RBP = np.zeros_like(BP); RT = np.zeros((n, K), np.float32)
     if not has_ref: log("this env has no reference motion - no ghost")
     off = getattr(env, "_ref_char_offset", None)
     ref_off = [float(v) for v in off.cpu().numpy()] if off is not None else [2.0, 0.0, 0.0]
@@ -229,26 +241,41 @@ def cmd_record(a):
     with torch.no_grad():
         for i in range(n):
             act, _ = agent._decide_action(obs, info)
-            obs, r, done, info = env.step(act)      # 'done' is ignored on purpose: one continuous take of the clip
-            jq = eng._sim_state._torch_joint_q.view(1, -1)[0]
-            Q[i] = jq[q0:q1].detach().cpu().numpy()
-            BP[i] = eng._sim_state._torch_body_q.view(1, -1, 7)[0, j0:j1, :3].detach().cpu().numpy()
-            if has_ref: RQ[i], RBP[i], RT[i] = _ref_joint_q(env, jtypes, jstart, q1 - q0)
+            obs, r, done, info = env.step(act)      # 'done' is ignored on purpose: one continuous take of each clip
+            jq = eng._sim_state._torch_joint_q.view(K, -1); bq = eng._sim_state._torch_body_q.view(K, -1, 7)
+            Q[i] = jq[:, q0:q1].detach().cpu().numpy()
+            BP[i] = bq[:, j0:j1, :3].detach().cpu().numpy()
+            if has_ref:
+                for k in range(K): RQ[i, k], RBP[i, k], RT[i, k] = _ref_joint_q(env, jtypes, jstart, q1 - q0, k)
             now = time.time()
-            if i == 9: t10 = now                       # the first steps include one-time kernel compiles: skip them
+            if i == 9: t10 = now
             if i == 29 and a.slow_check:
                 proj = (now - t10) / 20 * n
                 if proj > SLOW_FACTOR * clip_len:
                     log("CPU too slow: %.1f s projected for a %.1f s clip (limit %.0fx)" % (proj, clip_len, SLOW_FACTOR)); sys.exit(4)
             if now - last > 2 or i == n - 1:
-                el = now - t1; log("record frame %d/%d  (%.1f frames/s = %.2fx real time)" % (i + 1, n, (i + 1) / el, (i + 1) / el / fps)); last = now
+                el = now - t1; log("record frame %d/%d  (%.1f frames/s = %.2fx real time, %d clip(s) at once)" % (i + 1, n, (i + 1) / el, (i + 1) / el / fps, K)); last = now
     el = time.time() - t1
     np.savez(a.out, joint_q=Q, body_pos=BP, joint_names=np.array(jnames), joint_types=np.array(jtypes), joint_start=np.array(jstart),
-             body_names=np.array(bnames), fps=fps, clip_len=clip_len, motion_id=mid, frames=n,
+             body_names=np.array(bnames), fps=fps, clip_len=clip_len, motion_id=mids[0], frames=n, clips=K,
+             motion_ids=np.array(mids), clip_names=np.array(names), clip_lens=np.array(lens, np.float32), clip_frames=np.array(nper),
              char_file=_char_file(mk, args.parse_string("env_config")),
              record_seconds=el, setup_seconds=setup, device=a.device, variant=a.variant,
              has_ref=has_ref, ref_joint_q=RQ, ref_body_pos=RBP, ref_time=RT, ref_offset=np.array(ref_off, np.float32))
-    log("recorded %d frames in %.1f s (%.1fx real time; setup %.1f s) -> %s" % (n, el, n / fps / el, setup, a.out))
+    log("recorded %d steps x %d clip(s) in %.1f s (%.1fx real time; setup %.1f s) -> %s" % (n, K, el, n / fps / el, setup, a.out))
+
+def dataset_motions(mk, env_yaml):
+    """Motion files of the env (a .pkl, or a dataset .yaml listing several), in the motion library's id order."""
+    import yaml
+    try:
+        cfg = yaml.safe_load(open(os.path.join(mk, env_yaml))) or {}
+        mf = cfg.get("motion_file", "")
+        if not mf: return []
+        if mf.endswith(".yaml"):
+            return [m["file"] for m in (yaml.safe_load(open(os.path.join(mk, mf))) or {}).get("motions", [])]
+        return [mf]
+    except Exception:
+        return []
 
 def _char_file(mk, env_yaml):
     import yaml
@@ -357,19 +384,46 @@ def apply_q(plan, q, qpos, prev=None):
         else:
             qpos[e[2]] = q[s]
 
-def verify_mapping(char_file, npz, ref=False):
+def clip_data(z):
+    """Arrays with a clip axis: Q/BP/RQ/RBP are (steps, clips, ...); older single-clip files get a clip axis of 1."""
+    import numpy as np
+    Q, BP = z["joint_q"], z["body_pos"]
+    RQ = z["ref_joint_q"] if "ref_joint_q" in z.files else np.zeros_like(Q)
+    RBP = z["ref_body_pos"] if "ref_body_pos" in z.files else np.zeros_like(BP)
+    if Q.ndim == 2: Q, BP, RQ, RBP = Q[:, None], BP[:, None], RQ[:, None], RBP[:, None]
+    K = Q.shape[1]; n = Q.shape[0]
+    nper = [int(v) for v in z["clip_frames"]] if "clip_frames" in z.files else [n] * K
+    names = [str(v) for v in z["clip_names"]] if "clip_names" in z.files else ["clip"] * K
+    return dict(Q=Q, BP=BP, RQ=RQ, RBP=RBP, K=K, n=n, nper=nper, names=names)
+
+LAYOUTS = ("grid", "seq")
+MAX_CLIPS = 4
+def frame_specs(c, layout):
+    """Per output frame: list of (clip, step) panels. grid: all clips at once, shorter ones hold their last frame;
+    seq: clips one after another."""
+    if c["K"] == 1 or layout == "grid":
+        return [[(k, min(i, c["nper"][k] - 1)) for k in range(c["K"])] for i in range(max(c["nper"]))]
+    return [[(k, i)] for k in range(c["K"]) for i in range(c["nper"][k])]
+
+def grid_shape(K):
+    return (1, 1) if K == 1 else (1, 2) if K == 2 else (2, 2)
+
+def verify_mapping(char_file, npz, ref=False, per_clip=False):
     """Max distance between Newton's body positions (ref=True: the reference motion's forward kinematics) and MuJoCo's
-    forward kinematics of the mapped qpos."""
+    forward kinematics of the mapped qpos, over every clip's own frames. per_clip=True returns a list per clip."""
     import numpy as np, mujoco
     z = np.load(npz); m = mujoco.MjModel.from_xml_path(char_file); d = mujoco.MjData(m); plan = qpos_map(m, z)
-    Q, BP = (z["ref_joint_q"], z["ref_body_pos"]) if ref else (z["joint_q"], z["body_pos"])
-    err, prev = 0.0, {}
-    for i in range(int(z["frames"])):
-        apply_q(plan, Q[i].astype(float), d.qpos, prev); mujoco.mj_kinematics(m, d)
-        for bi, bn in enumerate(z["body_names"]):
-            b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, str(bn))
-            if b >= 0: err = max(err, float(np.linalg.norm(d.xpos[b] - BP[i, bi])))
-    return err
+    c = clip_data(z); Q, BP = (c["RQ"], c["RBP"]) if ref else (c["Q"], c["BP"])
+    ids = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, str(bn)) for bn in z["body_names"]]
+    errs = []
+    for k in range(c["K"]):
+        err, prev = 0.0, {}
+        for i in range(c["nper"][k]):
+            apply_q(plan, Q[i, k].astype(float), d.qpos, prev); mujoco.mj_kinematics(m, d)
+            for bi, b in enumerate(ids):
+                if b >= 0: err = max(err, float(np.linalg.norm(d.xpos[b] - BP[i, k, bi])))
+        errs.append(err)
+    return errs if per_clip else max(errs)
 
 def ghost_offset(z, mode):
     """World offset of the ghost root: side by side uses the env's ref_char_offset (default 2 m sideways), overlay none."""
@@ -392,33 +446,61 @@ def _legend(img):
     import numpy as np
     return np.asarray(im)
 
+def _label(img, text, legend=False):
+    from PIL import Image, ImageDraw, ImageFont
+    import numpy as np
+    im = Image.fromarray(img); dr = ImageDraw.Draw(im, "RGBA")
+    try: f = ImageFont.load_default(size=16)
+    except TypeError: f = ImageFont.load_default()
+    if text:
+        w = int(dr.textlength(text, font=f)) if hasattr(dr, "textlength") else 8 * len(text)
+        x = (im.width - w) // 2; y = im.height - 30
+        dr.rectangle([x - 8, y - 4, x + w + 8, y + 22], fill=(0, 0, 0, 140)); dr.text((x, y), text, fill=(255, 255, 255), font=f)
+    out = np.asarray(im)
+    return _legend(out) if legend else out
+
 def _render_chunk(job):
     char_file, npz, lo, hi, part, w, h = job[:7]; mode = job[7] if len(job) > 7 else "off"
+    layout = job[8] if len(job) > 8 else "grid"
     import numpy as np, mujoco, imageio.v2 as imageio
     z = np.load(npz); ghost = mode != "off" and bool(z["has_ref"]) if "has_ref" in z.files else False
+    c = clip_data(z); specs = frame_specs(c, layout); K = c["K"]
     m = _load_mj(char_file, ghost); d = mujoco.MjData(m); plan = qpos_map(m, z)
     gplan = qpos_map(m, z, ghost=True) if ghost else None; off = ghost_offset(z, mode) if ghost else None
     r = mujoco.Renderer(m, h, w)
-    cam = mujoco.MjvCamera(); cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING; cam.trackbodyid = 1
-    cam.distance, cam.azimuth, cam.elevation = 3.6, 120.0, -12.0
-    if ghost and mode == "side":      # free camera looking perpendicular to the offset, framing both characters
-        cam.type = mujoco.mjtCamera.mjCAMERA_FREE
-        cam.azimuth = float(np.degrees(np.arctan2(off[1], off[0]))) + 90.0
-        cam.distance = 3.6 + 0.9 * float(np.linalg.norm(off)); cam.elevation = -10.0
-    gprev = {}
+    def make_cam():
+        cam = mujoco.MjvCamera(); cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING; cam.trackbodyid = 1
+        cam.distance, cam.azimuth, cam.elevation = 3.6, 120.0, -12.0
+        if ghost and mode == "side":      # free camera looking perpendicular to the offset, framing both characters
+            cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+            cam.azimuth = float(np.degrees(np.arctan2(off[1], off[0]))) + 90.0
+            cam.distance = 3.6 + 0.9 * float(np.linalg.norm(off)); cam.elevation = -10.0
+        return cam
+    cams = [make_cam() for _ in range(K)]          # one camera per clip/panel
+    prev = [{} for _ in range(K)]; gprev = [{} for _ in range(K)]
+    rows, cols = grid_shape(K) if layout == "grid" else (1, 1)
     wr = imageio.get_writer(part, fps=float(z["fps"]), codec="libx264", quality=8, macro_block_size=8,
                             pixelformat="yuv420p", ffmpeg_log_level="error")
-    prev = {}
-    for i in range(lo, hi):
-        apply_q(plan, z["joint_q"][i].astype(float), d.qpos, prev)
-        if ghost:
-            rq = z["ref_joint_q"][i].astype(float).copy(); rq[0:3] += off      # root is the FREE joint at q[0:3]
-            apply_q(gplan, rq, d.qpos, gprev)
-        mujoco.mj_forward(m, d)
-        if ghost and mode == "side":
-            mid = 0.5 * (z["joint_q"][i][:3] + rq[:3]); cam.lookat[:] = (mid[0], mid[1], 0.85)
-        r.update_scene(d, camera=cam); img = r.render()
-        wr.append_data(_legend(img) if ghost else img)     # streamed: no frame list kept in RAM
+    for f in range(lo, hi):
+        panels = []
+        for k, i in specs[f]:
+            apply_q(plan, c["Q"][i, k].astype(float), d.qpos, prev[k])
+            if ghost:
+                rq = c["RQ"][i, k].astype(float).copy(); rq[0:3] += off      # root is the FREE joint at q[0:3]
+                apply_q(gplan, rq, d.qpos, gprev[k])
+            mujoco.mj_forward(m, d)
+            cam = cams[k]
+            if ghost and mode == "side":
+                mid = 0.5 * (c["Q"][i, k][:3] + rq[:3]); cam.lookat[:] = (mid[0], mid[1], 0.85)
+            r.update_scene(d, camera=cam); img = r.render()
+            txt = c["names"][k] if K > 1 and layout == "grid" else ("clip %d/%d: %s" % (k + 1, K, c["names"][k]) if K > 1 else "")
+            panels.append(_label(img, txt, legend=ghost and (len(panels) == 0)))
+        if len(panels) > 1:
+            blank = np.zeros_like(panels[0]); panels += [blank] * (rows * cols - len(panels))
+            frame = np.concatenate([np.concatenate(panels[r_ * cols:(r_ + 1) * cols], axis=1) for r_ in range(rows)], axis=0)
+        else:
+            frame = panels[0]
+        wr.append_data(frame)     # streamed: no frame list kept in RAM
     wr.close(); r.close()
     return hi - lo
 
@@ -430,16 +512,22 @@ def plan_workers(budget_mb, frames, cap=0, cpus=None):
 
 def cmd_render(a, guard=None):
     import numpy as np, multiprocessing as mpc, imageio_ffmpeg
-    z = np.load(a.npz); n = int(z["frames"]); char_file = a.char_file or str(z["char_file"])
+    z = np.load(a.npz); char_file = a.char_file or str(z["char_file"])
+    layout = getattr(a, "layout", "grid") or "grid"; c = clip_data(z); n = len(frame_specs(c, layout))
     err = verify_mapping(char_file, a.npz)
     log("joint mapping check: max body position difference Newton vs MuJoCo = %.6f m (%s)" % (err, "OK" if err < 0.01 else "WARNING: mapping looks wrong"))
     mode = getattr(a, "ghost", "off") or "off"
     if mode != "off" and not ("has_ref" in z.files and bool(z["has_ref"])):
         log("reference ghost: not available for this env"); mode = "off"
     if mode != "off":
-        gerr = verify_mapping(char_file, a.npz, ref=True)
-        log("reference ghost: %s, motion id %d, ghost pose check %.6f m (%s)" % ({"side": "side by side", "overlay": "overlay"}[mode],
-            int(z["motion_id"]), gerr, "OK" if gerr < 0.01 else "WARNING"))
+        gerrs = verify_mapping(char_file, a.npz, ref=True, per_clip=True); gerr = max(gerrs)
+        mids = [int(v) for v in z["motion_ids"]] if "motion_ids" in z.files else [int(z["motion_id"])]
+        log("reference ghost: %s, per clip (motion id: pose check) %s (%s)" % ({"side": "side by side", "overlay": "overlay"}[mode],
+            ", ".join("%d: %.6f m" % (mi, e) for mi, e in zip(mids, gerrs)), "OK" if gerr < 0.01 else "WARNING"))
+    if c["K"] > 1:
+        rows, cols = grid_shape(c["K"])
+        log("clip layout: %s - %d clips (%s), %d frames%s" % ("all at once" if layout == "grid" else "one after another", c["K"],
+            ", ".join(c["names"]), n, ", %dx%d grid of %dx%d panels" % (rows, cols, a.width, a.height) if layout == "grid" else ""))
     budget = a.budget_mb or (guard.budget if guard else RAM_FRACTION * free_ram_mb())
     workers = plan_workers(budget, n, a.workers)
     if budget < WORKER_EST_MB + BASE_EST_MB:
@@ -448,7 +536,7 @@ def cmd_render(a, guard=None):
     tmp = tempfile.mkdtemp(prefix="mk_preview_"); t0 = time.time()
     try:
         bounds = [round(i * n / workers) for i in range(workers + 1)]
-        jobs = [(char_file, a.npz, bounds[i], bounds[i + 1], os.path.join(tmp, "part%03d.mp4" % i), a.width, a.height, mode)
+        jobs = [(char_file, a.npz, bounds[i], bounds[i + 1], os.path.join(tmp, "part%03d.mp4" % i), a.width, a.height, mode, layout)
                 for i in range(workers) if bounds[i + 1] > bounds[i]]
         ctx = mpc.get_context("spawn")
         with ctx.Pool(len(jobs)) as pool:
@@ -524,6 +612,7 @@ def _record_proc(a, device, guard, slow_check, variant=None):
     if slow_check: cmd.append("--slow_check")
     if a.save_init_model: cmd += ["--save_init_model", a.save_init_model]
     if a.frames: cmd += ["--frames", str(a.frames)]
+    cmd += ["--motions", str(getattr(a, "motions", 4))]
     cmd += ["--"] + a.mk_args
     env = variant_env(variant)
     cmd[cmd.index("--out"):cmd.index("--out")] = ["--warp_cache", a.warp_cache]
@@ -710,7 +799,8 @@ def main(argv=None):
     if "--" in argv: i = argv.index("--"); mk_args = argv[i + 1:]; argv = argv[:i]
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("cmd", choices=["all", "record", "render", "diag"])
-    p.add_argument("--variant", default=""); p.add_argument("--ghost", default="side", choices=GHOST_MODES)
+    p.add_argument("--variant", default=""); p.add_argument("--ghost", default="overlay", choices=GHOST_MODES)
+    p.add_argument("--layout", default="grid", choices=LAYOUTS); p.add_argument("--motions", type=int, default=4)
     p.add_argument("--mk", default="."); p.add_argument("--device", default="auto")
     p.add_argument("--out", default="preview.mp4"); p.add_argument("--npz", default="")
     p.add_argument("--char_file", default=""); p.add_argument("--frames", type=int, default=0)

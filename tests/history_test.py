@@ -42,7 +42,7 @@ def steps():
     check("rate chart has grey history too", len(lines(app.ax2, True)) == 2)
     check("frame title mentions earlier sessions", "+2 earlier sessions" in app.prog_frame.cget("text"), app.prog_frame.cget("text"))
     # old run without history file: backfill from log.txt
-    check("grey history clearly visible", all(l.get_markersize() >= 5 and abs(l.get_alpha() - 0.6) < 1e-9 for l in g))
+    check("grey history clearly visible", all(l.get_markersize() >= 5 and l.get_alpha() >= 0.6 for l in g))
     os.remove(f0); app._progress_tick(force=True); g = lines(app.ax1, True)
     check("rebuild from console_log.txt when CSV missing", len(g) == 4 and len(g[0].get_xdata()) == 30, "%d pts" % len(g[0].get_xdata()))
     os.remove(os.path.join(base, G.CONSOLE_FILE)); app._progress_tick(force=True); g = lines(app.ax1, True)

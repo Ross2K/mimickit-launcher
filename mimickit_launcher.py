@@ -4,14 +4,14 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.2.7"
+VERSION = "a0.2.8"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 def _config_path():
@@ -78,6 +78,7 @@ def detect_python(mk):
     return ""
 
 GHOST_MODES = {"Off": "off", "Side by side": "side", "Overlay": "overlay"}
+CLIP_LAYOUTS = {"All at once": "grid", "One after another": "seq"}
 
 HELP = {
     "trainsel": "Training configs found in MimicKit's args folder (files with an --agent_config).",
@@ -111,11 +112,15 @@ HELP = {
               "a hint, not a promise. 'samples' target: % of a total sample count (millions). 'score' target: when the fitted\n"
               "curve reaches that Train_Return ('may not be reached' if it levels off below it). Saved per run chain.",
     "cursess": "Show only the current session on the x axis (earlier sessions stay drawn, just out of view).",
-    "chartnav": "Chart tools: Home = back to auto-follow, Pan, Zoom to rectangle, Save picture. Mouse wheel zooms at the cursor;\n"
-                "double-click a chart to return to auto-follow. While zoomed, the 10 s refresh keeps your view.",
+    "chartnav": "Drag with the left mouse button = move along the time axis (both charts together). Mouse wheel = zoom the\n"
+                "time axis at the cursor. The vertical scale stays at the full data range; you can drag it up/down only when\n"
+                "that chart has data outside its current vertical range. Home or double-click = full view, follow new data.",
+    "layout": "Clip layout of the preview when the training data has several motions (the first 4 are previewed, each from\n"
+              "its start). All at once = a grid (1x2 or 2x2), one camera per clip; shorter clips hold their last frame.\n"
+              "One after another = the clips in sequence, each labelled.",
     "ghost": "Reference ghost in the preview MP4: the motion clip the policy is tracking (same clip, same time), drawn as a\n"
-             "translucent orange character. Side by side = next to the policy (offset sideways, camera frames both).\n"
-             "Overlay = drawn in place, on top of the policy. Off = policy only.",
+             "translucent orange character. Overlay (default) = drawn in place, on top of the policy. Side by side = next to\n"
+             "the policy (offset sideways, camera frames both). Off = policy only. Applies to every clip.",
     "pdiag": "Preview diagnostics: runs probes P1-P7 (versions, torch with the GPU hidden, torch.jit, a Warp CPU kernel, MimicKit\n"
              "imports, build_env on the CPU, a 30-frame recording per CPU variant), each in its own process with crash\n"
              "tracebacks on. Report: output/_launcher_preview/preview_diagnostics.txt (also shown in the log).",
@@ -567,17 +572,70 @@ def estimate_progress(segs, rate, target=None):
     return dict(kind="plateau", pct=pct, a=f["a"], text="Plateau estimate: ~%d%% (%s) - rough" % (pct, _eta_text(left, rate) if left > 0 else "about at the plateau"))
 
 class Tip:
+    """Tooltip. One Tip per widget (creating another for the same widget only updates the text), and at most one
+    tooltip window on screen app-wide. Shown after a short delay, destroyed on leave / click / when the pointer is gone."""
+    _by_widget = {}; _active = None; DELAY = 350
+    def __new__(cls, w, text):
+        old = cls._by_widget.get(str(w))
+        if old is not None and old.w is w:
+            old.text = text; return old
+        return super().__new__(cls)
     def __init__(self, w, text):
-        self.w, self.text, self.top = w, text, None
-        w.bind("<Enter>", self.show); w.bind("<Leave>", self.hide)
+        if getattr(self, "w", None) is w: return          # already bound (see __new__)
+        self.w, self.text, self.top, self._after = w, text, None, None
+        Tip._by_widget[str(w)] = self
+        w.bind("<Enter>", self._schedule, add="+"); w.bind("<Leave>", self.hide, add="+")
+        w.bind("<ButtonPress>", self.hide, add="+"); w.bind("<Destroy>", self._gone, add="+")
+    def _schedule(self, _=None):
+        self._cancel(); self._after = self.w.after(self.DELAY, self.show)
+    def _cancel(self):
+        if self._after:
+            try: self.w.after_cancel(self._after)
+            except tk.TclError: pass
+            self._after = None
+    def _pointer_inside(self):
+        try:
+            px, py = self.w.winfo_pointerxy(); x, y = self.w.winfo_rootx(), self.w.winfo_rooty()
+            return x <= px < x + self.w.winfo_width() and y <= py < y + self.w.winfo_height()
+        except tk.TclError:
+            return False
     def show(self, _=None):
-        if self.top: return
-        x, y = self.w.winfo_rootx() + 10, self.w.winfo_rooty() + self.w.winfo_height() + 4
-        self.top = tk.Toplevel(self.w); self.top.wm_overrideredirect(True); self.top.geometry("+%d+%d" % (x, y))
-        tk.Label(self.top, text=self.text, justify="left", bg=T["tip_bg"], fg=T["tip_fg"], relief="solid", bd=1,
-                 wraplength=420, padx=6, pady=4).pack()
+        self._after = None
+        if self.top is not None: return
+        if Tip._active is not None and Tip._active is not self: Tip._active.hide()
+        try:
+            x, y = self.w.winfo_rootx() + 10, self.w.winfo_rooty() + self.w.winfo_height() + 4
+            self.top = tk.Toplevel(self.w); self.top.wm_overrideredirect(True); self.top.geometry("+%d+%d" % (x, y))
+            self.top._mk_tip = True
+            tk.Label(self.top, text=self.text, justify="left", bg=T["tip_bg"], fg=T["tip_fg"], relief="solid", bd=1,
+                     wraplength=420, padx=6, pady=4).pack()
+        except tk.TclError:
+            self.top = None; return
+        Tip._active = self; self.w.after(500, self._watch)
+    def _watch(self):
+        """Safety net: a missed <Leave> (widget re-laid out, window moved) still closes the tooltip."""
+        if self.top is None: return
+        if not self._pointer_inside(): self.hide()
+        else: self.w.after(500, self._watch)
     def hide(self, _=None):
-        if self.top: self.top.destroy(); self.top = None
+        self._cancel()
+        if self.top is not None:
+            try: self.top.destroy()
+            except tk.TclError: pass
+            self.top = None
+        if Tip._active is self: Tip._active = None
+    def _gone(self, ev=None):
+        if ev is not None and ev.widget is not self.w: return
+        self.hide(); Tip._by_widget.pop(str(self.w), None)
+    @classmethod
+    def open_count(cls, root):
+        n = 0
+        def walk(w):
+            nonlocal n
+            for c in w.winfo_children():
+                if getattr(c, "_mk_tip", False) and c.winfo_exists(): n += 1
+                walk(c)
+        walk(root); return n
 
 # ---------------------------------------------------------------- app
 class App:
@@ -653,12 +711,17 @@ class App:
         cb.pack(side="left"); Tip(cb, HELP["pdevice"])
         cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__("preview_device", self.v_pdev.get()), self._save_settings_only()))
         ttk.Label(bf2, text="Reference ghost").pack(side="left", padx=(12, 4))
-        self.v_ghost = tk.StringVar(value=self.s.get("preview_ghost", "Side by side"))
+        self.v_ghost = tk.StringVar(value=self.s.get("preview_ghost", "Overlay"))
         cb = ttk.Combobox(bf2, textvariable=self.v_ghost, values=list(GHOST_MODES), state="readonly", width=12)
         cb.pack(side="left"); Tip(cb, HELP["ghost"])
         cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__("preview_ghost", self.v_ghost.get()), self._save_settings_only()))
+        ttk.Label(bf2, text="Clip layout").pack(side="left", padx=(12, 4))
+        self.v_layout = tk.StringVar(value=self.s.get("preview_layout", "All at once"))
+        cb = ttk.Combobox(bf2, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=16)
+        cb.pack(side="left"); Tip(cb, HELP["layout"])
+        cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__("preview_layout", self.v_layout.get()), self._save_settings_only()))
         b = ttk.Button(bf2, text="Preview diagnostics", command=self.preview_diag); b.pack(side="left", padx=(12, 3)); Tip(b, HELP["pdiag"])
-        ttk.Label(bf2, text="   Hover over anything to see what it does.", style="Dim.TLabel").pack(side="left", padx=12)
+        ttk.Label(bf2, text="Hover = help", style="Dim.TLabel").pack(side="left", padx=8)
         self.custom = list(self.s.get("custom_args", []))
         self.rescan()
 
@@ -678,7 +741,7 @@ class App:
         e = ttk.Entry(tgf, textvariable=self.v_tval, width=10); e.pack(side="left")
         b = ttk.Button(tgf, text="Set", command=self._target_from_widgets); b.pack(side="left", padx=4)
         self.cb_target.bind("<<ComboboxSelected>>", lambda _=None: self._target_from_widgets())
-        for w in (tgf, self.cb_target, e, b): Tip(w, HELP["target"])
+        for w in (self.cb_target, e, b): Tip(w, HELP["target"])
         self._target_root = None; self.est_disp = {}
         gpuf = ttk.Frame(stf); gpuf.pack(anchor="w", fill="x")
         self.l_gpu = ttk.Label(gpuf, text="GPU: checking...", justify="left", style="Good.TLabel"); self.l_gpu.pack(side="left", anchor="w")
@@ -695,19 +758,20 @@ class App:
         self.fig = Figure(figsize=(5.5, 5), dpi=90, layout="constrained")
         self.ax1 = self.fig.add_subplot(211); self.ax2 = self.fig.add_subplot(212)
         self.canvas = FigureCanvasTkAgg(self.fig, master=right)
-        # chart navigation: toolbar (zoom rectangle, pan, home), wheel zoom at the cursor, double-click = back to auto-follow
-        self.zoomed = False; self.v_cur = tk.BooleanVar(value=bool(self.s.get("current_session_only", False)))
-        navf = tk.Frame(right); navf.pack(side="bottom", fill="x"); self.navf = navf
-        app = self
-        class Toolbar(NavigationToolbar2Tk):
-            def home(self, *a):
-                super().home(*a); app._auto_follow()
-        self.toolbar = Toolbar(self.canvas, navf, pack_toolbar=False); self.toolbar.update(); self.toolbar.pack(side="left")
+        # chart navigation (no modes): left-drag = pan time (x) of both charts, wheel = zoom time at the cursor, y fixed to
+        # the full data range (manual y drag only when a chart has visible data outside its y range), Home/double-click = reset
+        self.xview = None; self.yman = [None, None]; self.drag = None; self.yfull = [None, None]
+        self.v_cur = tk.BooleanVar(value=bool(self.s.get("current_session_only", False)))
+        navf = ttk.Frame(right); navf.pack(side="bottom", fill="x"); self.navf = navf
+        self.b_home = ttk.Button(navf, text="Home", width=7, command=self._auto_follow); self.b_home.pack(side="left", padx=(0, 4))
+        self.b_save = ttk.Button(navf, text="Save picture...", command=self._save_chart); self.b_save.pack(side="left")
         c = ttk.Checkbutton(navf, text="Current session only", variable=self.v_cur, command=self._cur_toggled); c.pack(side="left", padx=10)
-        Tip(c, HELP["cursess"]); Tip(self.toolbar, HELP["chartnav"])
+        Tip(c, HELP["cursess"]); Tip(self.b_home, HELP["chartnav"]); Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        Tip(self.canvas.get_tk_widget(), HELP["chartnav"])
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
         self.canvas.mpl_connect("button_press_event", self._on_click)
+        self.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.canvas.mpl_connect("button_release_event", self._on_release)
         ttk.Label(right, text=RETURN_TEXT + "\n"
                               "Samples/hour = training speed.", style="Dim.TLabel").pack(anchor="w")
@@ -753,13 +817,18 @@ class App:
         self.fig.set_facecolor(T["panel"])
         for ax in (self.ax1, self.ax2): self._style_ax(ax)
         self.canvas.get_tk_widget().configure(bg=T["panel"], highlightthickness=0)
-        if hasattr(self, "toolbar"):      # dark/light toolbar (it is plain tk, not ttk)
-            for w in [self.navf, self.toolbar] + list(self.toolbar.winfo_children()):
-                for k, v in (("bg", T["bg"]), ("fg", T["fg"]), ("activebackground", T["btn_act"]), ("activeforeground", T["fg"]),
-                             ("selectcolor", T["sel"]), ("highlightthickness", 0), ("highlightbackground", T["bg"])):
-                    try: w.configure(**{k: v})
-                    except tk.TclError: pass
+        self._restyle_artists()
         self.canvas.draw_idle()
+
+    def _restyle_artists(self):
+        """Live theme switch without waiting for data: recolour what is already drawn (lines carry a role gid)."""
+        role = {"cur1": T["line1"], "cur2": T["line2"], "cur3": T["line3"], "earlier": T["dim"], "bridge": T["dim"]}
+        for ax in self._axes():
+            for ln in ax.get_lines():
+                g = ln.get_gid()
+                if g in role: ln.set_color(role[g]); ln.set_markerfacecolor(role[g]); ln.set_markeredgecolor(role[g])
+            for t in ax.texts: t.set_color(T["dim"])
+            self._style_ax(ax)
 
     # ---------- progress estimate
     def _smooth_estimate(self, chain, v):
@@ -795,26 +864,81 @@ class App:
 
     # ---------- chart navigation
     def _axes(self): return (self.ax1, self.ax2)
-    def _user_view_changed(self):
-        """The user zoomed/panned: keep these limits through the 10 s refreshes until Home / double-click."""
-        self.zoomed = True; self.saved_view = [(ax.get_xlim(), ax.get_ylim()) for ax in self._axes()]
     def _auto_follow(self):
-        self.zoomed = False; self.saved_view = None; self._progress_tick(force=True)
+        """Home / double-click: full view, follow new data, vertical scale back to the full data range."""
+        self.xview = None; self.yman = [None, None]; self.drag = None; self._progress_tick(force=True)
     def _cur_toggled(self):
         self.s["current_session_only"] = bool(self.v_cur.get()); self._save_settings_only(); self._auto_follow()
+    def _set_x(self, xl):
+        self.xview = (float(xl[0]), float(xl[1]))
+        for a in self._axes(): a.set_xlim(self.xview)     # both charts always share the time axis
+    def y_drag_allowed(self, ax):
+        """Vertical drag only when this chart has data inside the visible time range that lies outside its y limits."""
+        x0, x1 = sorted(ax.get_xlim()); y0, y1 = sorted(ax.get_ylim())
+        for ln in ax.get_lines():
+            xs, ys = ln.get_xdata(), ln.get_ydata()
+            for x, y in zip(xs, ys):
+                try: x, y = float(x), float(y)
+                except (TypeError, ValueError): continue
+                if x0 <= x <= x1 and y == y and (y < y0 or y > y1): return True
+        return False
     def _on_scroll(self, ev):
         ax = ev.inaxes
         if ax is None or ev.xdata is None: return
         f = 1 / 1.25 if ev.button == "up" or getattr(ev, "step", 0) > 0 else 1.25
-        x0, x1 = ax.get_xlim(); y0, y1 = ax.get_ylim()
-        nx = (ev.xdata - (ev.xdata - x0) * f, ev.xdata + (x1 - ev.xdata) * f)
-        for a in self._axes(): a.set_xlim(nx)          # both charts share the samples axis
-        ax.set_ylim(ev.ydata - (ev.ydata - y0) * f, ev.ydata + (y1 - ev.ydata) * f)
-        self._user_view_changed(); self.canvas.draw_idle()
+        x0, x1 = ax.get_xlim()
+        self._set_x((ev.xdata - (ev.xdata - x0) * f, ev.xdata + (x1 - ev.xdata) * f))     # x only; y untouched
+        self.canvas.draw_idle()
     def _on_click(self, ev):
-        if getattr(ev, "dblclick", False) and ev.inaxes is not None: self._auto_follow()
+        if getattr(ev, "dblclick", False) and ev.inaxes is not None: self._auto_follow(); return
+        if getattr(ev, "button", None) in (1, "1") or str(getattr(ev, "button", "")) == "MouseButton.LEFT":
+            if ev.inaxes in self._axes():
+                ax = ev.inaxes
+                self.drag = dict(ax=ax, x=ev.x, y=ev.y, xlim=ax.get_xlim(), ylim=ax.get_ylim(), ydrag=self.y_drag_allowed(ax))
+    def _on_motion(self, ev):
+        d = self.drag
+        if not d or ev.x is None: return
+        ax = d["ax"]; bb = ax.bbox
+        (x0, x1), (y0, y1) = d["xlim"], d["ylim"]
+        dx = (ev.x - d["x"]) * (x1 - x0) / max(bb.width, 1)
+        self._set_x((x0 - dx, x1 - dx))
+        if d["ydrag"] and ev.y is not None:
+            dy = (ev.y - d["y"]) * (y1 - y0) / max(bb.height, 1)
+            i = self._axes().index(ax); self.yman[i] = (y0 - dy, y1 - dy); ax.set_ylim(self.yman[i])
+        self.canvas.draw_idle()
     def _on_release(self, ev):
-        if str(getattr(self.toolbar, "mode", "")) in ("zoom rect", "pan/zoom"): self._user_view_changed()
+        self.drag = None
+    def _save_chart(self):
+        f = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG", "*.png"), ("SVG", "*.svg"), ("PDF", "*.pdf")])
+        if f: self.fig.savefig(f, facecolor=self.fig.get_facecolor())
+    @staticmethod
+    def _full_range(ax, pad=0.08):
+        ys = []
+        for ln in ax.get_lines():
+            for y in ln.get_ydata():
+                try:
+                    y = float(y)
+                    if y == y: ys.append(y)
+                except (TypeError, ValueError): pass
+        if not ys: return None
+        lo, hi = min(ys), max(ys); p = max((hi - lo) * pad, abs(hi) * 0.02, 1e-3)
+        return (lo - p, hi + p)
+    def _apply_view(self, cur_range=None):
+        """After every redraw: shared x (user view, current session, or all data) and y (manual, else full data range)."""
+        for i, ax in enumerate(self._axes()):
+            self.yfull[i] = self._full_range(ax)
+        if self.xview: xl = self.xview
+        elif cur_range: xl = cur_range
+        else:
+            xs = [float(x) for ax in self._axes() for ln in ax.get_lines() for x in ln.get_xdata()]
+            xl = None
+            if xs:
+                lo, hi = min(xs), max(xs); p = max((hi - lo) * 0.03, 1e-3); xl = (lo - p, hi + p)
+        if xl:
+            for ax in self._axes(): ax.set_xlim(xl)
+        for i, ax in enumerate(self._axes()):
+            yl = self.yman[i] or self.yfull[i]
+            if yl: ax.set_ylim(yl)
 
     def _style_ax(self, ax):
         ax.set_facecolor(T["field"])
@@ -822,9 +946,10 @@ class App:
         for sp in ax.spines.values(): sp.set_color(T["border"])
         ax.xaxis.label.set_color(T["fg"]); ax.yaxis.label.set_color(T["fg"]); ax.title.set_color(T["fg"])
         ax.grid(True, color=T["grid"], alpha=0.6)
+        ax.set_axisbelow(True)
         leg = ax.get_legend()
         if leg:
-            leg.get_frame().set_facecolor(T["panel"]); leg.get_frame().set_edgecolor(T["border"])
+            leg.get_frame().set_facecolor(T["panel"]); leg.get_frame().set_edgecolor(T["border"]); leg.get_frame().set_alpha(0.9)
             for t in leg.get_texts(): t.set_color(T["fg"])
 
     def _browse(self, var):
@@ -1083,7 +1208,8 @@ class App:
             itn = last_iteration(os.path.dirname(model))
             mp4 = os.path.join(os.path.dirname(model), "preview_%s.mp4" % (itn if itn is not None else time.strftime("%Y%m%d_%H%M%S")))
             dev = {"Auto": "auto", "CPU only": "cpu", "GPU": "gpu"}.get(self.v_pdev.get(), "auto")
-            cmd = [self.python(), "-u", script, "all", "--mk", self.mk(), "--device", dev, "--ghost", GHOST_MODES.get(self.v_ghost.get(), "side"),
+            cmd = [self.python(), "-u", script, "all", "--mk", self.mk(), "--device", dev, "--ghost", GHOST_MODES.get(self.v_ghost.get(), "overlay"),
+                   "--layout", CLIP_LAYOUTS.get(self.v_layout.get(), "grid"),
                    "--out", mp4, "--"] + mk_args
         logp = os.path.join(pdir, CONSOLE_FILE)
         try:
@@ -1261,14 +1387,13 @@ class App:
             pass
         self.prog_frame.configure(text="Training progress (data: %s, %d points%s; refreshed every 10 s)" % (
             src, len(log.get("Samples", [])), ", +%d earlier sessions" % len(earlier) if earlier else ""))
-        keep = self.saved_view if getattr(self, "zoomed", False) and getattr(self, "saved_view", None) else None
         self.ax1.clear(); self.ax2.clear(); self._style_ax(self.ax1); self._style_ax(self.ax2)
         off = 0.0; xmax = 0.0; sparse = 0; prev = {}   # last point of the previous session, per series
         segs = []; est_rate = 0.0                     # (cumulative samples, Train_Return) per session, for the estimate
         def bridge(ax, key, x0, y0):
             """dotted grey line from the previous session's last point to this session's first point"""
             if key in prev and x0 == x0 and y0 == y0:
-                ax.plot([prev[key][0], x0], [prev[key][1], y0], color=T["dim"], alpha=0.7, linestyle=":", linewidth=1.3, gid="bridge")
+                ax.plot([prev[key][0], x0], [prev[key][1], y0], color=T["dim"], alpha=0.8, linestyle=":", linewidth=1.5, gid="bridge")
         for i, h in enumerate(earlier):
             xs = [(v + off) / 1e6 for v in h["Samples"]]; nh = len(xs)
             if nh < 3: sparse += 1
@@ -1276,13 +1401,13 @@ class App:
             for key in ("Train_Return", "Test_Return"):
                 if h.get(key):
                     ys = h[key][:nh]; bridge(self.ax1, key, xs[0], ys[0])
-                    self.ax1.plot(xs[:len(ys)], ys, color=T["dim"], alpha=0.6, marker="o", markersize=5,
-                                  linewidth=1.5, label=lab if key == "Train_Return" else None)
+                    self.ax1.plot(xs[:len(ys)], ys, color=T["dim"], alpha=0.7, marker="o", markersize=5,
+                                  linewidth=1.5, label=lab if key == "Train_Return" else None, gid="earlier")
                     prev[key] = (xs[len(ys) - 1], ys[-1])
             r = rate_per_hour(h)[1]
             if r:
                 rv = [v / 1e6 for v in r]; bridge(self.ax2, "rate", xs[0], rv[0])
-                self.ax2.plot(xs[:len(rv)], rv, color=T["dim"], alpha=0.6, marker="o", markersize=5, linewidth=1.5)
+                self.ax2.plot(xs[:len(rv)], rv, color=T["dim"], alpha=0.7, marker="o", markersize=5, linewidth=1.5, gid="earlier")
                 prev["rate"] = (xs[len(rv) - 1], rv[-1])
             segs.append(([v + off for v in h["Samples"]], h.get("Train_Return", [])))
             est_rate = rate_per_hour(h)[0] or est_rate
@@ -1298,13 +1423,13 @@ class App:
                 lines.append("Note: reading log.txt of a run this window didn't start - MimicKit writes it rarely, so it may lag the console.")
             x = [(v + off) / 1e6 for v in S]
             segs.append(([v + off for v in S], log.get("Train_Return", []))); est_rate = rate or est_rate
-            for key, lab, col in (("Train_Return", "Train return", T["line1"]), ("Test_Return", "Test return", T["line2"])):
+            for key, lab, col, g in (("Train_Return", "Train return", T["line1"], "cur1"), ("Test_Return", "Test return", T["line2"], "cur2")):
                 if log.get(key):
                     bridge(self.ax1, key, x[0], log[key][0])
-                    self.ax1.plot(x[:len(log[key])], log[key][:n], label=lab, color=col, marker="o", markersize=3)
+                    self.ax1.plot(x[:len(log[key])], log[key][:n], label=lab, color=col, marker="o", markersize=3, gid=g)
             if rates:
                 bridge(self.ax2, "rate", x[0], rates[0] / 1e6)
-                self.ax2.plot(x[:len(rates)], [r / 1e6 for r in rates], color=T["line3"], marker="o", markersize=3)
+                self.ax2.plot(x[:len(rates)], [r / 1e6 for r in rates], color=T["line3"], marker="o", markersize=3, gid="cur3")
             if n < 2 and not earlier:   # one point: sensible x range instead of matplotlib's +-tiny default
                 for ax in (self.ax1, self.ax2): ax.set_xlim(0, max(x[-1] * 2, 0.1))
                 self.ax1.text(0.02, 0.95, "only %d point so far - more appear as training runs" % n, color=T["dim"],
@@ -1315,18 +1440,14 @@ class App:
             for ax in (self.ax1, self.ax2): ax.set_xlim(0, 1)
         else:
             lines.append("This session has no data yet; grey = earlier sessions.")
-        if not keep and self.v_cur.get() and log.get("Samples") and (earlier or len(log["Samples"]) > 1):
+        cur_range = None
+        if self.v_cur.get() and log.get("Samples") and (earlier or len(log["Samples"]) > 1):
             cx = [(v + off) / 1e6 for v in log["Samples"]]; lo, hi = cx[0], cx[-1]; pad = max((hi - lo) * 0.03, 1e-3)
-            for ax, keys in ((self.ax1, ("Train_Return", "Test_Return")), (self.ax2, None)):
-                ax.set_xlim(lo - pad, hi + pad)
-                ys = [y for k in keys for y in log.get(k, []) if y == y] if keys else [v / 1e6 for v in rate_per_hour(log)[1] if v == v]
-                if ys:
-                    yp = max((max(ys) - min(ys)) * 0.08, 1e-3); ax.set_ylim(min(ys) - yp, max(ys) + yp)
-        if keep:
-            for ax, (xl, yl) in zip(self._axes(), keep): ax.set_xlim(xl); ax.set_ylim(yl)
+            cur_range = (lo - pad, hi + pad)
+        if any(ax.get_lines() for ax in self._axes()): self._apply_view(cur_range)
         self.ax1.set_ylabel("Return"); self.ax2.set_ylabel("M samples / hour")
-        for ax in (self.ax1, self.ax2): ax.set_xlabel("Total samples, all sessions (millions)"); self._style_ax(ax)
         if self.ax1.get_lines(): self.ax1.legend(loc="lower right", fontsize=8)
+        for ax in (self.ax1, self.ax2): ax.set_xlabel("Total samples, all sessions (millions)"); self._style_ax(ax)   # after legend()
         m = os.path.join(d, "model.pt")
         if os.path.exists(m):
             age = time.time() - os.path.getmtime(m)

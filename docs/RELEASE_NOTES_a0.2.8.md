@@ -1,4 +1,18 @@
-# MimicKit Launcher a0.2.7 (draft - not released yet)
+# MimicKit Launcher a0.2.8 (draft - not released yet)
+
+## New in a0.2.8
+
+- **Preview of every training motion** (the first 4): one env per motion, each forced onto its own motion id from t=0
+  (before, the preview always showed whichever motion the reset sampled). New *Clip layout*: All at once (default,
+  1x2 / 2x2 grid, one camera per clip, shorter clips hold their last frame) / One after another. Each panel is labelled
+  with its clip file name; the reference ghost follows each clip. Ghost default is now **Overlay**.
+- **Chart navigation without modes**: left-drag pans time on both charts (always the same time range), the wheel
+  zooms time only, the vertical scale stays at the full data range (manual vertical drag only when a chart has visible
+  data outside it). Home / double-click = full view + follow; Save picture. The matplotlib mode toolbar is gone.
+- **Light/dark charts fixed**: the legend was left in the default style (created after styling), lines now recolour
+  live when the theme is switched, slightly stronger grey for earlier sessions and the dotted bridges.
+- **Tooltip fix**: the progress-target tooltip could pop up several times (the frame and its children each had one).
+  Now one tooltip per widget, at most one on screen, shown after a short delay, closed on leave/click.
 
 ## New in a0.2.7
 
