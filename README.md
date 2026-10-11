@@ -127,6 +127,22 @@ if the preview fails with an OpenGL/WGL error, update the GPU driver, and note t
 no OpenGL. On Linux the preview tries EGL, then OSMesa, then GLFW (needs a display) by setting `MUJOCO_GL`; set it
 yourself to force one.
 
+## Phone dashboard and notifications (optional)
+
+**Settings -> Phone + notifications...** (everything off by default):
+
+- **Phone dashboard** - a small read-only web page served by the launcher (Python standard library, in a background
+  thread; it never blocks the window or touches training): status, session/total time, samples/hour, VRAM bar,
+  progress estimate, both charts (touch zoom/pan of the time axis), the newest preview MP4 (streams with HTTP range
+  requests), and a *Render preview* button (same background pipeline as the window's button, at most one per 5 min).
+  No start/stop from the web. Every request needs the random access token from the dialog (link + QR code if the
+  `qrcode` package is installed). Port 8765 by default; listen on 0.0.0.0 (other devices, e.g. over Tailscale) or
+  127.0.0.1 (this PC only). Use **Tailscale** to reach it from anywhere - see [docs/REMOTE_ACCESS.md](docs/REMOTE_ACCESS.md).
+  **Never forward the port on your router.**
+- **Notifications** - Discord webhook and/or Telegram bot (token + chat id): a chart picture + status every N hours
+  (default 3), optionally each new preview MP4 (skipped with a note if over the upload limit). *Send test* button.
+  Stored only in your local settings file; failures are logged, never fatal.
+
 ## Requirements
 
 - Windows 10/11 or Linux, an NVIDIA GPU with a recent driver.
@@ -255,6 +271,7 @@ xvfb-run -a python tests/chain_test.py     # Continue from run: chains across fo
 PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python PREVIEW_TEST_ARGS=args/<training args>.txt \
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
 xvfb-run -a python tests/nav_test.py      # chart navigation, light/dark charts, single-instance tooltips
+xvfb-run -a python tests/remote_test.py   # phone dashboard (token, range requests, rate limit), notifications (mocked), GUI responsiveness
 # same env vars: reference ghost (both modes), staged CPU fallback (simulated crash), diagnostics
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/ghost_test.py
 # + PREVIEW_TEST_MULTI_ENV=data/envs/<env with a 2+ motion dataset>.yaml: multi-motion preview, both layouts

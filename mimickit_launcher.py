@@ -4,7 +4,7 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.2.8"
+VERSION = "a0.3.0"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -12,6 +12,8 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mimickit_remote as R
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 def _config_path():
@@ -81,6 +83,10 @@ GHOST_MODES = {"Off": "off", "Side by side": "side", "Overlay": "overlay"}
 CLIP_LAYOUTS = {"All at once": "grid", "One after another": "seq"}
 
 HELP = {
+    "remote": "Optional, off by default. Phone dashboard: a small read-only web page (status, charts, VRAM, newest preview\n"
+              "video, a rate-limited 'Render preview' button) served by the launcher, protected by a random token.\n"
+              "Use it over Tailscale (docs/REMOTE_ACCESS.md) - never forward the port on your router.\n"
+              "Notifications: Discord webhook and/or Telegram bot post a chart + status every N hours (and new previews).",
     "trainsel": "Training configs found in MimicKit's args folder (files with an --agent_config).",
     "viewsel": "View configs: files with '--mode test' and no agent (they only play a motion clip).",
     "custom": "Add any args .txt file (for example your own character). It is remembered.",
@@ -652,6 +658,9 @@ class App:
         self.root.after(1000, self._progress_tick)
         self._gpu_poll_thread()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.dash = None; self.rq = queue.Queue(); self.snap = {}; self.render_msg = ""
+        self.notifier = R.Notifier(lambda: self.s.get("notify", {}), log=lambda m: self.q.put(m + "\n"))
+        self.root.after(800, self._remote_apply)
 
     # ---------- layout
     def _build(self):
@@ -667,6 +676,8 @@ class App:
         self.v_light = tk.BooleanVar(value=bool(self.s.get("light_mode", False)))
         cbx = ttk.Checkbutton(st, text="Light mode", variable=self.v_light, command=self._toggle_theme)
         cbx.grid(row=0, column=4, rowspan=2, padx=8); Tip(cbx, "Dark mode is the default (easy on OLED screens). Tick for a light theme. Saved automatically.")
+        b = ttk.Button(st, text="Phone + notifications...", command=self.remote_dialog); b.grid(row=0, column=5, rowspan=2, padx=4)
+        Tip(b, HELP["remote"])
 
         job = ttk.LabelFrame(top, text="What to run", padding=6); job.pack(fill="x", pady=4)
         self.v_train = tk.StringVar(); self.v_view = tk.StringVar()
@@ -1345,6 +1356,7 @@ class App:
                 st["ended"] = datetime.datetime.now().isoformat(timespec="seconds"); st["exit_code"] = proc.returncode
                 write_run_state(state_path, st)
         self.q.put("[gui] %sprocess ended (exit code %s)\n" % ("%s " % kind if kind else "", proc.returncode))
+        if kind == "preview" and proc.returncode == 0: self._preview_finished()
 
     def _append(self, s):
         if not hasattr(self, "t_log"): self.q.put(s); return
@@ -1357,6 +1369,9 @@ class App:
             for _ in range(500):
                 line = self.q.get_nowait(); self._append(line)
                 if line.startswith("[gui] process ended"): self.root.after(50, lambda: self._progress_tick(force=True))   # save final history
+        except queue.Empty: pass
+        try:
+            while True: self.rq.get_nowait()(); 
         except queue.Empty: pass
         self.root.after(200, self._pump)
 
@@ -1471,6 +1486,142 @@ class App:
             lines.append("Progress estimate unavailable (%s)" % ex)
         self.l_status.configure(text="\n".join(lines))
         self.canvas.draw_idle()
+        try: self._publish(lines, d, running)
+        except Exception as ex: self.q.put("[remote] snapshot failed: %s\n" % ex)
+
+    # ---------- phone dashboard + notifications (mimickit_remote.py)
+    def _publish(self, lines, d, running):
+        def series(ax):
+            out = []
+            for ln in ax.get_lines():
+                xs, ys = [float(v) for v in ln.get_xdata()], [float(v) for v in ln.get_ydata()]
+                step = max(1, len(xs) // 600)
+                out.append(dict(role=ln.get_gid() or "", label=(ln.get_label() if not str(ln.get_label()).startswith("_") else None),
+                                x=xs[::step] + ([xs[-1]] if xs and (len(xs) - 1) % step else []),
+                                y=[None if v != v else v for v in ys[::step]] + ([ys[-1]] if ys and (len(ys) - 1) % step else [])))
+            return out
+        txt = "\n".join(lines)
+        def grab(pat):
+            m = re.search(pat, txt); return m.group(1).strip() if m else ""
+        snap = dict(title="MimicKit Launcher %s - %s" % (VERSION, os.path.basename(d.rstrip("/\\"))), state=lines[0] if lines else "",
+                    running=running, session_time=grab(r"Running for (\S+) \(this session") or grab(r"session time (\S+)"),
+                    total_time=grab(r"Running for (\S+) \(total") or grab(r"Total training time (\S+)"),
+                    samples=grab(r"samples ([\d,]+(?: \([\d,]+ in all sessions\))?)"), rate=grab(r"speed ([\d.]+ M samples/hour)"),
+                    estimate=next((l for l in lines if l.startswith(("Plateau estimate", "Target"))), ""),
+                    charts=dict(**{"return": series(self.ax1), "rate": series(self.ax2)}), updated=time.time(), render_msg=self.render_msg)
+        v = getattr(self, "vram", None)
+        if v: snap["vram"] = "%.1f / %.1f GB" % (v[0] / 1024, v[1] / 1024); snap["vram_pct"] = round(100 * v[0] / v[1])
+        mp4s = glob.glob(os.path.join(d, "preview_*.mp4")) + glob.glob(os.path.join(self.mk(), "output", "*", "preview_*.mp4"))
+        if mp4s:
+            p = max(mp4s, key=os.path.getmtime)
+            snap["preview"] = dict(path=p, name=os.path.basename(p), key="%s-%d" % (os.path.basename(p), int(os.path.getmtime(p))))
+        self.snap = snap
+        if self.dash: self.dash.set_snapshot(snap)
+        if self.notifier.due():
+            threading.Thread(target=self.notifier.send_status, args=(dict(snap),), daemon=True).start()
+
+    def _remote_cfg(self): return self.s.setdefault("remote", {})
+    def _remote_apply(self):
+        """Start/stop the dashboard from the settings. Port in use etc. is logged, never fatal."""
+        c = self._remote_cfg()
+        want = bool(c.get("enabled")); host = c.get("host", "0.0.0.0"); port = int(c.get("port", 8765))
+        if self.dash and (not want or (self.dash.host, self.dash.port) != (host, port) or self.dash.token != c.get("token")):
+            self.dash.stop(); self.dash = None; self._append("[remote] dashboard stopped\n")
+        if want and not self.dash:
+            if not c.get("token"): c["token"] = R.new_token(); self._save_settings_only()
+            try:
+                self.dash = R.Dashboard(c["token"], host, port, on_render=self._remote_render, log=lambda m: self.q.put("[remote] %s\n" % m)).start()
+                self.dash.set_snapshot(self.snap)
+                for u in R.dashboard_urls(host, self.dash.port, c["token"])[:3]: self._append("[remote] %s\n" % u)
+            except OSError as e:
+                self.dash = None; self._append("[remote] could not start the dashboard on %s:%d (%s)\n" % (host, port, e))
+
+    def _remote_render(self):
+        """Called from the web server thread: never touches Tk, only queues work for the GUI thread."""
+        if self.preview_proc and self.preview_proc.poll() is None: return False, "A preview is already being rendered."
+        self.rq.put(self._remote_render_gui); self.render_msg = "Preview requested from the phone - rendering in the background."
+        return True, "Preview started - it appears here when it is done (usually under a minute or two)."
+
+    def _remote_render_gui(self):
+        it = self._item("train"); model = self.v_model.get().strip() or self._latest_model()
+        if not it or not model: self.render_msg = "No model.pt yet - nothing to preview."; self._append("[remote] %s\n" % self.render_msg); return
+        self._append("[remote] preview requested from the dashboard\n")
+        self._start_preview(it, model)
+
+    def _preview_finished(self):
+        self.render_msg = "Preview finished."
+        c = self.s.get("notify", {})
+        if c.get("send_preview") and self.notifier.targets():
+            mp4s = glob.glob(os.path.join(self.mk(), "output", "*", "preview_*.mp4")) + glob.glob(os.path.join(self.mk(), "output", "*", "*", "preview_*.mp4"))
+            if mp4s:
+                p = max(mp4s, key=os.path.getmtime)
+                threading.Thread(target=self.notifier.send, args=("New preview: %s" % os.path.basename(p),),
+                                 kwargs=dict(video_path=p, kind="preview"), daemon=True).start()
+
+    def remote_dialog(self):
+        if getattr(self, "_rdlg", None) and self._rdlg.winfo_exists(): self._rdlg.lift(); return
+        c = self._remote_cfg(); n = self.s.setdefault("notify", {})
+        top = tk.Toplevel(self.root); top.title("Phone dashboard + notifications"); top.configure(bg=T["bg"]); self._rdlg = top
+        f = ttk.Frame(top, padding=10); f.pack(fill="both", expand=True)
+        v_en = tk.BooleanVar(value=bool(c.get("enabled"))); v_port = tk.StringVar(value=str(c.get("port", 8765)))
+        v_host = tk.StringVar(value=c.get("host", "0.0.0.0"))
+        ttk.Label(f, text="Phone dashboard", style="TLabelframe.Label").grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(f, text="Enable (read-only web page; off by default)", variable=v_en).grid(row=1, column=0, columnspan=3, sticky="w")
+        ttk.Label(f, text="Port").grid(row=2, column=0, sticky="w"); ttk.Entry(f, textvariable=v_port, width=8).grid(row=2, column=1, sticky="w")
+        ttk.Label(f, text="Listen on").grid(row=3, column=0, sticky="w")
+        ttk.Combobox(f, textvariable=v_host, values=["0.0.0.0", "127.0.0.1"], state="readonly", width=12).grid(row=3, column=1, sticky="w")
+        warn = ttk.Label(f, style="Dim.TLabel", wraplength=520, justify="left"); warn.grid(row=4, column=0, columnspan=3, sticky="w")
+        def upd_warn(*_):
+            warn.configure(text="0.0.0.0 = reachable from other devices on your networks (Tailscale, home Wi-Fi). Anyone who has the "
+                           "link incl. token can watch. Never forward this port on your router - use Tailscale (docs/REMOTE_ACCESS.md)."
+                           if v_host.get() == "0.0.0.0" else "127.0.0.1 = this PC only (for testing, or behind your own tunnel).")
+        v_host.trace_add("write", upd_warn); upd_warn()
+        urlbox = tk.Text(f, height=3, width=70, bg=T["panel"], fg=T["fg"], relief="flat"); urlbox.grid(row=5, column=0, columnspan=3, sticky="we", pady=4)
+        qr = tk.Canvas(f, width=180, height=180, bg="white", highlightthickness=0); qr.grid(row=1, column=3, rowspan=6, padx=10)
+        def show_urls():
+            urls = R.dashboard_urls(v_host.get(), int(v_port.get() or 8765), c.get("token") or "(enable to create a token)")
+            urlbox.delete("1.0", "end"); urlbox.insert("1.0", "\n".join(urls)); qr.delete("all")
+            try:
+                import qrcode
+                q = qrcode.QRCode(border=2); q.add_data(urls[0]); q.make(fit=True); mtx = q.get_matrix(); k = 180 / len(mtx)
+                for yy, row in enumerate(mtx):
+                    for xx, on in enumerate(row):
+                        if on: qr.create_rectangle(xx * k, yy * k, (xx + 1) * k, (yy + 1) * k, fill="black", outline="")
+            except ImportError:
+                qr.create_text(90, 90, text="pip install qrcode\nfor a QR code;\nuse the link on\nthe left", justify="center")
+        def new_tok():
+            c["token"] = R.new_token(); self._save_settings_only(); show_urls(); self._remote_apply()
+        ttk.Button(f, text="New token (old links stop working)", command=new_tok).grid(row=6, column=0, columnspan=2, sticky="w")
+        ttk.Separator(f).grid(row=7, column=0, columnspan=4, sticky="we", pady=8)
+        ttk.Label(f, text="Notifications (stored only in your local launcher settings)", style="TLabelframe.Label").grid(row=8, column=0, columnspan=3, sticky="w")
+        vs = {}
+        for i, (k, lab, w, hide) in enumerate((("discord_webhook", "Discord webhook URL", 60, True), ("telegram_token", "Telegram bot token", 46, True),
+                                               ("telegram_chat", "Telegram chat id", 20, False), ("every_hours", "Status every N hours (0 = off)", 6, False))):
+            vs[k] = tk.StringVar(value=str(n.get(k, 3 if k == "every_hours" else "")))
+            ttk.Label(f, text=lab).grid(row=9 + i, column=0, sticky="w")
+            ttk.Entry(f, textvariable=vs[k], width=w, show="*" if hide else "").grid(row=9 + i, column=1, columnspan=3, sticky="w")
+        v_sp = tk.BooleanVar(value=bool(n.get("send_preview", False)))
+        ttk.Checkbutton(f, text="Also send each new preview MP4 (skipped with a note if over the upload limit)", variable=v_sp).grid(row=13, column=0, columnspan=4, sticky="w")
+        def collect():
+            try: c["port"] = int(v_port.get())
+            except ValueError: c["port"] = 8765
+            c["enabled"] = bool(v_en.get()); c["host"] = v_host.get()
+            for k, v in vs.items(): n[k] = v.get().strip()
+            try: n["every_hours"] = float(n["every_hours"] or 0)
+            except ValueError: n["every_hours"] = 3.0
+            n["send_preview"] = bool(v_sp.get()); self._save_settings_only()
+        def apply_():
+            collect(); self._remote_apply(); show_urls()
+        def test():
+            collect()
+            if not self.notifier.targets(): self._append("[notify] nothing configured\n"); return
+            self._append("[notify] sending a test message...\n")
+            threading.Thread(target=self.notifier.send_status, args=(dict(self.snap),), kwargs=dict(kind="test"), daemon=True).start()
+        bf = ttk.Frame(f); bf.grid(row=14, column=0, columnspan=4, sticky="e", pady=(10, 0))
+        ttk.Button(bf, text="Send test", command=test).pack(side="left", padx=4)
+        ttk.Button(bf, text="Apply", command=apply_).pack(side="left", padx=4)
+        ttk.Button(bf, text="Close", command=lambda: (apply_(), top.destroy())).pack(side="left", padx=4)
+        show_urls(); self._rdlg_vars = dict(enabled=v_en, port=v_port, host=v_host, apply=apply_, test=test, **vs)
 
     # ---------- GPU
     VRAM_COLORS = dict(ok="#3f9a54", warn="#d0952c", bad="#c0392b")
@@ -1519,6 +1670,7 @@ class App:
             if a: self._tt_save(); self.root.destroy(); return   # it keeps running; the next launcher window reattaches
             self.stop()
         self._tt_save(final=True)
+        if self.dash: self.dash.stop()
         self.root.destroy()
 
 if __name__ == "__main__":

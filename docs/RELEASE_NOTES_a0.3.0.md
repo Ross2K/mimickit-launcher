@@ -1,6 +1,15 @@
-# MimicKit Launcher a0.2.8 (draft - not released yet)
+# MimicKit Launcher a0.3.0 (draft - not released yet)
 
-## New in a0.2.8
+## New in a0.3.0
+
+- **Phone dashboard** (optional, off by default; Settings -> Phone + notifications...): read-only, mobile-friendly
+  dark page with status, times, speed, VRAM bar, progress estimate, both charts (touch zoom), the newest preview MP4
+  (HTTP range streaming) and a rate-limited *Render preview* button. Token on every request; standard library only;
+  never blocks the window or affects training. Guide for Tailscale access: docs/REMOTE_ACCESS.md (no port forwarding).
+- **Notifications** (optional): Discord webhook and/or Telegram bot - chart + status every N hours (default 3), new
+  preview MP4s (size limits respected), *Send test*. Stored locally only; failures logged, never fatal.
+
+## Also in this release (from the untested a0.2.8 step)
 
 - **Preview of every training motion** (the first 4): one env per motion, each forced onto its own motion id from t=0
   (before, the preview always showed whichever motion the reset sampled). New *Clip layout*: All at once (default,

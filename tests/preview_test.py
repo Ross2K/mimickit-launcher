@@ -64,7 +64,7 @@ fr = rd.get_data(nf // 2); check("frames are rendered (not blank)", fr.std() > 5
 m = re.search(r"max body position difference Newton vs MuJoCo = ([\d.]+) m", out)
 check("Newton -> MuJoCo joint mapping verified (< 1 cm)", m and float(m.group(1)) < 0.01, m.group(0) if m else "")
 check("parallel render workers", re.search(r"with (\d+) worker", out) and int(re.search(r"with (\d+) worker", out).group(1)) >= 1)
-sp = re.search(r"recorded \d+ frames in ([\d.]+) s \(([\d.]+)x real time", out)
+sp = re.search(r"recorded \d+ (?:frames|steps x \d+ clip\(s\)) in ([\d.]+) s \(([\d.]+)x real time", out)
 check("CPU speed within the 20x limit", sp and float(sp.group(1)) <= 20 * float(z["clip_len"]), sp.group(0) if sp else "")
 pk = re.search(r"peak RAM of the preview processes (\d+) MB of (\d+) MB", out)
 check("peak RAM stayed inside the budget", pk and int(pk.group(1)) < int(pk.group(2)), pk.group(0) if pk else "")
