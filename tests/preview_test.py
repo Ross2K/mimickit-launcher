@@ -24,11 +24,37 @@ def run(extra_env=None, device="cpu", out="p.mp4", save_init=False, timeout=900)
     r = subprocess.run(cmd, cwd=MK, capture_output=True, text=True, timeout=timeout, env=dict(os.environ, MIMICKIT_PREVIEW_NO_OPEN="1", **(extra_env or {})))
     return r.returncode, r.stdout + r.stderr, time.time() - t0
 # 1) end to end on the CPU (a freshly initialized policy is saved as model.pt on the way)
+def cache_snapshot():
+    import warp as wp_
+    d = wp_.config.kernel_cache_dir or os.path.join(os.path.expanduser("~"), ".cache", "warp")
+    return {os.path.join(r, f): os.path.getmtime(os.path.join(r, f)) for r, _, fs in os.walk(os.path.expanduser("~/.cache/warp")) for f in fs}
+snap0 = cache_snapshot()
 rc, out, el = run(save_init=True)
 print("\n".join(l for l in out.splitlines() if l.startswith("[preview]")))
 mp4 = os.path.join(work, "p.mp4"); npz = os.path.join(work, "p.npz")
 check("CPU end to end exits 0", rc == 0, "%.1f s" % el)
 check("recorded on the CPU without CUDA", "recording on the CPU" in out and "cuda:0" not in out)
+check("Warp default device is cpu in the recorder", "default device cpu" in out, [l for l in out.splitlines() if "default device" in l][:1].__str__())
+check("CUDA hidden with CUDA_VISIBLE_DEVICES='-1' (empty is ignored on Windows)", "CUDA_VISIBLE_DEVICES='-1'" in out)
+check("Warp init mirrors training (enable_backward False, newton modules too)", "enable_backward False" in out and "built with backward" not in out)
+check("preview uses its own Warp kernel cache", "_launcher_preview" in out and os.path.isdir(os.path.join(MK, "output", "_launcher_preview", "warp_cache"))
+      and any(True for _ in os.scandir(os.path.join(MK, "output", "_launcher_preview", "warp_cache"))))
+check("default (training) Warp cache untouched", cache_snapshot() == snap0)
+# CPU guard: a kernel launch that resolves to a CUDA device aborts with a clear message (simulated CUDA device)
+g = subprocess.run([PY, "-c", """
+import sys; sys.argv = ["x"]; sys.path.insert(0, %r)
+import mimickit_preview as P, warp as wp
+wp.init(); P.install_cpu_guard(wp)
+class FakeCuda:
+    is_cuda = True
+    def __str__(self): return "cuda:0"
+orig = wp.get_device; wp.get_device = lambda d=None: FakeCuda()
+@wp.kernel
+def k(a: wp.array(dtype=float)): a[wp.tid()] = 1.0
+try: wp.launch(k, dim=1, inputs=[wp.zeros(1, dtype=float, device="cpu")]); print("NO GUARD")
+except RuntimeError as e: print("GUARD:", e)
+""" % ROOT], capture_output=True, text=True, timeout=120)
+check("CPU guard stops a launch on a (simulated) CUDA device", "GUARD: [preview] CPU path: Warp kernel" in g.stdout, g.stdout.strip()[-160:])
 import numpy as np, imageio.v2 as iio
 z = np.load(npz); n = int(z["frames"]); want = int(math.ceil(float(z["clip_len"]) * float(z["fps"])))
 check("frame count = ceil(clip length x fps)", n == want, "%d frames for %.2f s at %.0f fps" % (n, float(z["clip_len"]), float(z["fps"])))

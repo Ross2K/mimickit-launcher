@@ -47,8 +47,12 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
 - **Chart history across resumes**: per-iteration rows are saved to `chart_history.csv` in each run folder; on resume the
   whole chain (original + `_resumeN`) is drawn on one cumulative samples axis, earlier sessions in grey.
 - Each training session also saves its console output to `console_log.txt`, so the chart history can be rebuilt later.
-  Sessions run with launcher versions before a0.1.3 only have MimicKit's `log.txt` (written rarely), so they may show
-  just one point.
+  Sessions without a saved history fall back to MimicKit's `log.txt` (written rarely), so they may show only a few points.
+- **Progress estimate** (rough) in the Status panel: by default it fits a levelling-off curve to Train_Return over the
+  whole run chain (smoothed, recent data weighted more, post-resume dips ignored) and shows e.g.
+  `Plateau estimate: ~80% (about 6 h left) - rough`, or *not enough data yet* until the fit is stable. Optionally set a
+  **target** (total samples, or a score - with "may not be reached" if the curve levels off below it); saved per run chain.
+  It can't foresee later breakthroughs, so treat it as a hint.
 - **GPU monitor**: polls `nvidia-smi` every 5 s (memory, utilization, temperature).
 - **"Use Newton engine"** switch (on by default) - adds `--engine_config data/engines/newton_engine.yaml`,
   since Isaac Gym does not run on Windows.
@@ -85,6 +89,13 @@ kernels once (~20 s extra; cached afterwards).
 Needs, in the MimicKit venv: `mujoco` (already there with Newton/mujoco-warp), `imageio` + `imageio-ffmpeg`
 (`pip install imageio imageio-ffmpeg`; MimicKit's `moviepy` usually brings them), optionally `psutil` (more exact RAM
 numbers; `wandb` brings it).
+
+**Chart navigation:** the toolbar under the charts has Home (back to auto-follow), Pan, Zoom-to-rectangle and Save.
+The mouse wheel zooms at the cursor, a double-click returns to auto-follow, and while you are zoomed the 10 s refresh
+keeps your view. Tick **Current session only** to see just the running session on the x axis.
+
+The preview uses its own Warp kernel cache (`output/_launcher_preview/warp_cache`), so it never touches the cache a
+running training uses; the first preview (and the first GPU fallback) compiles its kernels once.
 
 **OpenGL note:** `mujoco.Renderer` needs a working OpenGL context. On Windows it uses the normal graphics driver -
 if the preview fails with an OpenGL/WGL error, update the GPU driver, and note that some Remote Desktop sessions have

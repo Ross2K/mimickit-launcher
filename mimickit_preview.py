@@ -7,7 +7,12 @@ Runs in MimicKit's own Python environment, in a separate (detached) process so i
 RAM: the budget is 80% of the free RAM at launch; workers/buffers are sized to it and the process tree's RSS is
 monitored - the job aborts cleanly (exit code 3) if it approaches the budget.
 """
-import argparse, json, math, os, shutil, subprocess, sys, tempfile, threading, time
+import os, sys
+# CPU recording: hide CUDA before torch/warp can be imported. "-1" (an invalid ordinal) hides every GPU on Windows and
+# Linux; an EMPTY value is ignored on Windows.
+if len(sys.argv) > 1 and sys.argv[1] == "record" and "--device" in sys.argv and sys.argv[sys.argv.index("--device") + 1] == "cpu":
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+import argparse, json, math, shutil, subprocess, tempfile, threading, time
 
 FPS_DEFAULT = 30
 RAM_FRACTION = 0.80          # budget = 80% of free RAM at launch
@@ -100,20 +105,59 @@ def ram_abort(guard):
     sys.exit(EXIT_RAM)
 
 # ---------------------------------------------------------------- record (inside MimicKit)
+def install_cpu_guard(wp):
+    """CPU path: any Warp kernel launched on a CUDA device aborts with a clear message instead of a cryptic error."""
+    import warp._src.context as ctx
+    orig = wp.launch
+    def guarded(kernel, *args, **kw):
+        dev = kw.get("device")
+        d = wp.get_device(dev) if dev is not None else wp.get_device()
+        if getattr(d, "is_cuda", False):
+            raise RuntimeError("[preview] CPU path: Warp kernel '%s' was launched on %s - it must stay on the CPU. Use Preview "
+                               "device 'GPU' or report this." % (getattr(kernel, "key", kernel), d))
+        for v in list(kw.get("inputs", []) or []) + list(args[1] if len(args) > 1 and isinstance(args[1], (list, tuple)) else []):
+            if getattr(getattr(v, "device", None), "is_cuda", False):
+                raise RuntimeError("[preview] CPU path: a Warp array for kernel '%s' is on %s." % (getattr(kernel, "key", kernel), v.device))
+        return orig(kernel, *args, **kw)
+    wp.launch = guarded; ctx.launch = guarded
+    return guarded
+
 def cmd_record(a):
     mk = os.path.abspath(a.mk); os.chdir(mk); sys.path.insert(0, os.path.join(mk, "mimickit"))
+    cpu = a.device == "cpu"
+    # Warp init must mirror MimicKit's training process: newton_engine.py sets wp.config.enable_backward = False BEFORE
+    # importing newton, and Warp copies that option into every kernel module when the module is created. Importing newton
+    # earlier built Newton's modules WITH backward kernels -> different cache key, fresh
+    # compile of adjoint/tile kernels -> "device kernel image is invalid" on sm_61. So: same config, newton imported only
+    # by MimicKit itself, and a separate kernel cache so the preview can never touch the training cache.
+    import warp as wp
+    wp.config.enable_backward = False
+    if a.warp_cache:
+        os.makedirs(a.warp_cache, exist_ok=True); wp.config.kernel_cache_dir = a.warp_cache
     import numpy as np, torch
     torch.set_num_threads(os.cpu_count() or 1)
-    try:
-        import warp as wp
-        log("torch threads: %d; warp %s (its CPU kernels have no thread-count setting)" % (torch.get_num_threads(), wp.config.version))
-    except Exception:
-        pass
-    import run as mk_run, newton
+    wp.init()
+    if cpu:
+        wp.set_device("cpu")
+        if torch.cuda.is_available() or any(d.is_cuda for d in wp.get_devices()):
+            log("ABORTED: CPU mode but CUDA is still visible (CUDA_VISIBLE_DEVICES=%r)." % os.environ.get("CUDA_VISIBLE_DEVICES")); sys.exit(6)
+        install_cpu_guard(wp)
+    log("warp %s: default device %s, enable_backward %s, kernel cache %s; torch threads %d; CUDA_VISIBLE_DEVICES=%r" % (
+        wp.config.version, wp.get_device(), wp.config.enable_backward, wp.config.kernel_cache_dir, torch.get_num_threads(),
+        os.environ.get("CUDA_VISIBLE_DEVICES")))
+    import run as mk_run, util.mp_util as mp_util
     args = mk_run.load_args(["run.py"] + a.mk_args)
+    mp_util.init(0, 1, a.device, 6000)          # like run.py's run(): logger/agent tensors use this device
+    mk_run.set_rand_seed(args); mk_run.set_np_formatting()
     t0 = time.time()
-    env = mk_run.build_env(args, 1, a.device, False)
+    with wp.ScopedDevice(a.device):
+        env = mk_run.build_env(args, 1, a.device, False)
     agent = mk_run.build_agent(args, env, a.device)
+    import newton
+    bad = [m for m in ("newton._src.solvers.mujoco.kernels",) if wp.get_module(m).options.get("enable_backward")]
+    if bad: log("warning: Warp modules built with backward kernels:", bad)
+    if cpu and str(env._engine._sim_model.device) != "cpu":
+        log("ABORTED: the simulation landed on %s instead of the CPU." % env._engine._sim_model.device); sys.exit(6)
     model_file = args.parse_string("model_file", "")
     if model_file: agent.load(model_file); log("loaded", model_file)
     else: log("no model file: using a freshly initialized (untrained) policy")
@@ -122,6 +166,7 @@ def cmd_record(a):
     agent.eval(); agent.set_mode(base_agent.AgentMode.TEST)
     eng = env._engine; sm = eng._sim_model
     dt = eng.get_timestep(); fps = 1.0 / dt
+    scope = wp.ScopedDevice(a.device); scope.__enter__()      # MimicKit launches some kernels without a device
     with torch.no_grad():
         obs, info = env.reset()
     mid = int(env._motion_ids[0]) if hasattr(env, "_motion_ids") else 0
@@ -151,8 +196,9 @@ def cmd_record(a):
             Q[i] = jq[q0:q1].detach().cpu().numpy()
             BP[i] = eng._sim_state._torch_body_q.view(1, -1, 7)[0, j0:j1, :3].detach().cpu().numpy()
             now = time.time()
-            if i == 9 and a.slow_check:
-                proj = (now - t1) / 10 * n
+            if i == 9: t10 = now                       # the first steps include one-time kernel compiles: skip them
+            if i == 29 and a.slow_check:
+                proj = (now - t10) / 20 * n
                 if proj > SLOW_FACTOR * clip_len:
                     log("CPU too slow: %.1f s projected for a %.1f s clip (limit %.0fx)" % (proj, clip_len, SLOW_FACTOR)); sys.exit(4)
             if now - last > 2 or i == n - 1:
@@ -337,7 +383,9 @@ def _record_proc(a, device, guard, slow_check):
     if a.frames: cmd += ["--frames", str(a.frames)]
     cmd += ["--"] + a.mk_args
     env = dict(os.environ, PYTHONUNBUFFERED="1")
-    if device == "cpu": env["CUDA_VISIBLE_DEVICES"] = ""        # zero GPU memory: CUDA is invisible to this process
+    env.pop("CUDA_VISIBLE_DEVICES", None)                         # GPU path: same CUDA view as training
+    if device == "cpu": env["CUDA_VISIBLE_DEVICES"] = "-1"       # zero GPU memory ("" is ignored on Windows)
+    cmd[cmd.index("--out"):cmd.index("--out")] = ["--warp_cache", a.warp_cache]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", env=env,
                          creationflags=0x08000000 if os.name == "nt" else 0)
     guard.children = [p]
@@ -358,6 +406,8 @@ def cmd_all(a):
     guard = RamGuard(budget)
     out_dir = os.path.dirname(os.path.abspath(a.out)); os.makedirs(out_dir, exist_ok=True)
     a.npz_path = os.path.splitext(os.path.abspath(a.out))[0] + ".npz"
+    a.warp_cache = a.warp_cache or os.path.join(os.path.abspath(a.mk), "output", "_launcher_preview", "warp_cache")
+    log("own Warp kernel cache (the training cache is never written): %s" % a.warp_cache)
     t0 = time.time(); rc = None
     if a.device in ("auto", "cpu"):
         log("recording on the CPU (GPU memory use: none)")
@@ -416,6 +466,7 @@ def main(argv=None):
     p.add_argument("--width", type=int, default=640); p.add_argument("--height", type=int, default=480)
     p.add_argument("--workers", type=int, default=0); p.add_argument("--budget_mb", type=float, default=0)
     p.add_argument("--slow_check", action="store_true"); p.add_argument("--save_init_model", default="")
+    p.add_argument("--warp_cache", default="")
     p.add_argument("--keep_npz", action="store_true"); p.add_argument("--no_open", action="store_true")
     a = p.parse_args(argv); a.mk_args = mk_args
     if a.cmd == "record": cmd_record(a)

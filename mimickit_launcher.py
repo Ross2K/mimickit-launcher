@@ -4,14 +4,14 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.2.5"
-import codecs, json, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
+VERSION = "a0.2.6"
+import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 def _config_path():
@@ -102,6 +102,15 @@ HELP = {
                "default, so no GPU memory is used and training is not disturbed), renders it with MuJoCo and opens the video.\n"
                "Saved as preview_<iteration>.mp4 next to the model. Uses at most 80% of the RAM that is free when it starts.\n"
                "Press again while it runs to cancel it.",
+    "target": "Progress estimate (rough!). Default 'plateau (auto)': fits a curve that levels off (y = a - b*exp(-x/c)) to\n"
+              "Train_Return over all sessions of this run (smoothed, newest data weighted more, the dips right after a resume\n"
+              "ignored). % = how far along the way to 95% of that fitted level; time left = remaining samples / current speed.\n"
+              "It says 'not enough data yet' until the fit is stable, and can't know about later jumps in skill - treat it as\n"
+              "a hint, not a promise. 'samples' target: % of a total sample count (millions). 'score' target: when the fitted\n"
+              "curve reaches that Train_Return ('may not be reached' if it levels off below it). Saved per run chain.",
+    "cursess": "Show only the current session on the x axis (earlier sessions stay drawn, just out of view).",
+    "chartnav": "Chart tools: Home = back to auto-follow, Pan, Zoom to rectangle, Save picture. Mouse wheel zooms at the cursor;\n"
+                "double-click a chart to return to auto-follow. While zoomed, the 10 s refresh keeps your view.",
     "pdevice": "Where the preview recording runs. Auto = CPU first, the GPU only if the CPU fails or is far too slow.\n"
                "CPU only = never touches the GPU. GPU = cuda:0, refused if less than ~600 MB of VRAM is free. Rendering is always on the CPU.",
     "stop": "Stop: kills the running MimicKit process and all its child processes (taskkill /T /F).\n"
@@ -460,6 +469,94 @@ def rate_per_hour(d):
         else: out.append(float("nan"))
     return (out[-1] if out else 0.0), out
 
+# ---------------------------------------------------------------- progress estimate (plateau fit / target)
+PLATEAU_FRACTION = 0.95      # "done" = 95% of the way from the start to the fitted plateau
+MIN_FIT_POINTS = 25
+
+def _prep_points(segs):
+    """segs: [(samples list, return list)] per session, oldest first, samples already cumulative over the chain.
+    Drops the first few points after every resume (the dip while the policy re-settles) and NaNs."""
+    X, Y = [], []
+    for i, (xs, ys) in enumerate(segs):
+        pts = [(x, y) for x, y in zip(xs, ys) if x == x and y == y]
+        if i > 0:
+            k = max(2, len(pts) // 20)
+            pts = pts[k:] if len(pts) > 2 * k + 2 else []
+        for x, y in pts: X.append(float(x)); Y.append(float(y))
+    order = sorted(range(len(X)), key=lambda i: X[i])
+    return [X[i] for i in order], [Y[i] for i in order]
+
+def _rolling_median(y, w):
+    h = w // 2; out = []
+    for i in range(len(y)):
+        win = sorted(y[max(0, i - h):i + h + 1]); out.append(win[len(win) // 2])
+    return out
+
+def fit_plateau(X, Y):
+    """Weighted least-squares fit of y = a - b*exp(-(x - x0)/c) (c by grid search, a/b linear), on median-smoothed data
+    with more weight on recent points. Returns dict(a, b, c, x0, rmse, at_edge) or None."""
+    import numpy as np
+    n = len(X)
+    if n < MIN_FIT_POINTS: return None
+    x = np.asarray(X, float); y = np.asarray(_rolling_median(list(Y), max(3, (n // 25) | 1)), float)
+    x0 = x[0]; span = x[-1] - x0
+    if span <= 0: return None
+    w = 0.5 + (x - x0) / span
+    best = None
+    cs = np.geomspace(span * 0.02, span * 20, 90)
+    for c in cs:
+        e = np.exp(-(x - x0) / c); A = np.stack([np.ones(n), -e], 1) * np.sqrt(w)[:, None]
+        sol, *_ = np.linalg.lstsq(A, y * np.sqrt(w), rcond=None)
+        r = float(np.sum(w * (y - (sol[0] - sol[1] * e)) ** 2))
+        if best is None or r < best[0]: best = (r, float(sol[0]), float(sol[1]), float(c))
+    r, a, b, c = best
+    resid = np.asarray(Y, float) - (a - b * np.exp(-(x - x0) / c))
+    return dict(a=a, b=b, c=c, x0=float(x0), rmse=float(np.sqrt(np.mean(resid ** 2))), at_edge=c >= cs[-2], span=float(span),
+                noise=float(np.std(np.asarray(Y, float) - y)))
+
+def _plateau_pct(f, xnow):
+    return 100.0 * (1 - math.exp(-(xnow - f["x0"]) / f["c"])) / PLATEAU_FRACTION
+
+def _eta_text(samples_left, rate):
+    if rate <= 0 or samples_left != samples_left: return "time left unknown"
+    h = samples_left / rate
+    if h < 1: return "about %d min left" % max(1, round(h * 60))
+    return "about %.0f h left" % h if h >= 3 else "about %.1f h left" % h
+
+def estimate_progress(segs, rate, target=None):
+    """-> dict(text, pct or None, kind). segs as in _prep_points; rate in samples/hour; target = dict(kind 'samples'|'score', value)."""
+    X, Y = _prep_points(segs)
+    xnow = max((x for xs, _ in segs for x in xs if x == x), default=0.0)
+    if target and target.get("kind") == "samples" and target.get("value"):
+        tv = float(target["value"]); pct = min(100.0, 100.0 * xnow / tv) if tv > 0 else None
+        if xnow >= tv: return dict(kind="target", pct=100.0, text="Target %s samples: reached" % f"{int(tv):,}")
+        return dict(kind="target", pct=pct, text="Target %s samples: %d%% (%s)" % (f"{int(tv):,}", pct, _eta_text(tv - xnow, rate)))
+    f = fit_plateau(X, Y)
+    if target and target.get("kind") == "score" and target.get("value") is not None:
+        tv = float(target["value"]); cur = (sorted(Y[-9:])[len(Y[-9:]) // 2] if Y else float("nan"))
+        if Y and cur >= tv: return dict(kind="target", pct=100.0, text="Target score %g: reached (recent return %.3g)" % (tv, cur))
+        if not f or f["at_edge"] or f["b"] <= 0:
+            return dict(kind="target", pct=None, text="Target score %g: not enough data yet to tell when (recent return %.3g)" % (tv, cur))
+        if tv >= f["a"]:
+            return dict(kind="target", pct=None, text="Target score %g: may not be reached - the curve levels off near %.3g (rough)" % (tv, f["a"]))
+        xt = f["x0"] - f["c"] * math.log((f["a"] - tv) / f["b"]) if f["b"] > 0 and f["a"] - tv > 0 else float("nan")
+        pct = max(0.0, min(99.0, 100.0 * (xnow - f["x0"]) / (xt - f["x0"]))) if xt > f["x0"] else 0.0
+        return dict(kind="target", pct=pct, text="Target score %g: ~%d%% (%s) - rough" % (tv, pct, _eta_text(max(0.0, xt - xnow), rate)))
+    if not f: return dict(kind="plateau", pct=None, text="Plateau estimate: not enough data yet")
+    if f["b"] <= 0 or f["b"] * (1 - math.exp(-f["span"] / f["c"])) < 2 * max(f["noise"], 1e-9):
+        return dict(kind="plateau", pct=None, text="Plateau estimate: no clear improvement in the data (flat or noisy) - can't estimate")
+    if f["at_edge"]:
+        return dict(kind="plateau", pct=None, text="Plateau estimate: still improving steadily, no plateau in sight yet")
+    pct = _plateau_pct(f, xnow)
+    # stability: the same fit without the newest 15% must roughly agree
+    k = int(len(X) * 0.85); g = fit_plateau(X[:k], Y[:k])
+    if not g or g["at_edge"] or g["b"] <= 0 or abs(_plateau_pct(g, xnow) - pct) > 25:
+        return dict(kind="plateau", pct=None, text="Plateau estimate: not enough data yet (fit not stable)")
+    pct = max(0.0, min(99.0, pct))
+    x95 = f["x0"] + f["c"] * math.log(1 / (1 - PLATEAU_FRACTION))
+    left = max(0.0, x95 - xnow)
+    return dict(kind="plateau", pct=pct, a=f["a"], text="Plateau estimate: ~%d%% (%s) - rough" % (pct, _eta_text(left, rate) if left > 0 else "about at the plateau"))
+
 class Tip:
     def __init__(self, w, text):
         self.w, self.text, self.top = w, text, None
@@ -558,6 +655,16 @@ class App:
         left = ttk.Frame(mid); mid.add(left, weight=1)
         stf = ttk.LabelFrame(left, text="Status", padding=4); stf.pack(fill="x")
         self.l_status = ttk.Label(stf, text="Idle.", justify="left", font=("Segoe UI", 10) if IS_WIN else ("TkDefaultFont", 10)); self.l_status.pack(anchor="w")
+        tgf = ttk.Frame(stf); tgf.pack(anchor="w", fill="x", pady=(2, 0))
+        ttk.Label(tgf, text="Progress target").pack(side="left")
+        self.v_tkind = tk.StringVar(value="plateau (auto)"); self.v_tval = tk.StringVar()
+        self.cb_target = ttk.Combobox(tgf, textvariable=self.v_tkind, values=["plateau (auto)", "samples (millions)", "score (Train_Return)"],
+                                      state="readonly", width=20); self.cb_target.pack(side="left", padx=4)
+        e = ttk.Entry(tgf, textvariable=self.v_tval, width=10); e.pack(side="left")
+        b = ttk.Button(tgf, text="Set", command=self._target_from_widgets); b.pack(side="left", padx=4)
+        self.cb_target.bind("<<ComboboxSelected>>", lambda _=None: self._target_from_widgets())
+        for w in (tgf, self.cb_target, e, b): Tip(w, HELP["target"])
+        self._target_root = None; self.est_disp = {}
         gpuf = ttk.Frame(stf); gpuf.pack(anchor="w", fill="x")
         self.l_gpu = ttk.Label(gpuf, text="GPU: checking...", justify="left", style="Good.TLabel"); self.l_gpu.pack(side="left", anchor="w")
         self.c_vram = tk.Canvas(gpuf, width=190, height=16, highlightthickness=0, bd=0); self.c_vram.pack(side="left", padx=(10, 0))
@@ -572,7 +679,21 @@ class App:
         self.root.after(300, lambda: mid.sashpos(0, 600))
         self.fig = Figure(figsize=(5.5, 5), dpi=90, layout="constrained")
         self.ax1 = self.fig.add_subplot(211); self.ax2 = self.fig.add_subplot(212)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=right); self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=right)
+        # chart navigation: toolbar (zoom rectangle, pan, home), wheel zoom at the cursor, double-click = back to auto-follow
+        self.zoomed = False; self.v_cur = tk.BooleanVar(value=bool(self.s.get("current_session_only", False)))
+        navf = tk.Frame(right); navf.pack(side="bottom", fill="x"); self.navf = navf
+        app = self
+        class Toolbar(NavigationToolbar2Tk):
+            def home(self, *a):
+                super().home(*a); app._auto_follow()
+        self.toolbar = Toolbar(self.canvas, navf, pack_toolbar=False); self.toolbar.update(); self.toolbar.pack(side="left")
+        c = ttk.Checkbutton(navf, text="Current session only", variable=self.v_cur, command=self._cur_toggled); c.pack(side="left", padx=10)
+        Tip(c, HELP["cursess"]); Tip(self.toolbar, HELP["chartnav"])
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.canvas.mpl_connect("scroll_event", self._on_scroll)
+        self.canvas.mpl_connect("button_press_event", self._on_click)
+        self.canvas.mpl_connect("button_release_event", self._on_release)
         ttk.Label(right, text=RETURN_TEXT + "\n"
                               "Samples/hour = training speed.", style="Dim.TLabel").pack(anchor="w")
 
@@ -617,7 +738,68 @@ class App:
         self.fig.set_facecolor(T["panel"])
         for ax in (self.ax1, self.ax2): self._style_ax(ax)
         self.canvas.get_tk_widget().configure(bg=T["panel"], highlightthickness=0)
+        if hasattr(self, "toolbar"):      # dark/light toolbar (it is plain tk, not ttk)
+            for w in [self.navf, self.toolbar] + list(self.toolbar.winfo_children()):
+                for k, v in (("bg", T["bg"]), ("fg", T["fg"]), ("activebackground", T["btn_act"]), ("activeforeground", T["fg"]),
+                             ("selectcolor", T["sel"]), ("highlightthickness", 0), ("highlightbackground", T["bg"])):
+                    try: w.configure(**{k: v})
+                    except tk.TclError: pass
         self.canvas.draw_idle()
+
+    # ---------- progress estimate
+    def _smooth_estimate(self, chain, v):
+        """Displayed % moves at most 10 points per refresh (and eases in), so a noisy fit doesn't jump around."""
+        old = self.est_disp.get(chain)
+        new = v if old is None else old + max(-10.0, min(10.0, 0.5 * (v - old)))
+        self.est_disp = {chain: new}; return new
+    def _chain_key(self, d): return os.path.normcase(os.path.abspath(run_chain(d)[0]))
+    def _get_target(self, d):
+        return self.s.get("targets", {}).get(self._chain_key(d))
+    def _set_target(self, d, t):
+        tg = self.s.setdefault("targets", {}); k = self._chain_key(d)
+        if t: tg[k] = t
+        else: tg.pop(k, None)
+        self._save_settings_only()
+    def _target_from_widgets(self):
+        d = self.run_dir or self.outdir_abs(); kind = self.v_tkind.get()
+        if kind.startswith("plateau"): self._set_target(d, None)
+        else:
+            try: val = float(self.v_tval.get().replace(",", ""))
+            except ValueError:
+                if self.v_tval.get().strip(): messagebox.showerror("Target", "Type a number (samples in millions, or a score).")
+                return
+            self._set_target(d, dict(kind="samples", value=val * 1e6) if kind.startswith("samples") else dict(kind="score", value=val))
+        self._progress_tick(force=True)
+    def _sync_target_widgets(self, d):
+        k = self._chain_key(d)
+        if k == self._target_root: return
+        self._target_root = k; t = self._get_target(d)
+        if not t: self.v_tkind.set("plateau (auto)"); self.v_tval.set("")
+        elif t["kind"] == "samples": self.v_tkind.set("samples (millions)"); self.v_tval.set("%g" % (t["value"] / 1e6))
+        else: self.v_tkind.set("score (Train_Return)"); self.v_tval.set("%g" % t["value"])
+
+    # ---------- chart navigation
+    def _axes(self): return (self.ax1, self.ax2)
+    def _user_view_changed(self):
+        """The user zoomed/panned: keep these limits through the 10 s refreshes until Home / double-click."""
+        self.zoomed = True; self.saved_view = [(ax.get_xlim(), ax.get_ylim()) for ax in self._axes()]
+    def _auto_follow(self):
+        self.zoomed = False; self.saved_view = None; self._progress_tick(force=True)
+    def _cur_toggled(self):
+        self.s["current_session_only"] = bool(self.v_cur.get()); self._save_settings_only(); self._auto_follow()
+    def _on_scroll(self, ev):
+        ax = ev.inaxes
+        if ax is None or ev.xdata is None: return
+        f = 1 / 1.25 if ev.button == "up" or getattr(ev, "step", 0) > 0 else 1.25
+        x0, x1 = ax.get_xlim(); y0, y1 = ax.get_ylim()
+        nx = (ev.xdata - (ev.xdata - x0) * f, ev.xdata + (x1 - ev.xdata) * f)
+        for a in self._axes(): a.set_xlim(nx)          # both charts share the samples axis
+        ax.set_ylim(ev.ydata - (ev.ydata - y0) * f, ev.ydata + (y1 - ev.ydata) * f)
+        self._user_view_changed(); self.canvas.draw_idle()
+    def _on_click(self, ev):
+        if getattr(ev, "dblclick", False) and ev.inaxes is not None: self._auto_follow()
+    def _on_release(self, ev):
+        if str(getattr(self.toolbar, "mode", "")) in ("zoom rect", "pan/zoom"): self._user_view_changed()
 
     def _style_ax(self, ax):
         ax.set_facecolor(T["field"])
@@ -1048,8 +1230,10 @@ class App:
             pass
         self.prog_frame.configure(text="Training progress (data: %s, %d points%s; refreshed every 10 s)" % (
             src, len(log.get("Samples", [])), ", +%d earlier sessions" % len(earlier) if earlier else ""))
+        keep = self.saved_view if getattr(self, "zoomed", False) and getattr(self, "saved_view", None) else None
         self.ax1.clear(); self.ax2.clear(); self._style_ax(self.ax1); self._style_ax(self.ax2)
         off = 0.0; xmax = 0.0; sparse = 0; prev = {}   # last point of the previous session, per series
+        segs = []; est_rate = 0.0                     # (cumulative samples, Train_Return) per session, for the estimate
         def bridge(ax, key, x0, y0):
             """dotted grey line from the previous session's last point to this session's first point"""
             if key in prev and x0 == x0 and y0 == y0:
@@ -1057,7 +1241,7 @@ class App:
         for i, h in enumerate(earlier):
             xs = [(v + off) / 1e6 for v in h["Samples"]]; nh = len(xs)
             if nh < 3: sparse += 1
-            lab = ("earlier sessions" + (" (pre-a0.1.3: few points)" if any(len(e["Samples"]) < 3 for e in earlier) else "")) if i == 0 else None
+            lab = "earlier sessions" if i == 0 else None
             for key in ("Train_Return", "Test_Return"):
                 if h.get(key):
                     ys = h[key][:nh]; bridge(self.ax1, key, xs[0], ys[0])
@@ -1069,10 +1253,9 @@ class App:
                 rv = [v / 1e6 for v in r]; bridge(self.ax2, "rate", xs[0], rv[0])
                 self.ax2.plot(xs[:len(rv)], rv, color=T["dim"], alpha=0.6, marker="o", markersize=5, linewidth=1.5)
                 prev["rate"] = (xs[len(rv) - 1], rv[-1])
+            segs.append(([v + off for v in h["Samples"]], h.get("Train_Return", [])))
+            est_rate = rate_per_hour(h)[0] or est_rate
             off += h["Samples"][-1]; xmax = xs[-1]          # each session's own final sample count
-        if sparse:
-            lines.append("Note: %d earlier session(s) have only 1-2 points - sessions run before a0.1.3 only left MimicKit's "
-                         "log.txt (written rarely), so their sample counts and x positions are too low." % sparse)
         if log.get("Samples"):
             S = log["Samples"]; n = len(S)
             it = int(log.get("Iteration", [n - 1])[-1]); W = log.get("Wall_Time", [0]); wall = W[-1] if W[-1] == W[-1] else 0
@@ -1083,6 +1266,7 @@ class App:
             if src == "log.txt" and not (running and same):
                 lines.append("Note: reading log.txt of a run this window didn't start - MimicKit writes it rarely, so it may lag the console.")
             x = [(v + off) / 1e6 for v in S]
+            segs.append(([v + off for v in S], log.get("Train_Return", []))); est_rate = rate or est_rate
             for key, lab, col in (("Train_Return", "Train return", T["line1"]), ("Test_Return", "Test return", T["line2"])):
                 if log.get(key):
                     bridge(self.ax1, key, x[0], log[key][0])
@@ -1100,6 +1284,15 @@ class App:
             for ax in (self.ax1, self.ax2): ax.set_xlim(0, 1)
         else:
             lines.append("This session has no data yet; grey = earlier sessions.")
+        if not keep and self.v_cur.get() and log.get("Samples") and (earlier or len(log["Samples"]) > 1):
+            cx = [(v + off) / 1e6 for v in log["Samples"]]; lo, hi = cx[0], cx[-1]; pad = max((hi - lo) * 0.03, 1e-3)
+            for ax, keys in ((self.ax1, ("Train_Return", "Test_Return")), (self.ax2, None)):
+                ax.set_xlim(lo - pad, hi + pad)
+                ys = [y for k in keys for y in log.get(k, []) if y == y] if keys else [v / 1e6 for v in rate_per_hour(log)[1] if v == v]
+                if ys:
+                    yp = max((max(ys) - min(ys)) * 0.08, 1e-3); ax.set_ylim(min(ys) - yp, max(ys) + yp)
+        if keep:
+            for ax, (xl, yl) in zip(self._axes(), keep): ax.set_xlim(xl); ax.set_ylim(yl)
         self.ax1.set_ylabel("Return"); self.ax2.set_ylabel("M samples / hour")
         for ax in (self.ax1, self.ax2): ax.set_xlabel("Total samples, all sessions (millions)"); self._style_ax(ax)
         if self.ax1.get_lines(): self.ax1.legend(loc="lower right", fontsize=8)
@@ -1114,6 +1307,16 @@ class App:
         if ses_t is not None: lines.append("Running for %s (this session)" % hms(ses_t))
         lines.append("Running for %s (total%s)" % (hms(tot), ", %d sessions" % ses if ses else "") if ses_t is not None
                      else "Total training time %s (this run + its resumes%s)" % (hms(tot), ", %d sessions" % ses if ses else ""))
+        try:
+            self._sync_target_widgets(d)
+            if segs:
+                e = estimate_progress(segs, est_rate, self._get_target(d)); txt = e["text"]
+                if e["pct"] is not None and e["pct"] < 100:
+                    shown = self._smooth_estimate(self._chain_key(d) + str(self._get_target(d)), e["pct"])
+                    txt = re.sub(r"~?\d+%", "~%d%%" % round(shown), txt, count=1)
+                lines.append(txt)
+        except Exception as ex:
+            lines.append("Progress estimate unavailable (%s)" % ex)
         self.l_status.configure(text="\n".join(lines))
         self.canvas.draw_idle()
 
