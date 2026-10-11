@@ -10,8 +10,13 @@ monitored - the job aborts cleanly (exit code 3) if it approaches the budget.
 import os, sys
 # CPU recording: hide CUDA before torch/warp can be imported. "-1" (an invalid ordinal) hides every GPU on Windows and
 # Linux; an EMPTY value is ignored on Windows.
-if len(sys.argv) > 1 and sys.argv[1] == "record" and "--device" in sys.argv and sys.argv[sys.argv.index("--device") + 1] == "cpu":
+def _argv_get(k):
+    return sys.argv[sys.argv.index(k) + 1] if k in sys.argv[:-1] else None
+if len(sys.argv) > 1 and sys.argv[1] == "record" and (_argv_get("--variant") == "cpu-hidden" or
+                                                       (_argv_get("--variant") is None and _argv_get("--device") == "cpu")):
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ.setdefault("PYTORCH_JIT", "0")      # TorchScript compile with CUDA hidden crashed (0xC0000005) on Windows
+import faulthandler; faulthandler.enable()          # a native crash prints the Python stack (pinpoints the line)
 import argparse, json, math, shutil, subprocess, tempfile, threading, time
 
 FPS_DEFAULT = 30
@@ -122,9 +127,33 @@ def install_cpu_guard(wp):
     wp.launch = guarded; ctx.launch = guarded
     return guarded
 
+def ckpt(name):
+    print("[preview] CKPT %s  (t=%.1f s)" % (name, time.time() - _T0), flush=True)
+_T0 = time.time()
+
+def _maybe_simulated_crash(variant, where):
+    """Tests: MIMICKIT_PREVIEW_SIMULATE_CRASH=<variant>[:<where>] makes that stage die with a real native crash."""
+    v = os.environ.get("MIMICKIT_PREVIEW_SIMULATE_CRASH", "")
+    if v and v.split(":")[0] == variant and (v.split(":")[1] if ":" in v else "build_env") == where:
+        import ctypes; ckpt("simulated native crash"); ctypes.string_at(0)
+
+def _ref_joint_q(env, jtypes, jstart, nq):
+    """Reference pose of the motion the policy is tracking (same motion id, same time), in Newton's joint_q layout."""
+    import torch
+    lib = env._motion_lib; mids = env._motion_ids[:1]; t = env._get_motion_times()[:1]
+    rp, rr, _, _, jr, _ = lib.calc_motion_frame(mids, t)
+    kin = env._kin_char_model; dof = kin.rot_to_dof(jr)[0]; q = torch.zeros(nq)
+    bp = kin.forward_kinematics(rp, rr, jr)[0][0]
+    for j, (tname, s) in enumerate(zip(jtypes, jstart)):
+        if tname == "FREE": q[s:s + 3] = rp[0]; q[s + 3:s + 7] = rr[0]
+        elif tname == "BALL": q[s:s + 4] = jr[0, j - 1]
+        elif tname in ("REVOLUTE", "PRISMATIC"): q[s] = dof[kin.get_joint_dof_idx(j)]
+    return q.cpu().numpy(), bp.detach().cpu().numpy(), float(t[0])
+
 def cmd_record(a):
     mk = os.path.abspath(a.mk); os.chdir(mk); sys.path.insert(0, os.path.join(mk, "mimickit"))
-    cpu = a.device == "cpu"
+    cpu = a.device == "cpu"; hidden = a.variant == "cpu-hidden"
+    ckpt("record start: variant %s, PYTORCH_JIT=%s, CUDA_VISIBLE_DEVICES=%r" % (a.variant, os.environ.get("PYTORCH_JIT"), os.environ.get("CUDA_VISIBLE_DEVICES")))
     # Warp init must mirror MimicKit's training process: newton_engine.py sets wp.config.enable_backward = False BEFORE
     # importing newton, and Warp copies that option into every kernel module when the module is created. Importing newton
     # earlier built Newton's modules WITH backward kernels -> different cache key, fresh
@@ -134,25 +163,27 @@ def cmd_record(a):
     wp.config.enable_backward = False
     if a.warp_cache:
         os.makedirs(a.warp_cache, exist_ok=True); wp.config.kernel_cache_dir = a.warp_cache
-    import numpy as np, torch
+    ckpt("import torch"); import numpy as np, torch
     torch.set_num_threads(os.cpu_count() or 1)
-    wp.init()
+    ckpt("wp.init"); wp.init()
     if cpu:
         wp.set_device("cpu")
-        if torch.cuda.is_available() or any(d.is_cuda for d in wp.get_devices()):
+        if hidden and (torch.cuda.is_available() or any(d.is_cuda for d in wp.get_devices())):
             log("ABORTED: CPU mode but CUDA is still visible (CUDA_VISIBLE_DEVICES=%r)." % os.environ.get("CUDA_VISIBLE_DEVICES")); sys.exit(6)
         install_cpu_guard(wp)
     log("warp %s: default device %s, enable_backward %s, kernel cache %s; torch threads %d; CUDA_VISIBLE_DEVICES=%r" % (
         wp.config.version, wp.get_device(), wp.config.enable_backward, wp.config.kernel_cache_dir, torch.get_num_threads(),
         os.environ.get("CUDA_VISIBLE_DEVICES")))
-    import run as mk_run, util.mp_util as mp_util
+    ckpt("import MimicKit run.py"); import run as mk_run, util.mp_util as mp_util
     args = mk_run.load_args(["run.py"] + a.mk_args)
     mp_util.init(0, 1, a.device, 6000)          # like run.py's run(): logger/agent tensors use this device
     mk_run.set_rand_seed(args); mk_run.set_np_formatting()
     t0 = time.time()
+    _maybe_simulated_crash(a.variant, "build_env")
+    ckpt("build_env"); 
     with wp.ScopedDevice(a.device):
         env = mk_run.build_env(args, 1, a.device, False)
-    agent = mk_run.build_agent(args, env, a.device)
+    ckpt("build_agent"); agent = mk_run.build_agent(args, env, a.device)
     import newton
     bad = [m for m in ("newton._src.solvers.mujoco.kernels",) if wp.get_module(m).options.get("enable_backward")]
     if bad: log("warning: Warp modules built with backward kernels:", bad)
@@ -167,6 +198,7 @@ def cmd_record(a):
     eng = env._engine; sm = eng._sim_model
     dt = eng.get_timestep(); fps = 1.0 / dt
     scope = wp.ScopedDevice(a.device); scope.__enter__()      # MimicKit launches some kernels without a device
+    ckpt("env.reset")
     with torch.no_grad():
         obs, info = env.reset()
     mid = int(env._motion_ids[0]) if hasattr(env, "_motion_ids") else 0
@@ -187,6 +219,12 @@ def cmd_record(a):
     bnames = [os.path.basename(str(x)) for x in list(bl)[j0:j1]]
     nqtot = sm.joint_q.shape[0] // 1
     Q = np.zeros((n, q1 - q0), np.float32); BP = np.zeros((n, nb, 3), np.float32)
+    has_ref = all(hasattr(env, k) for k in ("_motion_lib", "_motion_ids", "_get_motion_times", "_kin_char_model"))
+    RQ = np.zeros_like(Q); RBP = np.zeros_like(BP); RT = np.zeros(n, np.float32)
+    if not has_ref: log("this env has no reference motion - no ghost")
+    off = getattr(env, "_ref_char_offset", None)
+    ref_off = [float(v) for v in off.cpu().numpy()] if off is not None else [2.0, 0.0, 0.0]
+    ckpt("stepping")
     t1 = time.time(); last = t1
     with torch.no_grad():
         for i in range(n):
@@ -195,6 +233,7 @@ def cmd_record(a):
             jq = eng._sim_state._torch_joint_q.view(1, -1)[0]
             Q[i] = jq[q0:q1].detach().cpu().numpy()
             BP[i] = eng._sim_state._torch_body_q.view(1, -1, 7)[0, j0:j1, :3].detach().cpu().numpy()
+            if has_ref: RQ[i], RBP[i], RT[i] = _ref_joint_q(env, jtypes, jstart, q1 - q0)
             now = time.time()
             if i == 9: t10 = now                       # the first steps include one-time kernel compiles: skip them
             if i == 29 and a.slow_check:
@@ -207,7 +246,8 @@ def cmd_record(a):
     np.savez(a.out, joint_q=Q, body_pos=BP, joint_names=np.array(jnames), joint_types=np.array(jtypes), joint_start=np.array(jstart),
              body_names=np.array(bnames), fps=fps, clip_len=clip_len, motion_id=mid, frames=n,
              char_file=_char_file(mk, args.parse_string("env_config")),
-             record_seconds=el, setup_seconds=setup, device=a.device)
+             record_seconds=el, setup_seconds=setup, device=a.device, variant=a.variant,
+             has_ref=has_ref, ref_joint_q=RQ, ref_body_pos=RBP, ref_time=RT, ref_offset=np.array(ref_off, np.float32))
     log("recorded %d frames in %.1f s (%.1fx real time; setup %.1f s) -> %s" % (n, el, n / fps / el, setup, a.out))
 
 def _char_file(mk, env_yaml):
@@ -216,9 +256,16 @@ def _char_file(mk, env_yaml):
     return os.path.join(mk, cfg.get("char_file", "")) if cfg.get("char_file") else ""
 
 # ---------------------------------------------------------------- render (plain MuJoCo, CPU)
-def _load_mj(char_file):
+GHOST_RGBA = (1.0, 0.55, 0.15, 0.35)      # translucent orange reference
+GHOST_MODES = ("off", "side", "overlay")
+
+def _load_mj(char_file, ghost=False):
     import mujoco
     spec = mujoco.MjSpec.from_file(char_file)
+    if ghost:      # second copy of the character, prefixed "ghost_", purely visual
+        child = mujoco.MjSpec.from_file(char_file)
+        frame = spec.worldbody.add_frame()
+        frame.attach_body(child.worldbody.first_body(), "ghost_", "")
     tex = spec.add_texture(); tex.name = "lk_grid"; tex.type = mujoco.mjtTexture.mjTEXTURE_2D
     tex.builtin = mujoco.mjtBuiltin.mjBUILTIN_CHECKER; tex.rgb1 = [0.22, 0.24, 0.27]; tex.rgb2 = [0.30, 0.32, 0.36]
     tex.width = tex.height = 512
@@ -229,30 +276,41 @@ def _load_mj(char_file):
     for pos, dirn in (([0, 0, 6], [0, 0, -1]), ([4, -4, 5], [-0.5, 0.5, -0.7])):
         l = spec.worldbody.add_light(); l.pos = pos; l.dir = dirn; l.diffuse = [0.6, 0.6, 0.6]; l.castshadow = True
     spec.visual.headlight.ambient = [0.35, 0.35, 0.35]
-    return spec.compile()
+    m = spec.compile()
+    if ghost:
+        for gi in range(m.ngeom):
+            bn = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, int(m.geom_bodyid[gi])) or ""
+            if bn.startswith("ghost_"):
+                m.geom_rgba[gi] = GHOST_RGBA; m.geom_contype[gi] = 0; m.geom_conaffinity[gi] = 0
+    return m
 
-def qpos_map(m, z):
+def _char_joints(m, ghost=False):
+    import mujoco
+    return [k for k in range(m.njnt) if (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, k) or "").startswith("ghost_") == ghost]
+
+def qpos_map(m, z, ghost=False):
     """Index plan Newton joint_q -> MuJoCo qpos, walking both in MJCF order.
     Newton quaternions are (x, y, z, w), MuJoCo's are (w, x, y, z). MimicKit/Newton merge the 2-3 hinge joints of one body
     into a single BALL joint (a quaternion); MuJoCo keeps the separate hinges, so those are solved back into hinge angles."""
     import mujoco
     types, starts = [str(x) for x in z["joint_types"]], [int(x) for x in z["joint_start"]]
-    plan, k = [], 0
+    J = _char_joints(m, ghost); nj = len(J)
+    plan, i = [], 0
     for t, s in zip(types, starts):
         if t == "FIXED": continue
-        if k >= m.njnt: raise ValueError("Newton has more joints than the MJCF")
-        jt = int(m.jnt_type[k]); adr = int(m.jnt_qposadr[k])
+        if i >= nj: raise ValueError("Newton has more joints than the MJCF")
+        k = J[i]; jt = int(m.jnt_type[k]); adr = int(m.jnt_qposadr[k])
         if t == "FREE":
-            assert jt == mujoco.mjtJoint.mjJNT_FREE, "root joint mismatch"; plan.append(("free", s, adr)); k += 1
+            assert jt == mujoco.mjtJoint.mjJNT_FREE, "root joint mismatch"; plan.append(("free", s, adr)); i += 1
         elif t == "BALL" and jt == mujoco.mjtJoint.mjJNT_BALL:
-            plan.append(("ball", s, adr)); k += 1
+            plan.append(("ball", s, adr)); i += 1
         elif t == "BALL":                       # merged hinges of one body
             body = int(m.jnt_bodyid[k]); adrs, axes = [], []
-            while k < m.njnt and int(m.jnt_bodyid[k]) == body and int(m.jnt_type[k]) == mujoco.mjtJoint.mjJNT_HINGE:
-                adrs.append(int(m.jnt_qposadr[k])); axes.append(m.jnt_axis[k].copy()); k += 1
+            while i < nj and int(m.jnt_bodyid[J[i]]) == body and int(m.jnt_type[J[i]]) == mujoco.mjtJoint.mjJNT_HINGE:
+                adrs.append(int(m.jnt_qposadr[J[i]])); axes.append(m.jnt_axis[J[i]].copy()); i += 1
             plan.append(("hinges", s, adrs, axes))
         else:
-            plan.append(("scalar", s, adr)); k += 1
+            plan.append(("scalar", s, adr)); i += 1
     return plan
 
 def _qmat(w, x, y, zz):
@@ -299,31 +357,68 @@ def apply_q(plan, q, qpos, prev=None):
         else:
             qpos[e[2]] = q[s]
 
-def verify_mapping(char_file, npz):
-    """Max distance between Newton's body positions and MuJoCo's forward kinematics of the mapped qpos."""
+def verify_mapping(char_file, npz, ref=False):
+    """Max distance between Newton's body positions (ref=True: the reference motion's forward kinematics) and MuJoCo's
+    forward kinematics of the mapped qpos."""
     import numpy as np, mujoco
     z = np.load(npz); m = mujoco.MjModel.from_xml_path(char_file); d = mujoco.MjData(m); plan = qpos_map(m, z)
+    Q, BP = (z["ref_joint_q"], z["ref_body_pos"]) if ref else (z["joint_q"], z["body_pos"])
     err, prev = 0.0, {}
     for i in range(int(z["frames"])):
-        apply_q(plan, z["joint_q"][i].astype(float), d.qpos, prev); mujoco.mj_kinematics(m, d)
+        apply_q(plan, Q[i].astype(float), d.qpos, prev); mujoco.mj_kinematics(m, d)
         for bi, bn in enumerate(z["body_names"]):
             b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, str(bn))
-            if b >= 0: err = max(err, float(np.linalg.norm(d.xpos[b] - z["body_pos"][i, bi])))
+            if b >= 0: err = max(err, float(np.linalg.norm(d.xpos[b] - BP[i, bi])))
     return err
 
+def ghost_offset(z, mode):
+    """World offset of the ghost root: side by side uses the env's ref_char_offset (default 2 m sideways), overlay none."""
+    import numpy as np
+    if mode != "side": return np.zeros(3)
+    o = np.array(z["ref_offset"], float) if "ref_offset" in z.files else np.array([2.0, 0, 0])
+    o[2] = 0.0
+    if np.linalg.norm(o[:2]) < 0.5: o = np.array([2.0, 0, 0])
+    return o
+
+def _legend(img):
+    from PIL import Image, ImageDraw, ImageFont
+    im = Image.fromarray(img); dr = ImageDraw.Draw(im, "RGBA")
+    try: f = ImageFont.load_default(size=16)
+    except TypeError: f = ImageFont.load_default()
+    dr.rectangle([8, 8, 128, 56], fill=(0, 0, 0, 120))
+    dr.rectangle([14, 15, 28, 29], fill=(205, 205, 205, 255)); dr.text((34, 13), "Policy", fill=(255, 255, 255), font=f)
+    g = tuple(int(c * 255) for c in GHOST_RGBA[:3])
+    dr.rectangle([14, 35, 28, 49], fill=g + (255,)); dr.text((34, 33), "Reference", fill=(255, 255, 255), font=f)
+    import numpy as np
+    return np.asarray(im)
+
 def _render_chunk(job):
-    char_file, npz, lo, hi, part, w, h = job
+    char_file, npz, lo, hi, part, w, h = job[:7]; mode = job[7] if len(job) > 7 else "off"
     import numpy as np, mujoco, imageio.v2 as imageio
-    z = np.load(npz); m = _load_mj(char_file); d = mujoco.MjData(m); plan = qpos_map(m, z)
+    z = np.load(npz); ghost = mode != "off" and bool(z["has_ref"]) if "has_ref" in z.files else False
+    m = _load_mj(char_file, ghost); d = mujoco.MjData(m); plan = qpos_map(m, z)
+    gplan = qpos_map(m, z, ghost=True) if ghost else None; off = ghost_offset(z, mode) if ghost else None
     r = mujoco.Renderer(m, h, w)
     cam = mujoco.MjvCamera(); cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING; cam.trackbodyid = 1
     cam.distance, cam.azimuth, cam.elevation = 3.6, 120.0, -12.0
+    if ghost and mode == "side":      # free camera looking perpendicular to the offset, framing both characters
+        cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+        cam.azimuth = float(np.degrees(np.arctan2(off[1], off[0]))) + 90.0
+        cam.distance = 3.6 + 0.9 * float(np.linalg.norm(off)); cam.elevation = -10.0
+    gprev = {}
     wr = imageio.get_writer(part, fps=float(z["fps"]), codec="libx264", quality=8, macro_block_size=8,
                             pixelformat="yuv420p", ffmpeg_log_level="error")
     prev = {}
     for i in range(lo, hi):
-        apply_q(plan, z["joint_q"][i].astype(float), d.qpos, prev); mujoco.mj_forward(m, d)
-        r.update_scene(d, camera=cam); wr.append_data(r.render())     # streamed: no frame list kept in RAM
+        apply_q(plan, z["joint_q"][i].astype(float), d.qpos, prev)
+        if ghost:
+            rq = z["ref_joint_q"][i].astype(float).copy(); rq[0:3] += off      # root is the FREE joint at q[0:3]
+            apply_q(gplan, rq, d.qpos, gprev)
+        mujoco.mj_forward(m, d)
+        if ghost and mode == "side":
+            mid = 0.5 * (z["joint_q"][i][:3] + rq[:3]); cam.lookat[:] = (mid[0], mid[1], 0.85)
+        r.update_scene(d, camera=cam); img = r.render()
+        wr.append_data(_legend(img) if ghost else img)     # streamed: no frame list kept in RAM
     wr.close(); r.close()
     return hi - lo
 
@@ -338,6 +433,13 @@ def cmd_render(a, guard=None):
     z = np.load(a.npz); n = int(z["frames"]); char_file = a.char_file or str(z["char_file"])
     err = verify_mapping(char_file, a.npz)
     log("joint mapping check: max body position difference Newton vs MuJoCo = %.6f m (%s)" % (err, "OK" if err < 0.01 else "WARNING: mapping looks wrong"))
+    mode = getattr(a, "ghost", "off") or "off"
+    if mode != "off" and not ("has_ref" in z.files and bool(z["has_ref"])):
+        log("reference ghost: not available for this env"); mode = "off"
+    if mode != "off":
+        gerr = verify_mapping(char_file, a.npz, ref=True)
+        log("reference ghost: %s, motion id %d, ghost pose check %.6f m (%s)" % ({"side": "side by side", "overlay": "overlay"}[mode],
+            int(z["motion_id"]), gerr, "OK" if gerr < 0.01 else "WARNING"))
     budget = a.budget_mb or (guard.budget if guard else RAM_FRACTION * free_ram_mb())
     workers = plan_workers(budget, n, a.workers)
     if budget < WORKER_EST_MB + BASE_EST_MB:
@@ -346,7 +448,7 @@ def cmd_render(a, guard=None):
     tmp = tempfile.mkdtemp(prefix="mk_preview_"); t0 = time.time()
     try:
         bounds = [round(i * n / workers) for i in range(workers + 1)]
-        jobs = [(char_file, a.npz, bounds[i], bounds[i + 1], os.path.join(tmp, "part%03d.mp4" % i), a.width, a.height)
+        jobs = [(char_file, a.npz, bounds[i], bounds[i + 1], os.path.join(tmp, "part%03d.mp4" % i), a.width, a.height, mode)
                 for i in range(workers) if bounds[i + 1] > bounds[i]]
         ctx = mpc.get_context("spawn")
         with ctx.Pool(len(jobs)) as pool:
@@ -376,24 +478,77 @@ def gpu_free_mb():
     except Exception:
         return None
 
-def _record_proc(a, device, guard, slow_check):
-    cmd = [sys.executable, "-u", os.path.abspath(__file__), "record", "--mk", a.mk, "--device", device, "--out", a.npz_path]
+VRAM_CAP_MB = 300       # stage b: the CPU process may hold a small CUDA context, never more
+VARIANTS = {
+    "cpu-hidden":  ("cpu", "CPU, GPU hidden (CUDA_VISIBLE_DEVICES=-1, PYTORCH_JIT=0)"),
+    "cpu-visible": ("cpu", "CPU, GPU visible but unused (forced cpu device + guard, PYTORCH_JIT=0, VRAM cap %d MB)" % VRAM_CAP_MB),
+    "gpu":         ("cuda:0", "GPU cuda:0, 1 env"),
+}
+def stages_for(device):
+    return {"cpu": ["cpu-hidden", "cpu-visible"], "gpu": ["gpu"]}.get(device, ["cpu-hidden", "cpu-visible", "gpu"])
+
+def _smi(args):
+    out = subprocess.run(["nvidia-smi"] + args, capture_output=True, text=True, timeout=10,
+                         creationflags=0x08000000 if os.name == "nt" else 0).stdout
+    return [l.strip() for l in out.splitlines() if l.strip()]
+
+def proc_vram_mb(pid, baseline=None):
+    """(MB, method) used by pid on the GPU. Windows WDDM often reports per-process memory as [N/A]: then the growth of total
+    used memory since launch is used instead (an upper bound - training holding steady)."""
+    if os.environ.get("MIMICKIT_PREVIEW_FAKE_VRAM_MB"): return float(os.environ["MIMICKIT_PREVIEW_FAKE_VRAM_MB"]), "test"
+    try:
+        for l in _smi(["--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"]):
+            p, mem = [x.strip() for x in l.split(",")[:2]]
+            if p == str(pid) and mem.replace(".", "").isdigit(): return float(mem), "per-process"
+        if baseline is not None:
+            return max(0.0, float(_smi(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])[0]) - baseline), "total-delta"
+    except Exception:
+        pass
+    return 0.0, "unavailable"
+
+def gpu_used_mb():
+    try: return float(_smi(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])[0])
+    except Exception: return None
+
+def variant_env(variant, base=None):
+    env = dict(base if base is not None else os.environ, PYTHONUNBUFFERED="1", PYTHONFAULTHANDLER="1")
+    env.pop("CUDA_VISIBLE_DEVICES", None)                         # GPU / visible: same CUDA view as training
+    if variant == "cpu-hidden": env["CUDA_VISIBLE_DEVICES"] = "-1"   # zero GPU memory ("" is ignored on Windows)
+    if variant.startswith("cpu"): env["PYTORCH_JIT"] = "0"
+    return env
+
+def _record_proc(a, device, guard, slow_check, variant=None):
+    variant = variant or ("gpu" if device != "cpu" else "cpu-hidden")
+    cmd = [sys.executable, "-u", os.path.abspath(__file__), "record", "--mk", a.mk, "--device", device, "--variant", variant,
+           "--out", a.npz_path]
     if slow_check: cmd.append("--slow_check")
     if a.save_init_model: cmd += ["--save_init_model", a.save_init_model]
     if a.frames: cmd += ["--frames", str(a.frames)]
     cmd += ["--"] + a.mk_args
-    env = dict(os.environ, PYTHONUNBUFFERED="1")
-    env.pop("CUDA_VISIBLE_DEVICES", None)                         # GPU path: same CUDA view as training
-    if device == "cpu": env["CUDA_VISIBLE_DEVICES"] = "-1"       # zero GPU memory ("" is ignored on Windows)
+    env = variant_env(variant)
     cmd[cmd.index("--out"):cmd.index("--out")] = ["--warp_cache", a.warp_cache]
+    base = gpu_used_mb() if variant == "cpu-visible" else None
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", env=env,
                          creationflags=0x08000000 if os.name == "nt" else 0)
-    guard.children = [p]
+    guard.children = [p]; vram = {"over": None, "peak": 0.0, "method": ""}
+    if variant == "cpu-visible":
+        import threading
+        def watch():
+            while p.poll() is None:
+                mb, how = proc_vram_mb(p.pid, base); vram["method"] = how; vram["peak"] = max(vram["peak"], mb)
+                if mb > VRAM_CAP_MB:
+                    vram["over"] = mb; p.kill(); return
+                time.sleep(1.0)
+        threading.Thread(target=watch, daemon=True).start()
     for line in p.stdout:
         if "load on device" in line or line.startswith("Module "): continue    # warp kernel-cache chatter
         sys.stdout.write(line); sys.stdout.flush()
     p.wait(); guard.children = []
     if guard.tripped: ram_abort(guard)
+    if variant == "cpu-visible":
+        log("stage cpu-visible GPU memory: peak %.0f MB (%s)" % (vram["peak"], vram["method"] or "unavailable"))
+    if vram["over"] is not None:
+        log("ABORTED stage cpu-visible: it used %.0f MB of GPU memory (cap %d MB)" % (vram["over"], VRAM_CAP_MB)); return 7
     return p.returncode
 
 def cmd_all(a):
@@ -409,22 +564,30 @@ def cmd_all(a):
     a.warp_cache = a.warp_cache or os.path.join(os.path.abspath(a.mk), "output", "_launcher_preview", "warp_cache")
     log("own Warp kernel cache (the training cache is never written): %s" % a.warp_cache)
     t0 = time.time(); rc = None
-    if a.device in ("auto", "cpu"):
-        log("recording on the CPU (GPU memory use: none)")
-        rc = _record_proc(a, "cpu", guard, slow_check=(a.device == "auto"))
-        if rc != 0 and a.device == "cpu":
-            log("CPU recording failed (exit code %s)." % rc); sys.exit(rc or 1)
-        if rc != 0: log("CPU recording %s - falling back to the GPU" % ("too slow" if rc == 4 else "failed (exit code %s)" % rc))
-    if rc != 0:
-        free_v = gpu_free_mb()
-        if free_v is None:
-            log("No NVIDIA GPU found (nvidia-smi) - cannot record on the GPU."); sys.exit(5)
-        if free_v < MIN_GPU_FREE_MB:
-            log("REFUSED: only %.0f MB of GPU memory free (need about %d MB). Training keeps running; try again later or use 'CPU only'."
-                % (free_v, MIN_GPU_FREE_MB)); sys.exit(5)
-        log("recording on cuda:0 (%.0f MB VRAM free)" % free_v)
-        rc = _record_proc(a, "cuda:0", guard, slow_check=False)
-        if rc != 0: log("GPU recording failed (exit code %s)." % rc); sys.exit(rc or 1)
+    stages = stages_for(a.device); i = 0
+    log("staged recording plan: " + " -> ".join(stages))
+    while i < len(stages):
+        v = stages[i]; dev, desc = VARIANTS[v]
+        if v == "gpu":
+            free_v = gpu_free_mb()
+            if free_v is None:
+                log("No NVIDIA GPU found (nvidia-smi) - cannot record on the GPU."); sys.exit(5)
+            if free_v < MIN_GPU_FREE_MB:
+                log("REFUSED: only %.0f MB of GPU memory free (need about %d MB). Training keeps running; try again later or use 'CPU only'."
+                    % (free_v, MIN_GPU_FREE_MB)); sys.exit(5)
+            desc += " (%.0f MB VRAM free)" % free_v
+        log("PREVIEW VARIANT %s: %s - fresh process" % (v, desc))
+        log("recording on the CPU (GPU memory use: %s)" % ("none" if v == "cpu-hidden" else "at most %d MB" % VRAM_CAP_MB) if dev == "cpu"
+            else "recording on cuda:0")
+        rc = _record_proc(a, dev, guard, slow_check=(a.device == "auto" and dev == "cpu"), variant=v)
+        if rc == 0:
+            log("recorded with variant %s" % v); break
+        if rc == EXIT_RAM: sys.exit(rc)
+        why = "too slow" if rc == 4 else "crashed/failed (exit code %s%s)" % (rc, ", 0x%08X" % (rc & 0xFFFFFFFF) if rc and abs(rc) > 255 else "")
+        i += 1
+        if rc == 4: i = stages.index("gpu") if "gpu" in stages else len(stages)
+        if i < len(stages): log("variant %s %s - trying %s" % (v, why, stages[i]))
+        else: log("variant %s %s - no stages left." % (v, why)); sys.exit(rc if rc and 0 < rc < 256 else 1)
     a.npz = a.npz_path; a.char_file = a.char_file or ""
     cmd_render(a, guard)
     guard.stop()
@@ -442,6 +605,94 @@ def cmd_all(a):
             log("could not open the video player (%s); the file is at %s" % (e, a.out))
     log("PREVIEW_DONE", a.out)
 
+# ---------------------------------------------------------------- diagnostics (P1-P7)
+_PRE = "import os, sys, time, faulthandler; faulthandler.enable(); sys.path.insert(0, 'mimickit')\n" \
+       "def ck(n): print('CKPT', n, flush=True)\n"
+def diag_probes(env_yaml):
+    env_mod = ""
+    try:
+        import yaml; env_mod = (yaml.safe_load(open(env_yaml)) or {}).get("env_name", "")
+    except Exception: pass
+    return [
+        ("P1", "versions and devices", "visible",
+         "ck('python'); print(sys.version); import platform; print(platform.platform())\n"
+         "ck('torch'); import torch; print('torch', torch.__version__, 'cuda build', torch.version.cuda, 'available', torch.cuda.is_available())\n"
+         "ck('warp'); import warp as wp; wp.init(); print('warp', wp.config.version, [str(d) for d in wp.get_devices()])\n"
+         "ck('mujoco'); import mujoco; print('mujoco', mujoco.__version__)"),
+        ("P2", "torch import with GPU hidden", "hidden",
+         "ck('import torch'); import torch; ck('cuda.is_available'); print('available', torch.cuda.is_available()); "
+         "ck('cpu tensor'); print(torch.ones(3).sum())"),
+        ("P3", "torch.jit.script with GPU hidden (JIT on - the suspected crash)", "hidden-jit",
+         "import torch, warnings\n@torch.jit.script\ndef f(x: torch.Tensor) -> torch.Tensor:\n    return x * 2 + 1\n"
+         "ck('jit call'); print(f(torch.ones(4)))\nck('jit call 2'); print(f(torch.ones(4)))"),
+        ("P4", "Warp CPU kernel compile + launch with GPU hidden", "hidden",
+         "import warp as wp; wp.config.enable_backward = False; ck('wp.init'); wp.init(); wp.set_device('cpu')\n"
+         "@wp.kernel\ndef k(a: wp.array(dtype=float)):\n    a[wp.tid()] = 2.0 * float(wp.tid())\n"
+         "a = wp.zeros(8, dtype=float, device='cpu'); ck('compile+launch'); wp.launch(k, dim=8, inputs=[a], device='cpu'); "
+         "wp.synchronize(); print(a.numpy()); print('cache', wp.config.kernel_cache_dir)"),
+        ("P5", "import MimicKit env module + mujoco in one process (GPU hidden)", "hidden",
+         "import warp as wp; wp.config.enable_backward = False; ck('import mujoco'); import mujoco\n"
+         "ck('import torch'); import torch; ck('import envs.%s'); import importlib; importlib.import_module('envs.%s')\n"
+         "ck('import newton'); import newton; print('ok')" % (env_mod + "_env", env_mod + "_env") if env_mod else
+         "ck('import mujoco'); import mujoco; ck('import envs.env_builder'); import envs.env_builder; print('ok')"),
+        ("P6", "build_env with 1 env on the CPU (GPU hidden)", "build", None),
+        ("P7", "short recording per CPU variant (30 frames)", "record", None),
+    ]
+
+def cmd_diag(a):
+    mk = os.path.abspath(a.mk)
+    out_dir = os.path.join(mk, "output", "_launcher_preview"); os.makedirs(out_dir, exist_ok=True)
+    rep_path = os.path.join(out_dir, "preview_diagnostics.txt")
+    a.warp_cache = a.warp_cache or os.path.join(out_dir, "warp_cache")
+    lines = []
+    def out(*x):
+        t = " ".join(str(v) for v in x); lines.append(t); log(t)
+    out("Preview diagnostics %s  (python %s, %s)" % (time.strftime("%Y-%m-%d %H:%M:%S"), sys.version.split()[0], sys.platform))
+    env_yaml = ""
+    if "--env_config" in a.mk_args: env_yaml = os.path.join(mk, a.mk_args[a.mk_args.index("--env_config") + 1])
+    results = {}
+    for pid, title, kind, code in diag_probes(env_yaml):
+        if a.probes and pid not in a.probes.split(","): continue
+        out("---- %s %s" % (pid, title))
+        t0 = time.time()
+        if kind == "record":
+            res = []
+            for v in ("cpu-hidden", "cpu-visible"):
+                a2 = argparse.Namespace(**vars(a)); a2.frames = a.frames or 30; a2.save_init_model = ""
+                a2.npz_path = os.path.join(out_dir, "diag_%s.npz" % v)
+                guard = RamGuard(RAM_FRACTION * free_ram_mb())
+                rc = _record_proc(a2, "cpu", guard, slow_check=False, variant=v); guard.stop()
+                res.append("%s=%s" % (v, "PASS" if rc == 0 else "FAIL(%s)" % rc))
+                try: os.remove(a2.npz_path)
+                except OSError: pass
+            results[pid] = " ".join(res); out("%s result: %s  (%.1f s)" % (pid, results[pid], time.time() - t0)); continue
+        if kind == "build":
+            code = ("import warp as wp; wp.config.enable_backward = False; wp.config.kernel_cache_dir = %r\n"
+                    "ck('import torch'); import torch; ck('wp.init'); wp.init(); wp.set_device('cpu')\n"
+                    "ck('import run'); import run, util.mp_util as mp; args = run.load_args(['run.py'] + %r); mp.init(0, 1, 'cpu', 6000)\n"
+                    "ck('build_env')\nwith wp.ScopedDevice('cpu'): env = run.build_env(args, 1, 'cpu', False)\n"
+                    "ck('build_agent'); agent = run.build_agent(args, env, 'cpu'); ck('reset'); env.reset(); print('sim on', env._engine._sim_model.device)"
+                    % (a.warp_cache, list(a.mk_args)))
+        env = variant_env("cpu-hidden")
+        if kind == "visible": env = variant_env("gpu")
+        if kind == "hidden-jit": env["PYTORCH_JIT"] = "1"
+        try:
+            pr = subprocess.run([sys.executable, "-u", "-X", "faulthandler", "-c", _PRE + code], cwd=mk, env=env, capture_output=True,
+                                text=True, errors="replace", timeout=a.timeout, creationflags=0x08000000 if os.name == "nt" else 0)
+            rc, txt = pr.returncode, (pr.stdout + pr.stderr)
+        except subprocess.TimeoutExpired as e:
+            rc, txt = "timeout", str(e.stdout or "")
+        keep = [l for l in txt.splitlines() if l.strip() and "load on device" not in l and not l.startswith("Module ")]
+        for l in keep[-25:]: out("   " + l)
+        last = [l for l in keep if l.startswith("CKPT")]
+        verdict = "PASS" if rc == 0 else "CRASH/FAIL rc=%s%s%s" % (rc, " (0x%08X)" % (rc & 0xFFFFFFFF) if isinstance(rc, int) and abs(rc) > 255 else "",
+                                                                   ", last checkpoint: " + last[-1][5:] if last else "")
+        results[pid] = verdict; out("%s result: %s  (%.1f s)" % (pid, verdict, time.time() - t0))
+    out("---- summary")
+    for k, v in results.items(): out("%s: %s" % (k, v))
+    open(rep_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    log("DIAGNOSTICS_DONE", rep_path)
+
 def setup_gl():
     """MuJoCo's offscreen renderer: on Linux try EGL, then OSMesa, then GLFW (needs a display). Windows uses its default."""
     if os.name == "nt" or sys.platform == "darwin" or os.environ.get("MUJOCO_GL"): return
@@ -458,7 +709,8 @@ def main(argv=None):
     mk_args = []
     if "--" in argv: i = argv.index("--"); mk_args = argv[i + 1:]; argv = argv[:i]
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("cmd", choices=["all", "record", "render"])
+    p.add_argument("cmd", choices=["all", "record", "render", "diag"])
+    p.add_argument("--variant", default=""); p.add_argument("--ghost", default="side", choices=GHOST_MODES)
     p.add_argument("--mk", default="."); p.add_argument("--device", default="auto")
     p.add_argument("--out", default="preview.mp4"); p.add_argument("--npz", default="")
     p.add_argument("--char_file", default=""); p.add_argument("--frames", type=int, default=0)
@@ -466,10 +718,13 @@ def main(argv=None):
     p.add_argument("--width", type=int, default=640); p.add_argument("--height", type=int, default=480)
     p.add_argument("--workers", type=int, default=0); p.add_argument("--budget_mb", type=float, default=0)
     p.add_argument("--slow_check", action="store_true"); p.add_argument("--save_init_model", default="")
-    p.add_argument("--warp_cache", default="")
+    p.add_argument("--warp_cache", default=""); p.add_argument("--probes", default="")
+    p.add_argument("--timeout", type=float, default=600)
     p.add_argument("--keep_npz", action="store_true"); p.add_argument("--no_open", action="store_true")
     a = p.parse_args(argv); a.mk_args = mk_args
-    if a.cmd == "record": cmd_record(a)
+    if a.cmd == "record":
+        a.variant = a.variant or ("cpu-hidden" if a.device == "cpu" else "gpu"); cmd_record(a)
+    elif a.cmd == "diag": cmd_diag(a)
     elif a.cmd == "render": setup_gl(); cmd_render(a)
     else: setup_gl(); cmd_all(a)
 

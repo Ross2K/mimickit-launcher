@@ -4,7 +4,7 @@ import os, shutil, stat, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, os.path.dirname(HERE))
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = os.path.join(tempfile.mkdtemp(), "s.json")
 bindir = tempfile.mkdtemp(); smi = os.path.join(bindir, "nvidia-smi"); valf = os.path.join(bindir, "used")
-open(smi, "w").write('#!/bin/sh\necho "NVIDIA GeForce GPU, $(cat %s), 8192, 97"\n' % valf); os.chmod(smi, 0o755)
+open(smi, "w").write('#!/bin/sh\necho "NVIDIA GeForce GPU, $(cat %s), 8190, 97"\n' % valf); os.chmod(smi, 0o755)
 open(valf, "w").write("5427"); os.environ["PATH"] = bindir + os.pathsep + os.environ["PATH"]
 import tkinter as tk, mimickit_launcher as G
 for n in ("showinfo", "showwarning", "showerror"): setattr(G.messagebox, n, lambda *a, **k: None)
@@ -26,7 +26,7 @@ def steps():
     open(valf, "w").write("7700"); wait(5.5); col, txt, _ = bar(); check("red > 90%", col == G.App.VRAM_COLORS["bad"], "%s %s" % (col, txt))
     app._set_vram(None, None); col, txt, alltxt = bar()
     check("no nvidia-smi -> greyed 'no data'", col is None and "VRAM: no data" in alltxt and app.c_vram.itemcget(app.c_vram.find_all()[-1], "fill") == G.T["dim"])
-    app._set_vram("6000", "8192")
+    app._set_vram("6000", "8190")
     # 5-session chain: 4 old 1-row log.txt sessions + current with a CSV
     root_dir = os.path.join(mk, "output"); shutil.rmtree(root_dir, ignore_errors=True)
     names = ["bt", "bt_resume1", "bt_resume2", "bt_resume3", "bt_resume4"]

@@ -1,4 +1,19 @@
-# MimicKit Launcher a0.2.6 (draft - not released yet)
+# MimicKit Launcher a0.2.7 (draft - not released yet)
+
+## New in a0.2.7
+
+- **Reference ghost in the preview MP4** - dropdown *Reference ghost*: Side by side (default) / Overlay / Off, saved in
+  the settings. The recorder logs the reference pose of the clip the policy tracks (same motion id and time, from the
+  env's motion library) and draws it as a translucent orange character, with a Policy / Reference legend.
+- **Staged CPU preview (fix for the Windows 0xC0000005 crash)** - Auto now tries, each in a fresh process:
+  a) CPU with the GPU hidden + `PYTORCH_JIT=0` + crash tracebacks; b) on a crash, CPU with the GPU visible but unused
+  (forced cpu device, stray-CUDA guard, aborted above ~300 MB of GPU memory); c) the GPU as before. The log names the
+  variant that ran. CPU only = a then b.
+- **Preview diagnostics** button - probes P1-P7 (versions, torch / torch.jit with the GPU hidden, Warp CPU kernel,
+  MimicKit imports, build_env on the CPU, a short recording per CPU variant), each isolated with crash tracebacks and
+  checkpoints; report in the log and `output/_launcher_preview/preview_diagnostics.txt`.
+
+## Since a0.1.5
 
 Vibe coded with AI, light testing. GPL-3.0-or-later.
 

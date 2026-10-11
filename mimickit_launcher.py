@@ -4,7 +4,7 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.2.6"
+VERSION = "a0.2.7"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -77,6 +77,8 @@ def detect_python(mk):
         if os.path.exists(p): return v
     return ""
 
+GHOST_MODES = {"Off": "off", "Side by side": "side", "Overlay": "overlay"}
+
 HELP = {
     "trainsel": "Training configs found in MimicKit's args folder (files with an --agent_config).",
     "viewsel": "View configs: files with '--mode test' and no agent (they only play a motion clip).",
@@ -111,7 +113,14 @@ HELP = {
     "cursess": "Show only the current session on the x axis (earlier sessions stay drawn, just out of view).",
     "chartnav": "Chart tools: Home = back to auto-follow, Pan, Zoom to rectangle, Save picture. Mouse wheel zooms at the cursor;\n"
                 "double-click a chart to return to auto-follow. While zoomed, the 10 s refresh keeps your view.",
-    "pdevice": "Where the preview recording runs. Auto = CPU first, the GPU only if the CPU fails or is far too slow.\n"
+    "ghost": "Reference ghost in the preview MP4: the motion clip the policy is tracking (same clip, same time), drawn as a\n"
+             "translucent orange character. Side by side = next to the policy (offset sideways, camera frames both).\n"
+             "Overlay = drawn in place, on top of the policy. Off = policy only.",
+    "pdiag": "Preview diagnostics: runs probes P1-P7 (versions, torch with the GPU hidden, torch.jit, a Warp CPU kernel, MimicKit\n"
+             "imports, build_env on the CPU, a 30-frame recording per CPU variant), each in its own process with crash\n"
+             "tracebacks on. Report: output/_launcher_preview/preview_diagnostics.txt (also shown in the log).",
+    "pdevice": "Where the preview recording runs. Auto = CPU first (GPU hidden, then GPU visible but unused if that crashes), the\n"
+               "GPU only if both fail or the CPU is far too slow. Each attempt is a fresh process; the log says which one ran.\n"
                "CPU only = never touches the GPU. GPU = cuda:0, refused if less than ~600 MB of VRAM is free. Rendering is always on the CPU.",
     "stop": "Stop: kills the running MimicKit process and all its child processes (taskkill /T /F).\n"
             "Training keeps the last saved model.pt. (Windows: taskkill /T /F, Linux: kills the process group.)",
@@ -643,6 +652,12 @@ class App:
         cb = ttk.Combobox(bf2, textvariable=self.v_pdev, values=["Auto", "CPU only", "GPU"], state="readonly", width=9)
         cb.pack(side="left"); Tip(cb, HELP["pdevice"])
         cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__("preview_device", self.v_pdev.get()), self._save_settings_only()))
+        ttk.Label(bf2, text="Reference ghost").pack(side="left", padx=(12, 4))
+        self.v_ghost = tk.StringVar(value=self.s.get("preview_ghost", "Side by side"))
+        cb = ttk.Combobox(bf2, textvariable=self.v_ghost, values=list(GHOST_MODES), state="readonly", width=12)
+        cb.pack(side="left"); Tip(cb, HELP["ghost"])
+        cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__("preview_ghost", self.v_ghost.get()), self._save_settings_only()))
+        b = ttk.Button(bf2, text="Preview diagnostics", command=self.preview_diag); b.pack(side="left", padx=(12, 3)); Tip(b, HELP["pdiag"])
         ttk.Label(bf2, text="   Hover over anything to see what it does.", style="Dim.TLabel").pack(side="left", padx=12)
         self.custom = list(self.s.get("custom_args", []))
         self.rescan()
@@ -1033,8 +1048,11 @@ class App:
                    "--model_file", os.path.relpath(start, self.mk()).replace(os.sep, "/"), "--out_dir", new_rel] + self.extra_args(),
                   kind="train", out=new_abs)
 
-    def preview(self):
-        """Render preview MP4 in a separate detached process (never touches the training process)."""
+    def preview_diag(self):
+        return self.preview(diag=True)
+
+    def preview(self, diag=False):
+        """Render preview MP4 (or run the preview diagnostics) in a separate detached process (never touches training)."""
         if self.preview_proc and self.preview_proc.poll() is None:
             if messagebox.askyesno("Preview running", "A preview is being rendered. Cancel it?"): self._kill(self.preview_proc.pid, "preview")
             return
@@ -1042,19 +1060,31 @@ class App:
             messagebox.showerror("MimicKit not found", "Set the MimicKit folder in Settings."); return
         it = self._item("train")
         model = self.v_model.get().strip() or self._latest_model()
+        if diag and it: return self._start_preview(it, model, diag=True)
         if not it or not model:
             messagebox.showinfo("No model yet", "No model.pt found in the output folder yet.\nTrain first, or pick a .pt file in 'Model for Watch'."); return
-        model = model if os.path.isabs(model) else os.path.join(self.mk(), model)
+        return self._start_preview(it, model)
+
+    def _start_preview(self, it, model, diag=False):
         pdir = os.path.join(self.mk(), "output", "_launcher_preview"); os.makedirs(pdir, exist_ok=True)
         view = self._view_env(it, "preview")
         if not view: messagebox.showerror("No env config", "This config has no env_config, so there is nothing to preview."); return
-        snap = os.path.join(pdir, "preview_model.pt"); shutil.copy2(model, snap)   # snapshot: training may overwrite model.pt any time
-        itn = last_iteration(os.path.dirname(model))
-        mp4 = os.path.join(os.path.dirname(model), "preview_%s.mp4" % (itn if itn is not None else time.strftime("%Y%m%d_%H%M%S")))
-        dev = {"Auto": "auto", "CPU only": "cpu", "GPU": "gpu"}.get(self.v_pdev.get(), "auto")
-        cmd = [self.python(), "-u", os.path.join(HERE, "mimickit_preview.py"), "all", "--mk", self.mk(), "--device", dev, "--out", mp4, "--",
-               "--env_config", view, "--model_file", os.path.relpath(snap, self.mk()).replace(os.sep, "/"), "--arg_file", it["file"]] + \
-              it.get("args", []) + self.engine_args()
+        margs = []
+        if model:
+            model = model if os.path.isabs(model) else os.path.join(self.mk(), model)
+            snap = os.path.join(pdir, "preview_model.pt"); shutil.copy2(model, snap)   # snapshot: training may overwrite model.pt any time
+            margs = ["--model_file", os.path.relpath(snap, self.mk()).replace(os.sep, "/")]
+        mk_args = ["--env_config", view] + margs + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args()
+        script = os.path.join(HERE, "mimickit_preview.py")
+        if diag:
+            mp4 = os.path.join(pdir, "preview_diagnostics.txt")
+            cmd = [self.python(), "-u", script, "diag", "--mk", self.mk(), "--"] + mk_args
+        else:
+            itn = last_iteration(os.path.dirname(model))
+            mp4 = os.path.join(os.path.dirname(model), "preview_%s.mp4" % (itn if itn is not None else time.strftime("%Y%m%d_%H%M%S")))
+            dev = {"Auto": "auto", "CPU only": "cpu", "GPU": "gpu"}.get(self.v_pdev.get(), "auto")
+            cmd = [self.python(), "-u", script, "all", "--mk", self.mk(), "--device", dev, "--ghost", GHOST_MODES.get(self.v_ghost.get(), "side"),
+                   "--out", mp4, "--"] + mk_args
         logp = os.path.join(pdir, CONSOLE_FILE)
         try:
             offset = os.path.getsize(logp) if os.path.exists(logp) else 0
@@ -1063,8 +1093,9 @@ class App:
             messagebox.showerror("Could not start the preview", str(e)); return
         write_run_state(os.path.join(pdir, RUN_STATE), dict(pid=self.preview_proc.pid, cmd=cmd, kind="preview", started=time.time(),
                         log=logp, offset=offset, out=None, launcher_version=VERSION))
-        self._append("\n[gui] ===== PREVIEW  %s =====\n[gui] model %s -> %s (device %s, PID %d; runs in the background)\n" % (
-            datetime.datetime.now().strftime("%H:%M:%S"), model, mp4, self.v_pdev.get(), self.preview_proc.pid))
+        self._append("\n[gui] ===== %s  %s =====\n[gui] model %s -> %s (device %s, PID %d; runs in the background)\n" % (
+            "PREVIEW DIAGNOSTICS" if diag else "PREVIEW", datetime.datetime.now().strftime("%H:%M:%S"), model or "(none: untrained policy)",
+            mp4, self.v_pdev.get(), self.preview_proc.pid))
         threading.Thread(target=self._reader, args=(self.preview_proc, logp, offset, None, "preview"), daemon=True).start()
 
     def stop(self):

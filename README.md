@@ -68,19 +68,37 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
 keeps running:
 
 1. A separate background process (detached like training runs, so it can't take training down) runs MimicKit's own
-   `build_env` / `build_agent` with **`--devices cpu`, 1 env, no window** and `CUDA_VISIBLE_DEVICES=""`, using the
+   `build_env` / `build_agent` with **`--devices cpu`, 1 env, no window** and the GPU hidden, using the
    chronological view env (above). It plays exactly one clip length (`ceil(clip seconds x 30)` steps, deterministic
-   actions, episode ends ignored) and logs the character's joint state per frame.
+   actions, episode ends ignored) and logs the character's joint state per frame - plus the **reference pose** of the
+   clip the policy is tracking (same motion id, same time, from the env's motion library).
 2. Plain **MuJoCo on the CPU** loads the character's MJCF, poses it frame by frame (Newton's joint order/quaternions are
    converted to MuJoCo's, and checked against Newton's body positions - the log shows the difference), renders with a
    tracking camera on all CPU cores (one renderer per worker) and streams the frames into an H.264 MP4 (30 fps).
-3. The video is saved as `preview_<iteration>.mp4` next to the model and opened with your default player.
+3. **Reference ghost** (dropdown next to *Preview device*, saved in the settings): *Side by side* (default) draws the
+   reference as a translucent orange character offset sideways (the env's `ref_char_offset`, default 2 m) with the
+   camera framing both; *Overlay* draws it in place on top of the policy; *Off* = policy only. A small
+   Policy / Reference legend sits in the corner.
+4. The video is saved as `preview_<iteration>.mp4` next to the model and opened with your default player.
 
 Progress and messages appear in the log panel. **RAM limit:** the preview uses at most 80% of the RAM that is free
 when it starts; render workers are sized to fit, the memory of its processes is watched, and it stops cleanly with a
-message if it gets close. **Preview device** (below the buttons): *Auto* (default) = CPU, and only if the CPU fails
-or would take more than ~20x the clip length, the GPU (`cuda:0`, 1 env); *CPU only*; *GPU* (refused with a message if
-less than ~600 MB of VRAM is free). Rendering is always on the CPU.
+message if it gets close. **Preview device** (below the buttons) - each attempt is a fresh process and the log names
+the variant that ran (`PREVIEW VARIANT ...`):
+
+| Stage | Variant | What it does |
+|---|---|---|
+| a | `cpu-hidden` | CPU, GPU hidden (`CUDA_VISIBLE_DEVICES=-1`), `PYTORCH_JIT=0`, crash tracebacks on (`PYTHONFAULTHANDLER=1`) |
+| b | `cpu-visible` | if a crashes: CPU with the GPU visible but unused (forced `cpu` device, guard against stray CUDA launches, `PYTORCH_JIT=0`); aborted if it takes more than ~300 MB of GPU memory (nvidia-smi per process, or the growth of total use where Windows reports N/A) |
+| c | `gpu` | if both fail or the CPU is >20x slower than real time: `cuda:0`, 1 env, refused if less than ~600 MB VRAM is free |
+
+*Auto* (default) = a -> b -> c; *CPU only* = a -> b; *GPU* = c. Rendering is always on the CPU.
+
+**Preview diagnostics** (button next to the dropdowns) runs probes P1-P7, each in its own process with crash
+tracebacks and step checkpoints: P1 versions/devices, P2 torch with the GPU hidden, P3 `torch.jit.script` with the GPU
+hidden, P4 a Warp CPU kernel compile + launch, P5 MimicKit env module + mujoco imports, P6 `build_env` on the CPU,
+P7 a 30-frame recording per CPU variant (a and b). The report goes to the log panel and
+`output/_launcher_preview/preview_diagnostics.txt` - attach that file when reporting a preview crash.
 
 Measured on an 8-core CPU (no GPU), 3.5 s clip, 11-joint character: ~3 s setup, recording ~11 s (about 0.3x real
 time), rendering 640x480 ~4 s with 7 workers, peak RAM ~2.3 GB; about 25 s in total. The first run compiles Warp's CPU
@@ -229,6 +247,8 @@ xvfb-run -a python tests/chain_test.py     # Continue from run: chains across fo
 # preview pipeline end to end - needs a real MimicKit install; run with its venv python:
 PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python PREVIEW_TEST_ARGS=args/<training args>.txt \
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
+# same env vars: reference ghost (both modes), staged CPU fallback (simulated crash), diagnostics
+  xvfb-run -a /path/MimicKit/.venv/bin/python tests/ghost_test.py
 ```
 
 ## Credits
