@@ -1,0 +1,2 @@
+env_name: "view_motion"
+motion_file: "data/motions/humanoid/humanoid_walk.pkl"

@@ -1,0 +1,2 @@
+env_name: "deepmimic"
+motion_file: "data/motions/humanoid/humanoid_spinkick.pkl"

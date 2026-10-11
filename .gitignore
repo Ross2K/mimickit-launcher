@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+settings.json
+gui_settings.json
+tests/fake_mimickit/output/
+.DS_Store
+Thumbs.db
+output/
+logs/
+*.log
+console_log.txt
+chart_history.csv
+*.zip
+# personal overlay (see launcher_profile.py hook) - never publish
+launcher_profile.py
