@@ -25,9 +25,69 @@ def lan_addresses():
     except OSError: pass
     return out
 
-def dashboard_urls(host, port, token):
-    hosts = ["127.0.0.1"] if host == "127.0.0.1" else lan_addresses() + [socket.gethostname()]
-    return ["http://%s:%d/?t=%s" % (h, port, token) for h in hosts]
+def is_tailscale_ip(a):
+    """Tailscale hands out addresses from the CGNAT range 100.64.0.0/10."""
+    try:
+        import ipaddress; return ipaddress.ip_address(a) in ipaddress.ip_network("100.64.0.0/10")
+    except ValueError:
+        return False
+
+def tailscale_info(timeout=4):
+    """(ipv4 list, MagicDNS name or '') from the tailscale CLI if installed; ([], '') otherwise. Never raises."""
+    import shutil, subprocess
+    exe = shutil.which("tailscale")
+    if not exe and os.name == "nt":
+        for c in (r"C:\Program Files\Tailscale\tailscale.exe", r"C:\Program Files (x86)\Tailscale\tailscale.exe"):
+            if os.path.exists(c): exe = c; break
+    if not exe: return [], ""
+    flags = 0x08000000 if os.name == "nt" else 0
+    ips, name = [], ""
+    try:
+        out = subprocess.run([exe, "status", "--json"], capture_output=True, text=True, timeout=timeout, creationflags=flags).stdout
+        me = (json.loads(out or "{}") or {}).get("Self") or {}
+        name = (me.get("DNSName") or "").rstrip(".")
+        ips = [a for a in me.get("TailscaleIPs") or [] if "." in a]
+    except Exception:
+        pass
+    if not ips:
+        try:
+            out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=timeout, creationflags=flags).stdout
+            ips = [l.strip() for l in out.splitlines() if l.strip()]
+        except Exception:
+            pass
+    return ips, name
+
+def dashboard_urls(host, port, token, labelled=False, ts=None, lan=None, hostname=None):
+    """Tailscale addresses first (they work from anywhere), then LAN, then the hostname. labelled=True -> [(label, url)]."""
+    if host == "127.0.0.1":
+        items = [("this PC", "127.0.0.1")]
+    else:
+        ts_ips, ts_name = ts if ts is not None else tailscale_info()
+        lan = lan_addresses() if lan is None else lan
+        items, seen = [], set()
+        def add(label, h):
+            if h and h not in seen: seen.add(h); items.append((label, h))
+        for a in ts_ips + [a for a in lan if is_tailscale_ip(a)]: add("Tailscale", a)
+        if ts_name: add("Tailscale (MagicDNS)", ts_name)
+        for a in lan:
+            if not is_tailscale_ip(a): add("LAN", a)
+        add("hostname", hostname or socket.gethostname())
+    out = [(lab, "http://%s:%d/?t=%s" % (h, port, token)) for lab, h in items]
+    return out if labelled else [u for _, u in out]
+
+def load_qrcode():
+    """Import qrcode, also right after it was pip-installed while the launcher is running (clears Python's import caches)."""
+    import importlib, sys
+    importlib.invalidate_caches()
+    if "qrcode" in sys.modules: return sys.modules["qrcode"]
+    try:
+        import site; importlib.reload(site)      # picks up a user site-packages dir created by the install
+    except Exception:
+        pass
+    try:
+        return importlib.import_module("qrcode")
+    except ImportError:
+        return None
 
 # ---------------------------------------------------------------- chart PNG (agg, no pyplot, safe in any thread)
 def chart_png(snap, width=7.0, height=5.6, dpi=90, dark=True):
@@ -36,8 +96,9 @@ def chart_png(snap, width=7.0, height=5.6, dpi=90, dark=True):
     bg, fg, field, grid = ("#1e1e1e", "#d0d0d0", "#1a1a1a", "#3a3a3a") if dark else ("#f5f5f5", "#1a1a1a", "#ffffff", "#cccccc")
     fig = Figure(figsize=(width, height), dpi=dpi, layout="constrained", facecolor=bg); FigureCanvasAgg(fig)
     charts = (snap or {}).get("charts") or {}
-    for i, (key, ylabel) in enumerate((("return", "Return"), ("rate", "M samples / hour"))):
-        ax = fig.add_subplot(2, 1, i + 1); ax.set_facecolor(field)
+    panes = [("return", "Return"), ("rate", "M samples / hour")] + ([("per_step", "Reward / step (%)")] if charts.get("per_step") else [])
+    for i, (key, ylabel) in enumerate(panes):
+        ax = fig.add_subplot(len(panes), 1, i + 1); ax.set_facecolor(field)
         for s in charts.get(key, []):
             ax.plot(s["x"], s["y"], color=COLORS.get(s.get("role"), fg), linestyle=":" if s.get("role") == "bridge" else "-",
                     marker="o" if s.get("role") != "bridge" else None, markersize=2.5, label=s.get("label"))
@@ -55,7 +116,7 @@ def status_text(snap):
     s = snap or {}
     parts = [s.get("title", "MimicKit Launcher"), s.get("state", "")]
     for k, lab in (("session_time", "Session"), ("total_time", "Total training"), ("rate", "Speed"), ("samples", "Samples"),
-                   ("estimate", "Estimate"), ("vram", "VRAM")):
+                   ("estimate", "Estimate"), ("per_step", "Reward/step"), ("vram", "VRAM")):
         if s.get(k): parts.append("%s: %s" % (lab, s[k]))
     return "\n".join(p for p in parts if p)
 
@@ -80,9 +141,11 @@ button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color
 <div class="row"><span class="k">Samples</span><span class="v" id="samples"></span></div>
 <div class="row"><span class="k">Speed</span><span class="v" id="rate"></span></div>
 <div class="row"><span class="k">Estimate</span><span class="v" id="estimate"></span></div>
+<div class="row"><span class="k">Reward / step</span><span class="v" id="per_step"></span></div>
 <div class="row"><span class="k">VRAM</span><span class="v" id="vram"></span></div><div class="bar"><div id="vbar"></div></div></div>
 <div class="card"><small>Return - pinch/drag to zoom time, double-tap to reset</small><canvas id="c1"></canvas>
-<small>M samples / hour</small><canvas id="c2"></canvas></div>
+<small>M samples / hour</small><canvas id="c2"></canvas>
+<div id="psw" style="display:none"><small>Avg reward per step (%)</small><canvas id="c3"></canvas></div></div>
 <div class="card"><div id="pv"><small>No preview yet.</small></div><p></p>
 <button id="render">Render preview</button><p><small id="rmsg"></small></p></div>
 <div class="card"><small>Read-only dashboard: training can't be started or stopped from here. Updates every 10 s.</small></div>
@@ -103,9 +166,10 @@ function chart(cv,series){const r=window.devicePixelRatio||1,w=cv.clientWidth,h=
  for(let i=0;i<=4;i++){const xx=x0+(x1-x0)*i/4;g.textAlign=i==0?'left':i==4?'right':'center';g.fillText(xx.toFixed(1),X(xx),h-4)}g.textAlign='left';
  g.save();g.beginPath();g.rect(L,0,W,h);g.clip();for(const s of series){g.strokeStyle=COL[s.role]||'#ccc';g.setLineDash(s.role==='bridge'?[3,3]:[]);g.lineWidth=1.6;g.beginPath();let st=false;
  for(let i=0;i<s.x.length;i++){const y=s.y[i];if(y===null||y!==y){st=false;continue}const px=X(s.x[i]),py=Y(y);st?g.lineTo(px,py):g.moveTo(px,py);st=true}g.stroke()}g.restore()}
-function draw(){if(!S)return;chart(q('c1'),(S.charts||{}).return||[]);chart(q('c2'),(S.charts||{}).rate||[])}
+function draw(){if(!S)return;const C=S.charts||{};chart(q('c1'),C.return||[]);chart(q('c2'),C.rate||[]);
+ const ps=C.per_step||[];q('psw').style.display=ps.length?'':'none';if(ps.length)chart(q('c3'),ps)}
 function full(){const e=ext([].concat((S.charts||{}).return||[],(S.charts||{}).rate||[]));return e?[e[0],e[1]]:[0,1]}
-for(const id of ['c1','c2']){const cv=q(id);let t0=null,last=0;
+for(const id of ['c1','c2','c3']){const cv=q(id);let t0=null,last=0;
  cv.addEventListener('touchstart',e=>{if(!S)return;const v=view||full(),r=cv.getBoundingClientRect();
   if(e.touches.length===1&&Date.now()-last<300){view=null;draw();t0=null;return}last=Date.now();
   t0={v:v.slice(),xs:[...e.touches].map(t=>t.clientX-r.left),w:r.width}},{passive:true});
@@ -116,7 +180,7 @@ for(const id of ['c1','c2']){const cv=q(id);let t0=null,last=0;
  cv.addEventListener('dblclick',()=>{view=null;draw()})}
 async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){q('state').textContent='access denied ('+r.status+')';return}
  S=await r.json();q('title').textContent=S.title||'MimicKit';q('state').textContent=S.state||'';
- for(const k of ['session_time','total_time','samples','rate','estimate','vram'])q(k).textContent=S[k]||'-';
+ for(const k of ['session_time','total_time','samples','rate','estimate','per_step','vram'])q(k).textContent=S[k]||'-';
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
  q('age').textContent=new Date().toLocaleTimeString();draw();
  const p=S.preview;if(p&&p.key!==pvKey){pvKey=p.key;q('pv').innerHTML='<small>'+p.name+'</small><video controls playsinline preload="metadata" src="/preview.mp4?t='+encodeURIComponent(T)+'&k='+encodeURIComponent(p.key)+'"></video>'}

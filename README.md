@@ -201,6 +201,23 @@ Why these pins: MimicKit lists Newton **1.0.0** as tested (a plain `pip install 
 needs newer drivers/GPUs. `warp-lang==1.12.1` is the version known to work with Newton 1.0.0 here.
 `requirements.txt` may try to change these; if so, re-run the `pip install "newton[sim]==1.0.0" "warp-lang==1.12.1"` line afterwards.
 
+## MimicKit patches (optional, reversible)
+
+**Settings -> MimicKit patches...** shows small changes the launcher can make to your MimicKit install, each with its
+status (applied / not applied / unknown), **Apply** and **Revert**. Before the first change the original file is copied
+to `<file>.launcher_orig`; applying or reverting twice changes nothing, line endings are kept, and if MimicKit's file
+no longer contains the expected line the launcher refuses and leaves it alone. Changes affect runs started afterwards.
+
+- **Logging** (`mimickit/learning/base_agent.py`): MimicKit already computes `Train_Episode_Length` /
+  `Test_Episode_Length` but logs them as *quiet* (log.txt only). The patch removes `quiet=True` from those two log
+  calls so they appear in the console table the launcher reads live. Cost: two extra table rows per iteration.
+- **Solver** (`mimickit/engines/newton_engine.py`): the GTX 10-series fix below (`solver="cg", jacobian="sparse"`).
+
+**Avg reward per step** = Return / episode length, in %. In DeepMimic-style tasks each step's reward is 0..1, so 100%
+means perfect tracking on every step; unlike Return it doesn't rise just because episodes get longer. It is shown in
+Status (train and test), as an optional third chart (*Per-step chart* checkbox) and on the phone dashboard. Without the
+logging patch the launcher reads it from log.txt (MimicKit writes that less often) or says it needs the patch.
+
 ## GTX 10-series / Pascal (sm_61) fix
 
 Two problems hit Pascal cards (GTX 1050-1080, Titan Xp, P100...):
@@ -225,6 +242,7 @@ Two problems hit Pascal cards (GTX 1050-1080, Titan Xp, P100...):
    (Get-Content mimickit\engines\newton_engine.py) -replace 'solver="newton",', 'solver="cg", jacobian="sparse",' | Set-Content mimickit\engines\newton_engine.py
    ```
    CG converges a bit differently than Newton's method, but training works fine. Newer GPUs don't need this.
+   The launcher can apply and revert this for you: **Settings -> MimicKit patches...**.
 
 ## VRAM tuning (`num_envs`)
 
@@ -271,11 +289,14 @@ xvfb-run -a python tests/chain_test.py     # Continue from run: chains across fo
 PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python PREVIEW_TEST_ARGS=args/<training args>.txt \
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
 xvfb-run -a python tests/nav_test.py      # chart navigation, light/dark charts, single-instance tooltips
+xvfb-run -a python tests/patch_score_test.py  # MimicKit patches apply/revert, per-step score, URL order + QR refresh
 xvfb-run -a python tests/remote_test.py   # phone dashboard (token, range requests, rate limit), notifications (mocked), GUI responsiveness
 # same env vars: reference ghost (both modes), staged CPU fallback (simulated crash), diagnostics
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/ghost_test.py
 # + PREVIEW_TEST_MULTI_ENV=data/envs/<env with a 2+ motion dataset>.yaml: multi-motion preview, both layouts
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/multi_test.py
+# PREVIEW_TEST_VIEW_ARGS=args/<view args>.txt: preview of view (motion playback) presets
+  xvfb-run -a /path/MimicKit/.venv/bin/python tests/view_test.py
 ```
 
 ## Credits

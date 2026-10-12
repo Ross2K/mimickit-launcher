@@ -17,7 +17,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "record" and (_argv_get("--variant") == 
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
     os.environ.setdefault("PYTORCH_JIT", "0")      # TorchScript compile with CUDA hidden crashed (0xC0000005) on Windows
 import faulthandler; faulthandler.enable()          # a native crash prints the Python stack (pinpoints the line)
-import argparse, json, math, shutil, subprocess, tempfile, threading, time
+import argparse, json, socket, math, shutil, subprocess, tempfile, threading, time
 
 FPS_DEFAULT = 30
 RAM_FRACTION = 0.80          # budget = 80% of free RAM at launch
@@ -137,10 +137,19 @@ def _maybe_simulated_crash(variant, where):
     if v and v.split(":")[0] == variant and (v.split(":")[1] if ":" in v else "build_env") == where:
         import ctypes; ckpt("simulated native crash"); ctypes.string_at(0)
 
-def _ref_joint_q(env, jtypes, jstart, nq, e=0):
+def _view_ids_times(env):
+    """View (motion playback) envs: env k plays motion k % count at time_buf * time_scale."""
+    import torch
+    return env._get_env_motion_ids(), env._time_buf * getattr(env, "_time_scale", 1.0)
+
+def _ref_joint_q(env, jtypes, jstart, nq, e=0, view=False):
     """Reference pose of the motion the policy is tracking (same motion id, same time), in Newton's joint_q layout."""
     import torch
-    lib = env._motion_lib; mids = env._motion_ids[e:e + 1]; t = env._get_motion_times()[e:e + 1]
+    lib = env._motion_lib
+    if view:
+        ids, ts = _view_ids_times(env); mids, t = ids[e:e + 1], ts[e:e + 1]
+    else:
+        mids = env._motion_ids[e:e + 1]; t = env._get_motion_times()[e:e + 1]
     rp, rr, _, _, jr, _ = lib.calc_motion_frame(mids, t)
     kin = env._kin_char_model; dof = kin.rot_to_dof(jr)[0]; q = torch.zeros(nq)
     bp = kin.forward_kinematics(rp, rr, jr)[0][0]
@@ -149,6 +158,43 @@ def _ref_joint_q(env, jtypes, jstart, nq, e=0):
         elif tname == "BALL": q[s:s + 4] = jr[0, j - 1]
         elif tname in ("REVOLUTE", "PRISMATIC"): q[s] = dof[kin.get_joint_dof_idx(j)]
     return q.cpu().numpy(), bp.detach().cpu().numpy(), float(t[0])
+
+BUILD_CKPTS = [      # (module, attribute path) wrapped with CKPT enter/leave lines; missing ones are skipped
+    ("envs.env_builder", "build_env"), ("engines.engine_builder", "build_engine"),
+    ("envs.deepmimic_env", "DeepMimicEnv.__init__"), ("envs.char_env", "CharEnv.__init__"), ("envs.sim_env", "SimEnv.__init__"),
+    ("envs.sim_env", "SimEnv._build_engine"), ("envs.sim_env", "SimEnv._build_envs"),
+    ("engines.newton_engine", "NewtonEngine.__init__"), ("engines.newton_engine", "NewtonEngine.initialize_sim"),
+    ("engines.newton_engine", "NewtonEngine._build_solver"), ("newton", "ModelBuilder.finalize"),
+    ("anim.motion_lib", "MotionLib.__init__"), ("anim.kin_char_model", "KinCharModel.load_char_file"),
+]
+def install_build_ckpts():
+    """Finer checkpoints inside build_env (a native crash then names the step), plus a note on every CUDA query torch
+    gets while the GPU is supposed to be unused (torch.cuda.is_available / device_count / pin_memory)."""
+    import importlib, functools
+    done = []
+    def wrap(owner, attr, label):
+        fn = getattr(owner, attr)
+        if getattr(fn, "_mk_ckpt", False): return
+        @functools.wraps(fn)
+        def w(*a, **k):
+            ckpt("> " + label)
+            out = fn(*a, **k); ckpt("< " + label); return out
+        w._mk_ckpt = True; setattr(owner, attr, w); done.append(label)
+    for mod, path in BUILD_CKPTS:
+        try:
+            if mod not in sys.modules: ckpt("import " + mod)
+            m = importlib.import_module(mod); owner = m; parts = path.split(".")
+            for pp in parts[:-1]: owner = getattr(owner, pp)
+            if hasattr(owner, parts[-1]): wrap(owner, parts[-1], "%s.%s" % (mod.split(".")[-1], path))
+        except Exception as e:
+            ckpt("(no checkpoint for %s.%s: %s)" % (mod, path, type(e).__name__))
+    try:
+        import torch
+        for owner, attr in ((torch.cuda, "is_available"), (torch.cuda, "device_count"), (torch.Tensor, "pin_memory")):
+            wrap(owner, attr, "torch.%s" % attr)
+    except Exception:
+        pass
+    return done
 
 def cmd_record(a):
     mk = os.path.abspath(a.mk); os.chdir(mk); sys.path.insert(0, os.path.join(mk, "mimickit"))
@@ -179,11 +225,12 @@ def cmd_record(a):
     mp_util.init(0, 1, a.device, 6000)          # like run.py's run(): logger/agent tensors use this device
     mk_run.set_rand_seed(args); mk_run.set_np_formatting()
     t0 = time.time()
+    if cpu: ckpt("finer build_env checkpoints: %d hooks" % len(install_build_ckpts()))
     _maybe_simulated_crash(a.variant, "build_env")
     ckpt("build_env"); 
     clips = dataset_motions(mk, args.parse_string("env_config"))
     K = max(1, min(a.motions, MAX_CLIPS, len(clips))) if a.motions > 0 else 1
-    log("training motions: %d%s; previewing %d (one env per motion, each from t=0)" % (len(clips),
+    log("motions: %d%s; previewing %d (one env per motion, each from t=0)" % (len(clips),
         " (" + ", ".join(os.path.basename(c) for c in clips[:8]) + ")" if clips else "", K))
     with wp.ScopedDevice(a.device):
         env = mk_run.build_env(args, K, a.device, False)
@@ -211,7 +258,14 @@ def cmd_record(a):
     with torch.no_grad():
         obs, info = env.reset()
     lib = getattr(env, "_motion_lib", None)
-    mids = [int(v) for v in env._motion_ids[:K]] if hasattr(env, "_motion_ids") else [0]
+    view = hasattr(env, "_sync_motion") and hasattr(env, "_get_env_motion_ids") and lib is not None
+    if view:
+        # View/motion-playback preset: the env poses the character from the clip AFTER the physics step, so the sim's
+        # joint_q lags a frame (and isn't the clip's start pose at frame 0). Record the clip pose itself instead.
+        log("view preset: recording the motion clip itself (no policy, no ghost)")
+        mids = [int(v) for v in env._get_env_motion_ids()[:K]]
+    else:
+        mids = [int(v) for v in env._motion_ids[:K]] if hasattr(env, "_motion_ids") else [0]
     lens = [float(lib.get_motion_length(torch.tensor([m], device=a.device))[0]) for m in mids] if lib is not None else [a.seconds]
     names = [os.path.basename(str(lib.get_motion_file(m))) for m in mids] if lib is not None and hasattr(lib, "get_motion_file") else ["clip"]
     nper = [int(math.ceil(L_ * fps)) for L_ in lens]
@@ -231,9 +285,9 @@ def cmd_record(a):
     nb = j1 - j0
     bnames = [os.path.basename(str(x)) for x in list(bl)[j0:j1]]
     Q = np.zeros((n, K, q1 - q0), np.float32); BP = np.zeros((n, K, nb, 3), np.float32)
-    has_ref = all(hasattr(env, k) for k in ("_motion_lib", "_motion_ids", "_get_motion_times", "_kin_char_model"))
+    has_ref = not view and all(hasattr(env, k) for k in ("_motion_lib", "_motion_ids", "_get_motion_times", "_kin_char_model"))
     RQ = np.zeros_like(Q); RBP = np.zeros_like(BP); RT = np.zeros((n, K), np.float32)
-    if not has_ref: log("this env has no reference motion - no ghost")
+    if not has_ref and not view: log("this env has no reference motion - no ghost")
     off = getattr(env, "_ref_char_offset", None)
     ref_off = [float(v) for v in off.cpu().numpy()] if off is not None else [2.0, 0.0, 0.0]
     ckpt("stepping")
@@ -245,6 +299,8 @@ def cmd_record(a):
             jq = eng._sim_state._torch_joint_q.view(K, -1); bq = eng._sim_state._torch_body_q.view(K, -1, 7)
             Q[i] = jq[:, q0:q1].detach().cpu().numpy()
             BP[i] = bq[:, j0:j1, :3].detach().cpu().numpy()
+            if view:
+                for k in range(K): Q[i, k], BP[i, k], _ = _ref_joint_q(env, jtypes, jstart, q1 - q0, k, view=True)
             if has_ref:
                 for k in range(K): RQ[i, k], RBP[i, k], RT[i, k] = _ref_joint_q(env, jtypes, jstart, q1 - q0, k)
             now = time.time()
@@ -261,7 +317,7 @@ def cmd_record(a):
              motion_ids=np.array(mids), clip_names=np.array(names), clip_lens=np.array(lens, np.float32), clip_frames=np.array(nper),
              char_file=_char_file(mk, args.parse_string("env_config")),
              record_seconds=el, setup_seconds=setup, device=a.device, variant=a.variant,
-             has_ref=has_ref, ref_joint_q=RQ, ref_body_pos=RBP, ref_time=RT, ref_offset=np.array(ref_off, np.float32))
+             has_ref=has_ref, view=view, ref_joint_q=RQ, ref_body_pos=RBP, ref_time=RT, ref_offset=np.array(ref_off, np.float32))
     log("recorded %d steps x %d clip(s) in %.1f s (%.1fx real time; setup %.1f s) -> %s" % (n, K, el, n / fps / el, setup, a.out))
 
 def dataset_motions(mk, env_yaml):
@@ -518,7 +574,8 @@ def cmd_render(a, guard=None):
     log("joint mapping check: max body position difference Newton vs MuJoCo = %.6f m (%s)" % (err, "OK" if err < 0.01 else "WARNING: mapping looks wrong"))
     mode = getattr(a, "ghost", "off") or "off"
     if mode != "off" and not ("has_ref" in z.files and bool(z["has_ref"])):
-        log("reference ghost: not available for this env"); mode = "off"
+        if not ("view" in z.files and bool(z["view"])): log("reference ghost: not available for this env")
+        mode = "off"
     if mode != "off":
         gerrs = verify_mapping(char_file, a.npz, ref=True, per_clip=True); gerr = max(gerrs)
         mids = [int(v) for v in z["motion_ids"]] if "motion_ids" in z.files else [int(z["motion_id"])]
@@ -572,6 +629,24 @@ VARIANTS = {
     "cpu-visible": ("cpu", "CPU, GPU visible but unused (forced cpu device + guard, PYTORCH_JIT=0, VRAM cap %d MB)" % VRAM_CAP_MB),
     "gpu":         ("cuda:0", "GPU cuda:0, 1 env"),
 }
+NATIVE_CRASH_CODES = (0xC0000005, 0xC0000409, 0xC000001D)
+def is_native_crash(rc):
+    return rc is not None and (rc < 0 or (rc & 0xFFFFFFFF) in NATIVE_CRASH_CODES)
+
+def _is_windows(): return os.name == "nt" or os.environ.get("MIMICKIT_PREVIEW_ASSUME_WINDOWS") == "1"
+def _state_path(a): return os.path.join(os.path.abspath(a.mk), "output", "_launcher_preview", "preview_state.json")
+def load_state(a):
+    try: return json.load(open(_state_path(a))).get(socket.gethostname(), {})
+    except Exception: return {}
+def save_state(a, upd):
+    p = _state_path(a)
+    try: allst = json.load(open(p))
+    except Exception: allst = {}
+    allst.setdefault(socket.gethostname(), {}).update(upd)
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True); json.dump(allst, open(p, "w"), indent=1)
+    except OSError: pass
+
 def stages_for(device):
     return {"cpu": ["cpu-hidden", "cpu-visible"], "gpu": ["gpu"]}.get(device, ["cpu-hidden", "cpu-visible", "gpu"])
 
@@ -635,7 +710,7 @@ def _record_proc(a, device, guard, slow_check, variant=None):
     p.wait(); guard.children = []
     if guard.tripped: ram_abort(guard)
     if variant == "cpu-visible":
-        log("stage cpu-visible GPU memory: peak %.0f MB (%s)" % (vram["peak"], vram["method"] or "unavailable"))
+        log("stage cpu-visible GPU memory: peak %.0f MB (%s)" % (vram["peak"], vram["method"] or "unavailable")); a._visible_peak = vram["peak"]
     if vram["over"] is not None:
         log("ABORTED stage cpu-visible: it used %.0f MB of GPU memory (cap %d MB)" % (vram["over"], VRAM_CAP_MB)); return 7
     return p.returncode
@@ -653,7 +728,12 @@ def cmd_all(a):
     a.warp_cache = a.warp_cache or os.path.join(os.path.abspath(a.mk), "output", "_launcher_preview", "warp_cache")
     log("own Warp kernel cache (the training cache is never written): %s" % a.warp_cache)
     t0 = time.time(); rc = None
-    stages = stages_for(a.device); i = 0
+    stages = stages_for(a.device); i = 0; hidden_crash = None
+    st = load_state(a)
+    if _is_windows() and st.get("skip_cpu_hidden") and "cpu-hidden" in stages and not os.environ.get("MIMICKIT_PREVIEW_RETRY_HIDDEN"):
+        stages.remove("cpu-hidden")
+        log("using cpu-visible on this PC: cpu-hidden (GPU fully hidden) stopped working here on %s, while cpu-visible works with a "
+            "tiny GPU footprint (~%s MB, no training impact). Preview diagnostics re-checks both." % (st.get("since", "?"), st.get("visible_mb", "<300")))
     log("staged recording plan: " + " -> ".join(stages))
     while i < len(stages):
         v = stages[i]; dev, desc = VARIANTS[v]
@@ -670,7 +750,18 @@ def cmd_all(a):
             else "recording on cuda:0")
         rc = _record_proc(a, dev, guard, slow_check=(a.device == "auto" and dev == "cpu"), variant=v)
         if rc == 0:
-            log("recorded with variant %s" % v); break
+            log("recorded with variant %s" % v)
+            if v == "cpu-visible" and hidden_crash is not None and _is_windows():
+                save_state(a, dict(skip_cpu_hidden=True, since=time.strftime("%Y-%m-%d"), hidden_exit=hidden_crash,
+                                   visible_mb=round(getattr(a, "_visible_peak", 0) or 0)))
+                log("noted for this PC: next previews go straight to cpu-visible")
+            break
+        if v == "cpu-hidden" and is_native_crash(rc):
+            hidden_crash = rc & 0xFFFFFFFF if rc > 0 else rc
+            i += 1
+            log("cpu-hidden is not usable on this PC (exit code %s%s) - switching to cpu-visible, which is the normal path on some "
+                "Windows setups." % (rc, ", 0x%08X" % (rc & 0xFFFFFFFF) if abs(rc) > 255 else ""))
+            continue
         if rc == EXIT_RAM: sys.exit(rc)
         why = "too slow" if rc == 4 else "crashed/failed (exit code %s%s)" % (rc, ", 0x%08X" % (rc & 0xFFFFFFFF) if rc and abs(rc) > 255 else "")
         i += 1

@@ -4,7 +4,7 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.3.0"
+VERSION = "a0.3.1"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -83,6 +83,12 @@ GHOST_MODES = {"Off": "off", "Side by side": "side", "Overlay": "overlay"}
 CLIP_LAYOUTS = {"All at once": "grid", "One after another": "seq"}
 
 HELP = {
+    "perstep": "Avg reward per step = Return / episode length, in % (each step's reward is 0..1 in DeepMimic-style tasks, so\n"
+               "100% = perfect tracking every step). Unlike Return it doesn't grow just because episodes get longer.\n"
+               "Needs Train/Test_Episode_Length in the console: Settings -> MimicKit patches... -> logging patch\n"
+               "(without it the value is read from log.txt, which MimicKit writes less often).",
+    "patches": "Small optional changes to your MimicKit install, applied and reverted by the launcher (a backup of the original\n"
+               "file is kept as <file>.launcher_orig). They affect runs started afterwards.",
     "remote": "Optional, off by default. Phone dashboard: a small read-only web page (status, charts, VRAM, newest preview\n"
               "video, a rate-limited 'Render preview' button) served by the launcher, protected by a random token.\n"
               "Use it over Tailscale (docs/REMOTE_ACCESS.md) - never forward the port on your router.\n"
@@ -401,7 +407,25 @@ class LineTail:
         *lines, self.buf = self.buf.split("\n")
         if final and self.buf: lines.append(self.buf); self.buf = ""
         return [l + "\n" for l in lines]
-HIST_COLS = ["Iteration", "Samples", "Wall_Time", "Train_Return", "Test_Return", "Samples_Per_Second"]
+HIST_COLS = ["Iteration", "Samples", "Wall_Time", "Train_Return", "Test_Return", "Samples_Per_Second",
+             "Train_Episode_Length", "Test_Episode_Length"]
+
+def per_step_pct(ret, ep_len):
+    """Average reward per step in % (DeepMimic-style rewards are 0..1 per step): return / episode length."""
+    try:
+        ret, ep_len = float(ret), float(ep_len)
+    except (TypeError, ValueError):
+        return None
+    if not (ep_len > 0) or ret != ret: return None
+    return 100.0 * ret / ep_len
+
+def per_step_series(h):
+    """{'Train': [...], 'Test': [...]} per-step % per row (None where unknown) for a history/console dict."""
+    out = {}
+    for k in ("Train", "Test"):
+        R_, L = h.get(k + "_Return") or [], h.get(k + "_Episode_Length") or []
+        if L and any(v == v for v in L): out[k] = [per_step_pct(a, b) for a, b in zip(R_, L)]
+    return out
 
 def load_history(d):
     """Per-iteration rows of one run folder: chart_history.csv if present, else backfilled from log.txt."""
@@ -437,11 +461,14 @@ def append_history(d, data, already):
     f = os.path.join(d, HIST_FILE)
     try:
         new = not os.path.exists(f) or already == 0
+        cols = HIST_COLS
+        if not new:          # keep the existing file's columns (older launchers wrote fewer)
+            with open(f, errors="replace") as fh: cols = (fh.readline().strip().split(",") or HIST_COLS)
         with open(f, "w" if new else "a") as fh:
             if new: fh.write(",".join(HIST_COLS) + "\n"); already = 0
             for i in range(already, n):
                 fh.write(",".join(("%.10g" % data[k][i]) if k in data and i < len(data[k]) and data[k][i] == data[k][i] else ""
-                                  for k in HIST_COLS) + "\n")
+                                  for k in cols) + "\n")
         return n
     except OSError:
         return already
@@ -676,7 +703,8 @@ class App:
         self.v_light = tk.BooleanVar(value=bool(self.s.get("light_mode", False)))
         cbx = ttk.Checkbutton(st, text="Light mode", variable=self.v_light, command=self._toggle_theme)
         cbx.grid(row=0, column=4, rowspan=2, padx=8); Tip(cbx, "Dark mode is the default (easy on OLED screens). Tick for a light theme. Saved automatically.")
-        b = ttk.Button(st, text="Phone + notifications...", command=self.remote_dialog); b.grid(row=0, column=5, rowspan=2, padx=4)
+        b = ttk.Button(st, text="Phone + notifications...", command=self.remote_dialog); b.grid(row=0, column=5, padx=4)
+        b2 = ttk.Button(st, text="MimicKit patches...", command=self.patch_dialog); b2.grid(row=1, column=5, padx=4); Tip(b2, HELP["patches"])
         Tip(b, HELP["remote"])
 
         job = ttk.LabelFrame(top, text="What to run", padding=6); job.pack(fill="x", pady=4)
@@ -767,16 +795,19 @@ class App:
         self.prog_frame = right
         self.root.after(300, lambda: mid.sashpos(0, 600))
         self.fig = Figure(figsize=(5.5, 5), dpi=90, layout="constrained")
-        self.ax1 = self.fig.add_subplot(211); self.ax2 = self.fig.add_subplot(212)
+        self.v_ps = tk.BooleanVar(value=bool(self.s.get("per_step_chart", True))); self.ax3 = None
+        self._make_axes()
         self.canvas = FigureCanvasTkAgg(self.fig, master=right)
         # chart navigation (no modes): left-drag = pan time (x) of both charts, wheel = zoom time at the cursor, y fixed to
         # the full data range (manual y drag only when a chart has visible data outside its y range), Home/double-click = reset
-        self.xview = None; self.yman = [None, None]; self.drag = None; self.yfull = [None, None]
+        self.xview = None; self.drag = None
         self.v_cur = tk.BooleanVar(value=bool(self.s.get("current_session_only", False)))
         navf = ttk.Frame(right); navf.pack(side="bottom", fill="x"); self.navf = navf
         self.b_home = ttk.Button(navf, text="Home", width=7, command=self._auto_follow); self.b_home.pack(side="left", padx=(0, 4))
         self.b_save = ttk.Button(navf, text="Save picture...", command=self._save_chart); self.b_save.pack(side="left")
         c = ttk.Checkbutton(navf, text="Current session only", variable=self.v_cur, command=self._cur_toggled); c.pack(side="left", padx=10)
+        c2 = ttk.Checkbutton(navf, text="Per-step chart", variable=self.v_ps, command=self._ps_toggled); c2.pack(side="left")
+        Tip(c2, HELP["perstep"])
         Tip(c, HELP["cursess"]); Tip(self.b_home, HELP["chartnav"]); Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         Tip(self.canvas.get_tk_widget(), HELP["chartnav"])
@@ -826,7 +857,7 @@ class App:
         self.t_log.configure(bg=T["log_bg"], fg=T["log_fg"], insertbackground=T["log_fg"], selectbackground=T["sel"], highlightthickness=0, relief="flat")
         # matplotlib
         self.fig.set_facecolor(T["panel"])
-        for ax in (self.ax1, self.ax2): self._style_ax(ax)
+        for ax in self._axes(): self._style_ax(ax)
         self.canvas.get_tk_widget().configure(bg=T["panel"], highlightthickness=0)
         self._restyle_artists()
         self.canvas.draw_idle()
@@ -874,10 +905,18 @@ class App:
         else: self.v_tkind.set("score (Train_Return)"); self.v_tval.set("%g" % t["value"])
 
     # ---------- chart navigation
-    def _axes(self): return (self.ax1, self.ax2)
+    def _make_axes(self):
+        """2 charts (return, speed) or 3 with the per-step score chart."""
+        self.fig.clear(); n = 3 if self.v_ps.get() else 2
+        axes = [self.fig.add_subplot(n, 1, i + 1) for i in range(n)]
+        self.ax1, self.ax2 = axes[0], axes[1]; self.ax3 = axes[2] if n == 3 else None
+        self.yman = [None] * n; self.yfull = [None] * n
+    def _ps_toggled(self):
+        self.s["per_step_chart"] = bool(self.v_ps.get()); self._save_settings_only(); self._make_axes(); self.apply_theme(); self._auto_follow()
+    def _axes(self): return tuple(a for a in (self.ax1, self.ax2, self.ax3) if a is not None)
     def _auto_follow(self):
         """Home / double-click: full view, follow new data, vertical scale back to the full data range."""
-        self.xview = None; self.yman = [None, None]; self.drag = None; self._progress_tick(force=True)
+        self.xview = None; self.yman = [None] * len(self._axes()); self.drag = None; self._progress_tick(force=True)
     def _cur_toggled(self):
         self.s["current_session_only"] = bool(self.v_cur.get()); self._save_settings_only(); self._auto_follow()
     def _set_x(self, xl):
@@ -1402,7 +1441,8 @@ class App:
             pass
         self.prog_frame.configure(text="Training progress (data: %s, %d points%s; refreshed every 10 s)" % (
             src, len(log.get("Samples", [])), ", +%d earlier sessions" % len(earlier) if earlier else ""))
-        self.ax1.clear(); self.ax2.clear(); self._style_ax(self.ax1); self._style_ax(self.ax2)
+        for ax in self._axes(): ax.clear(); self._style_ax(ax)
+        ax3 = self.ax3
         off = 0.0; xmax = 0.0; sparse = 0; prev = {}   # last point of the previous session, per series
         segs = []; est_rate = 0.0                     # (cumulative samples, Train_Return) per session, for the estimate
         def bridge(ax, key, x0, y0):
@@ -1419,6 +1459,11 @@ class App:
                     self.ax1.plot(xs[:len(ys)], ys, color=T["dim"], alpha=0.7, marker="o", markersize=5,
                                   linewidth=1.5, label=lab if key == "Train_Return" else None, gid="earlier")
                     prev[key] = (xs[len(ys) - 1], ys[-1])
+            if ax3 is not None:
+                for k, ps in per_step_series(h).items():
+                    ys = [v if v is not None else float("nan") for v in ps][:nh]; bridge(ax3, "ps" + k, xs[0], ys[0])
+                    ax3.plot(xs[:len(ys)], ys, color=T["dim"], alpha=0.7, marker="o", markersize=4, linewidth=1.3, gid="earlier")
+                    prev["ps" + k] = (xs[len(ys) - 1], ys[-1])
             r = rate_per_hour(h)[1]
             if r:
                 rv = [v / 1e6 for v in r]; bridge(self.ax2, "rate", xs[0], rv[0])
@@ -1442,17 +1487,22 @@ class App:
                 if log.get(key):
                     bridge(self.ax1, key, x[0], log[key][0])
                     self.ax1.plot(x[:len(log[key])], log[key][:n], label=lab, color=col, marker="o", markersize=3, gid=g)
+            if ax3 is not None:
+                for k, ps in per_step_series(log).items():
+                    ys = [v if v is not None else float("nan") for v in ps][:n]; bridge(ax3, "ps" + k, x[0], ys[0])
+                    ax3.plot(x[:len(ys)], ys, color=T["line1"] if k == "Train" else T["line2"], marker="o", markersize=3,
+                             gid="cur1" if k == "Train" else "cur2", label="%s per step" % k.lower())
             if rates:
                 bridge(self.ax2, "rate", x[0], rates[0] / 1e6)
                 self.ax2.plot(x[:len(rates)], [r / 1e6 for r in rates], color=T["line3"], marker="o", markersize=3, gid="cur3")
             if n < 2 and not earlier:   # one point: sensible x range instead of matplotlib's +-tiny default
-                for ax in (self.ax1, self.ax2): ax.set_xlim(0, max(x[-1] * 2, 0.1))
+                for ax in self._axes(): ax.set_xlim(0, max(x[-1] * 2, 0.1))
                 self.ax1.text(0.02, 0.95, "only %d point so far - more appear as training runs" % n, color=T["dim"],
                               transform=self.ax1.transAxes, va="top", fontsize=8)
         elif not earlier:
             lines.append("No training data yet (waiting for the first '| Iteration |' table or log.txt rows).")
             self.ax1.text(0.5, 0.5, "waiting for data", ha="center", color=T["dim"], transform=self.ax1.transAxes)
-            for ax in (self.ax1, self.ax2): ax.set_xlim(0, 1)
+            for ax in self._axes(): ax.set_xlim(0, 1)
         else:
             lines.append("This session has no data yet; grey = earlier sessions.")
         cur_range = None
@@ -1461,8 +1511,14 @@ class App:
             cur_range = (lo - pad, hi + pad)
         if any(ax.get_lines() for ax in self._axes()): self._apply_view(cur_range)
         self.ax1.set_ylabel("Return"); self.ax2.set_ylabel("M samples / hour")
+        lines.append(self._per_step_line(log, d))
+        if ax3 is not None:
+            ax3.set_ylabel("Reward / step (%)")
+            if not ax3.get_lines():
+                ax3.text(0.5, 0.5, "per-step score needs episode length - see Settings -> MimicKit patches...", ha="center",
+                         va="center", color=T["dim"], transform=ax3.transAxes, fontsize=8)
         if self.ax1.get_lines(): self.ax1.legend(loc="lower right", fontsize=8)
-        for ax in (self.ax1, self.ax2): ax.set_xlabel("Total samples, all sessions (millions)"); self._style_ax(ax)   # after legend()
+        for ax in self._axes(): ax.set_xlabel("Total samples, all sessions (millions)" if ax is self._axes()[-1] else ""); self._style_ax(ax)   # after legend()
         m = os.path.join(d, "model.pt")
         if os.path.exists(m):
             age = time.time() - os.path.getmtime(m)
@@ -1489,6 +1545,45 @@ class App:
         try: self._publish(lines, d, running)
         except Exception as ex: self.q.put("[remote] snapshot failed: %s\n" % ex)
 
+    def _per_step_line(self, log, d):
+        """Status line 'Avg reward per step'. Live from the console when the logging patch is in; else from log.txt."""
+        def latest(h):
+            vals = {}
+            for k, ps in per_step_series(h).items():
+                v = next((p for p in reversed(ps) if p is not None), None)
+                if v is not None: vals[k] = v
+            return vals
+        v = latest(log); src = ""
+        if not v:
+            try: v = latest(parse_log(os.path.join(d, "log.txt"))); src = " (from log.txt - may lag; the logging patch makes it live)"
+            except Exception: v = {}
+        if not v: self.per_step = None; return "Avg reward per step: needs the logging patch - see README (Settings -> MimicKit patches...)"
+        self.per_step = v
+        return "Avg reward per step: %s%s" % ("   ".join("%s %.1f%%" % (k.lower(), x) for k, x in v.items()), src)
+
+    def patch_dialog(self):
+        import mimickit_patches as MP
+        top = tk.Toplevel(self.root); top.title("MimicKit patches"); top.configure(bg=T["bg"])
+        f = ttk.Frame(top, padding=10); f.pack(fill="both", expand=True); rows = {}
+        ttk.Label(f, text="Folder: " + self.mk(), style="Dim.TLabel").grid(row=0, column=0, columnspan=4, sticky="w")
+        def refresh():
+            for name, (lab, _) in rows.items(): lab.configure(text=MP.status(self.mk(), name))
+        def act(fn, name):
+            try: msg = fn(self.mk(), name)
+            except Exception as e: msg = "failed: %s" % e
+            self._append("[patch] %s: %s\n" % (name, msg)); refresh(); self._progress_tick(force=True)
+        for i, (name, p) in enumerate(MP.PATCHES.items()):
+            ttk.Label(f, text=p["title"]).grid(row=1 + 2 * i, column=0, sticky="w", pady=(8, 0))
+            st = ttk.Label(f, text="", style="Good.TLabel"); st.grid(row=1 + 2 * i, column=1, padx=8, pady=(8, 0))
+            b1 = ttk.Button(f, text="Apply", command=lambda n=name: act(MP.apply, n)); b1.grid(row=1 + 2 * i, column=2, pady=(8, 0))
+            b2 = ttk.Button(f, text="Revert", command=lambda n=name: act(MP.revert, n)); b2.grid(row=1 + 2 * i, column=3, pady=(8, 0))
+            ttk.Label(f, text="%s: %s" % (p["file"], p["why"]), style="Dim.TLabel", justify="left").grid(row=2 + 2 * i, column=0, columnspan=4, sticky="w")
+            for w in (b1, b2): Tip(w, HELP["patches"])
+            rows[name] = (st, p)
+        ttk.Label(f, text="Changes apply to runs started afterwards; a running training keeps its old code.", style="Dim.TLabel").grid(
+            row=10, column=0, columnspan=4, sticky="w", pady=(10, 0))
+        refresh(); self._patch_dlg = dict(top=top, refresh=refresh, act=act)
+
     # ---------- phone dashboard + notifications (mimickit_remote.py)
     def _publish(self, lines, d, running):
         def series(ax):
@@ -1508,7 +1603,8 @@ class App:
                     total_time=grab(r"Running for (\S+) \(total") or grab(r"Total training time (\S+)"),
                     samples=grab(r"samples ([\d,]+(?: \([\d,]+ in all sessions\))?)"), rate=grab(r"speed ([\d.]+ M samples/hour)"),
                     estimate=next((l for l in lines if l.startswith(("Plateau estimate", "Target"))), ""),
-                    charts=dict(**{"return": series(self.ax1), "rate": series(self.ax2)}), updated=time.time(), render_msg=self.render_msg)
+                    charts=dict(**{"return": series(self.ax1), "rate": series(self.ax2)}, **({"per_step": series(self.ax3)} if self.ax3 is not None else {})),
+                    per_step=grab(r"Avg reward per step: ([^\n]+)"), updated=time.time(), render_msg=self.render_msg)
         v = getattr(self, "vram", None)
         if v: snap["vram"] = "%.1f / %.1f GB" % (v[0] / 1024, v[1] / 1024); snap["vram_pct"] = round(100 * v[0] / v[1])
         mp4s = glob.glob(os.path.join(d, "preview_*.mp4")) + glob.glob(os.path.join(self.mk(), "output", "*", "preview_*.mp4"))
@@ -1576,19 +1672,32 @@ class App:
                            "link incl. token can watch. Never forward this port on your router - use Tailscale (docs/REMOTE_ACCESS.md)."
                            if v_host.get() == "0.0.0.0" else "127.0.0.1 = this PC only (for testing, or behind your own tunnel).")
         v_host.trace_add("write", upd_warn); upd_warn()
-        urlbox = tk.Text(f, height=3, width=70, bg=T["panel"], fg=T["fg"], relief="flat"); urlbox.grid(row=5, column=0, columnspan=3, sticky="we", pady=4)
+        urlf = ttk.Frame(f); urlf.grid(row=5, column=0, columnspan=3, sticky="we", pady=4)
         qr = tk.Canvas(f, width=180, height=180, bg="white", highlightthickness=0); qr.grid(row=1, column=3, rowspan=6, padx=10)
+        qr_lab = ttk.Label(f, style="Dim.TLabel"); qr_lab.grid(row=7, column=3)
+        def copy(u):
+            self.root.clipboard_clear(); self.root.clipboard_append(u); self._append("[remote] link copied\n")
         def show_urls():
-            urls = R.dashboard_urls(v_host.get(), int(v_port.get() or 8765), c.get("token") or "(enable to create a token)")
-            urlbox.delete("1.0", "end"); urlbox.insert("1.0", "\n".join(urls)); qr.delete("all")
-            try:
-                import qrcode
-                q = qrcode.QRCode(border=2); q.add_data(urls[0]); q.make(fit=True); mtx = q.get_matrix(); k = 180 / len(mtx)
+            try: port = int(v_port.get() or 8765)
+            except ValueError: port = 8765
+            items = R.dashboard_urls(v_host.get(), port, c.get("token") or "(enable to create a token)", labelled=True)
+            for w in urlf.winfo_children(): w.destroy()
+            for i, (lab, u) in enumerate(items):
+                ttk.Label(urlf, text=lab, width=20).grid(row=i, column=0, sticky="w")
+                e = ttk.Entry(urlf, width=58); e.insert(0, u); e.configure(state="readonly"); e.grid(row=i, column=1, sticky="we", padx=4)
+                ttk.Button(urlf, text="Copy", width=6, command=lambda u=u: copy(u)).grid(row=i, column=2)
+            qr.delete("all"); q_mod = R.load_qrcode(); self._qr_url = items[0][1] if items else ""
+            if q_mod is not None and items:
+                q = q_mod.QRCode(border=2); q.add_data(items[0][1]); q.make(fit=True); mtx = q.get_matrix(); k = 180 / len(mtx)
                 for yy, row in enumerate(mtx):
                     for xx, on in enumerate(row):
-                        if on: qr.create_rectangle(xx * k, yy * k, (xx + 1) * k, (yy + 1) * k, fill="black", outline="")
-            except ImportError:
-                qr.create_text(90, 90, text="pip install qrcode\nfor a QR code;\nuse the link on\nthe left", justify="center")
+                        if on: qr.create_rectangle(xx * k, yy * k, (xx + 1) * k, (yy + 1) * k, fill="black", outline="", tags="qr")
+                qr_lab.configure(text="QR: %s" % items[0][0])
+            else:
+                qr.create_text(90, 90, text="pip install qrcode\nfor a QR code,\nthen press Refresh;\nor use Copy", justify="center")
+                qr_lab.configure(text="")
+        self._rdlg_show = show_urls
+        ttk.Button(f, text="Refresh", command=lambda: show_urls()).grid(row=6, column=2, sticky="e")
         def new_tok():
             c["token"] = R.new_token(); self._save_settings_only(); show_urls(); self._remote_apply()
         ttk.Button(f, text="New token (old links stop working)", command=new_tok).grid(row=6, column=0, columnspan=2, sticky="w")

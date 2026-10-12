@@ -49,7 +49,8 @@ check("side by side offset is sideways (ref_char_offset, z=0)", abs(P.ghost_offs
 # 2) staged fallback: a native crash in stage a -> stage b runs in a fresh process and records
 rc, out = run("all", ["--device", "cpu", "--frames", "20", "--ghost", "side", "--out", os.path.join(work, "s.mp4")],
               env={"MIMICKIT_PREVIEW_SIMULATE_CRASH": "cpu-hidden", "MIMICKIT_PREVIEW_FAKE_VRAM_MB": "120"})
-check("stage a crash (native) is caught", "variant cpu-hidden crashed/failed" in out and "simulated native crash" in out)
+check("stage a crash (native) is caught, calm wording", "cpu-hidden is not usable on this PC" in out and "simulated native crash" in out
+      and "crashed" not in out.split("simulated native crash")[1].split("recorded with")[0].replace("Fatal", ""))
 check("faulthandler printed the crash stack", "Fatal Python error" in out or "Segmentation fault" in out)
 check("stage b ran and recorded", "PREVIEW VARIANT cpu-visible" in out and "recorded with variant cpu-visible" in out and rc == 0)
 check("stage b ran with the GPU visible and PYTORCH_JIT=0", "variant cpu-visible, PYTORCH_JIT=0, CUDA_VISIBLE_DEVICES=None" in out)
@@ -57,6 +58,16 @@ rc, out = run("all", ["--device", "auto", "--frames", "20", "--out", os.path.joi
               env={"MIMICKIT_PREVIEW_SIMULATE_CRASH": "cpu-hidden", "MIMICKIT_PREVIEW_FAKE_VRAM_MB": "900", "MIMICKIT_PREVIEW_GPU_FREE_MB": "100"})
 check("stage b over the VRAM cap is aborted, then stage c (GPU) is tried", "used 900 MB of GPU memory" in out and
       "trying gpu" in out and "REFUSED" in out)
+# Windows: after cpu-hidden crashed and cpu-visible worked, the next preview goes straight to cpu-visible (per machine)
+stp = os.path.join(MK, "output", "_launcher_preview", "preview_state.json")
+if os.path.exists(stp): os.remove(stp)
+W = {"MIMICKIT_PREVIEW_SIMULATE_CRASH": "cpu-hidden", "MIMICKIT_PREVIEW_FAKE_VRAM_MB": "17", "MIMICKIT_PREVIEW_ASSUME_WINDOWS": "1"}
+rc1, out1 = run("all", ["--device", "auto", "--frames", "10", "--out", os.path.join(work, "w1.mp4")], env=W)
+rc2, out2 = run("all", ["--device", "auto", "--frames", "10", "--out", os.path.join(work, "w2.mp4")], env=W)
+check("Windows: failure remembered per PC", rc1 == 0 and "noted for this PC" in out1 and os.path.exists(stp))
+check("Windows: next preview skips cpu-hidden calmly", rc2 == 0 and "PREVIEW VARIANT cpu-hidden" not in out2 and "using cpu-visible on this PC" in out2
+      and "~17 MB" in out2)
+os.remove(stp)
 check("CPU only never reaches the GPU stage", P.stages_for("cpu") == ["cpu-hidden", "cpu-visible"] and P.stages_for("auto")[-1] == "gpu")
 e = P.variant_env("cpu-hidden", {}); e2 = P.variant_env("cpu-visible", {"CUDA_VISIBLE_DEVICES": "0"})
 check("variant environments", e["CUDA_VISIBLE_DEVICES"] == "-1" and e["PYTORCH_JIT"] == "0" and e["PYTHONFAULTHANDLER"] == "1"

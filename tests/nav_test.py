@@ -56,7 +56,7 @@ def steps():
     xv = a1.get_xlim(); wait(1.5); app._progress_tick(force=True); root.update()
     check("view (x + manual y) kept across the 10 s refresh", a1.get_xlim() == xv == a2.get_xlim() and a1.get_ylim() == ya, "%s %s" % (a1.get_xlim(), xv))
     app.b_home.invoke(); root.update()
-    check("Home: full view, auto-follow, y back to full range", app.xview is None and app.yman == [None, None] and
+    check("Home: full view, auto-follow, y back to full range", app.xview is None and all(v is None for v in app.yman) and
           a1.get_ylim() == app._full_range(a1) and a1.get_xlim()[1] >= x0[1] - 1e-9)
     ev("scroll_event", a1, *mid(a1), button="up", step=1)
     ev("button_press_event", a1, *mid(a1), button=1, dblclick=True); root.update()

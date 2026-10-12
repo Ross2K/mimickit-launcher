@@ -1,4 +1,20 @@
-# MimicKit Launcher a0.3.0 (draft - not released yet)
+# MimicKit Launcher a0.3.1 (draft - not released yet)
+
+## Fixes and additions in a0.3.1
+
+- **Phone dialog**: the QR code appears after `pip install qrcode` without restarting (Refresh button; import caches are
+  cleared). Links are labelled and ordered Tailscale -> LAN -> hostname (Tailscale CLI used when installed), the QR
+  code uses the Tailscale link, and each link has a Copy button.
+- **Avg reward per step** (Return / episode length, %) for train and test in Status, an optional third chart and the
+  phone dashboard. **Settings -> MimicKit patches...**: an optional, reversible logging patch that shows MimicKit's
+  existing episode-length values in the console (backup kept, idempotent); the GTX 10-series solver patch is in the
+  same dialog. Without the patch the value comes from log.txt.
+- **Preview of view (motion playback) presets**: the joint mapping warning (0.74 m) and the wrong first frame are fixed;
+  the clip pose is now recorded from the motion library (the sim's joint state lags a frame in view envs).
+- **CPU preview on Windows**: finer checkpoints inside build_env (each MimicKit/Newton import and constructor). If the
+  GPU-hidden variant crashes on a PC while the GPU-visible CPU variant works, that is remembered for the PC and later
+  previews go straight to it (a ~17 MB GPU footprint, no training impact); the log says so calmly. Preview diagnostics
+  still tests both.
 
 ## New in a0.3.0
 

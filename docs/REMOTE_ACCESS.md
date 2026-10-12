@@ -17,8 +17,9 @@ The safe way to reach it from anywhere is **Tailscale**: a private network betwe
 
 1. In the launcher: **Settings -> Phone + notifications...**
 2. Tick **Enable**, keep port **8765**, *Listen on* **0.0.0.0** (needed so the Tailscale address can reach it), **Apply**.
-3. The dialog shows the link with its access token (and a QR code if `pip install qrcode` is done in the launcher's
-   Python). The token is required on every request; **New token** invalidates old links.
+3. The dialog lists the links - Tailscale addresses first, each labelled (Tailscale / LAN / hostname) with a
+   Copy button - with the access token (and a QR code if `pip install qrcode` is done in the launcher's
+   Python; installed while the dialog is open? press **Refresh**). The QR code uses the Tailscale link. The token is required on every request; **New token** invalidates old links.
 
 ## 3. Windows Firewall
 
