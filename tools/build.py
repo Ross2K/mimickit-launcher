@@ -4,7 +4,7 @@ Public zip = git archive of HEAD (+ the starter .exe if built, it is not in git)
 Preview tests need a MimicKit install: set PREVIEW_TEST_MK / PREVIEW_TEST_PY / PREVIEW_TEST_ARGS (else they skip).
 """
 
-import os, re, subprocess, sys, zipfile
+import os, re, shutil, subprocess, sys, zipfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.environ.get("BUILD_OUT", os.path.dirname(HERE))
@@ -51,6 +51,7 @@ def run_tests(d):
     )
     bad = []
     for t in TESTS + list(KNOWN):
+        shutil.rmtree(os.path.join(d, "tests", "fake_mimickit", "output"), ignore_errors=True)  # fresh state per test
         r = subprocess.run(
             xvfb + [py, os.path.join("tests", t + ".py")],
             cwd=d,
