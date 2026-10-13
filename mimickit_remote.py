@@ -13,6 +13,46 @@ COLORS = {"cur1": "#6ea8d8", "cur2": "#d8a05e", "cur3": "#7fb38a", "earlier": "#
 
 def new_token(): return secrets.token_urlsafe(18)
 
+def minmax_decimate(xs, ys, x0, x1, ncols):
+    """Points of one series to draw in the time window [x0, x1] at ncols pixel columns.
+    Culls points outside the window (keeping one neighbour on each side so the line reaches the edges), then keeps
+    per column the lowest and highest point in their original order, so spikes stay visible. NaN gaps are kept as
+    breaks. Returns (xs, ys) lists. Already-sparse data comes back unchanged (all points in the window)."""
+    n = len(xs)
+    if n == 0: return [], []
+    if x1 < x0: x0, x1 = x1, x0
+    lo, hi = 0, n
+    while lo < n and xs[lo] < x0: lo += 1          # data is sorted by time
+    while hi > lo and xs[hi - 1] > x1: hi -= 1
+    lo = max(0, lo - 1); hi = min(n, hi + 1)
+    ncols = max(1, int(ncols))
+    if hi - lo <= 2 * ncols: return list(xs[lo:hi]), list(ys[lo:hi])
+    span = (x1 - x0) or 1.0; keep = []; cur = None; bmin = bmax = None; gap = None
+    def flush():
+        idx = sorted(set(i for i in (bmin, bmax, gap) if i is not None)); keep.extend(idx)
+    for i in range(lo, hi):
+        c = int((xs[i] - x0) / span * ncols)
+        if c != cur:
+            if cur is not None: flush()
+            cur, bmin, bmax, gap = c, None, None, None
+        y = ys[i]
+        if y is None or y != y: gap = i; continue
+        if bmin is None or y < ys[bmin]: bmin = i
+        if bmax is None or y > ys[bmax]: bmax = i
+    flush()
+    return [xs[i] for i in keep], [ys[i] for i in keep]
+
+def nearest_point(series, x, y, sx, sy):
+    """Nearest (x, y, index, series index) to (x, y) over FULL data; sx/sy = data units per pixel (for distance)."""
+    best = None
+    for k, (xs, ys) in enumerate(series):
+        for i in range(len(xs)):
+            yy = ys[i]
+            if yy is None or yy != yy: continue
+            d = ((xs[i] - x) / (sx or 1)) ** 2 + ((yy - y) / (sy or 1)) ** 2
+            if best is None or d < best[0]: best = (d, xs[i], yy, i, k)
+    return None if best is None else best[1:]
+
 def lan_addresses():
     """Addresses a phone could use (no packets are sent: UDP connect only picks the outgoing interface)."""
     out = []
@@ -150,23 +190,41 @@ button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color
 <button id="render">Render preview</button><p><small id="rmsg"></small></p></div>
 <div class="card"><small>Read-only dashboard: training can't be started or stopped from here. Updates every 10 s.</small></div>
 <script>
-const T=new URLSearchParams(location.search).get('t')||'';const H={'X-Token':T};let S=null,view=null,pvKey='';
+const T=new URLSearchParams(location.search).get('t')||'';const H={'X-Token':T};let S=null,view=null,pvKey='',hov=null;
 const COL={cur1:'#6ea8d8',cur2:'#d8a05e',cur3:'#7fb38a',earlier:'#8a8a8a',bridge:'#8a8a8a'};
 function q(id){return document.getElementById(id)}
 if(localStorage.mkTheme==='light')document.body.classList.add('light');
 q('theme').onclick=e=>{e.preventDefault();document.body.classList.toggle('light');localStorage.mkTheme=document.body.classList.contains('light')?'light':'dark';draw()};
 function ext(series){let x0=1e300,x1=-1e300,y0=1e300,y1=-1e300;for(const s of series){for(let i=0;i<s.x.length;i++){const x=s.x[i],y=s.y[i];if(y!==y||y===null)continue;x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}}
  if(x0>x1)return null;const p=Math.max((y1-y0)*.08,Math.abs(y1)*.02,1e-3);return [x0,x1,y0-p,y1+p]}
+// Cull to the visible time window, then one min/max pair per pixel column (spikes stay); same as minmax_decimate() in Python.
+function decim(xs,ys,x0,x1,nc){const n=xs.length;if(!n)return [[],[]];let lo=0,hi=n;while(lo<n&&xs[lo]<x0)lo++;while(hi>lo&&xs[hi-1]>x1)hi--;
+ lo=Math.max(0,lo-1);hi=Math.min(n,hi+1);nc=Math.max(1,nc|0);if(hi-lo<=2*nc)return [xs.slice(lo,hi),ys.slice(lo,hi)];
+ const sp=(x1-x0)||1,K=[];let cur=null,mn=-1,mx=-1,gp=-1;const fl=()=>{const a=[...new Set([mn,mx,gp].filter(i=>i>=0))].sort((a,b)=>a-b);for(const i of a)K.push(i)};
+ for(let i=lo;i<hi;i++){const c=Math.floor((xs[i]-x0)/sp*nc);if(c!==cur){if(cur!==null)fl();cur=c;mn=mx=gp=-1}const y=ys[i];
+  if(y===null||y!==y){gp=i;continue}if(mn<0||y<ys[mn])mn=i;if(mx<0||y>ys[mx])mx=i}fl();return [K.map(i=>xs[i]),K.map(i=>ys[i])]}
+function nearest(series,x,y,sx,sy){let b=null;for(const s of series){if(s.role==='bridge')continue;for(let i=0;i<s.x.length;i++){const yy=s.y[i];if(yy===null||yy!==yy)continue;
+ const d=((s.x[i]-x)/sx)**2+((yy-y)/sy)**2;if(!b||d<b.d)b={d,x:s.x[i],y:yy,label:s.label||''}}}return b}
+const GEOM={};
 function chart(cv,series){const r=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*r;cv.height=h*r;
  const g=cv.getContext('2d');g.scale(r,r);const cs=getComputedStyle(document.body);g.fillStyle=cs.getPropertyValue('--panel');g.fillRect(0,0,w,h);
  const e=ext(series);if(!e){g.fillStyle=cs.getPropertyValue('--dim');g.fillText('no data yet',10,20);return}
  let [x0,x1,y0,y1]=e;if(view){x0=view[0];x1=view[1]}const L=44,B=18,W=w-L-6,Hh=h-B-6;
- const X=x=>L+(x-x0)/(x1-x0||1)*W,Y=y=>6+(1-(y-y0)/(y1-y0||1))*Hh;g.strokeStyle=cs.getPropertyValue('--b');g.fillStyle=cs.getPropertyValue('--dim');g.font='11px sans-serif';
+ const X=x=>L+(x-x0)/(x1-x0||1)*W,Y=y=>6+(1-(y-y0)/(y1-y0||1))*Hh;GEOM[cv.id]={x0,x1,y0,y1,L,W,Hh,series};g.strokeStyle=cs.getPropertyValue('--b');g.fillStyle=cs.getPropertyValue('--dim');g.font='11px sans-serif';
  for(let i=0;i<=4;i++){const yy=y0+(y1-y0)*i/4,py=Y(yy);g.beginPath();g.moveTo(L,py);g.lineTo(L+W,py);g.stroke();g.fillText(yy.toPrecision(3),2,py+4)}
  for(let i=0;i<=4;i++){const xx=x0+(x1-x0)*i/4;g.textAlign=i==0?'left':i==4?'right':'center';g.fillText(xx.toFixed(1),X(xx),h-4)}g.textAlign='left';
  g.save();g.beginPath();g.rect(L,0,W,h);g.clip();for(const s of series){g.strokeStyle=COL[s.role]||'#ccc';g.setLineDash(s.role==='bridge'?[3,3]:[]);g.lineWidth=1.6;g.beginPath();let st=false;
- for(let i=0;i<s.x.length;i++){const y=s.y[i];if(y===null||y!==y){st=false;continue}const px=X(s.x[i]),py=Y(y);st?g.lineTo(px,py):g.moveTo(px,py);st=true}g.stroke()}g.restore()}
-function draw(){if(!S)return;const C=S.charts||{};chart(q('c1'),C.return||[]);chart(q('c2'),C.rate||[]);
+ const [dx,dy]=decim(s.x,s.y,x0,x1,W);cv.dataset.drawn=(+cv.dataset.drawn||0)+dx.length;
+ for(let i=0;i<dx.length;i++){const y=dy[i];if(y===null||y!==y){st=false;continue}const px=X(dx[i]),py=Y(y);st?g.lineTo(px,py):g.moveTo(px,py);st=true}g.stroke()}
+ if(hov&&hov.id===cv.id){const px=X(hov.x),py=Y(hov.y);g.strokeStyle=cs.getPropertyValue('--fg')||'#ddd';g.setLineDash([]);g.beginPath();g.arc(px,py,5,0,7);g.stroke();
+  const t=(hov.label?hov.label+': ':'')+(+hov.y).toPrecision(4)+' at '+(+hov.x).toPrecision(4)+' M';g.font='12px sans-serif';const tw=g.measureText(t).width;
+  const bx=Math.min(Math.max(L,px+8),L+W-tw-8),by=Math.max(16,py-10);g.fillStyle=cs.getPropertyValue('--bg')||'#111';g.fillRect(bx-3,by-12,tw+6,16);g.fillStyle=cs.getPropertyValue('--fg')||'#ddd';g.fillText(t,bx,by)}
+ g.restore()}
+// readout of the nearest REAL point (full data, not the drawn subset)
+function readout(cv,cx,cy){const G=GEOM[cv.id];if(!G)return null;const r=cv.getBoundingClientRect(),px=cx-r.left,py=cy-r.top;
+ const x=G.x0+(px-G.L)/G.W*(G.x1-G.x0),y=G.y0+(1-(py-6)/G.Hh)*(G.y1-G.y0),sx=(G.x1-G.x0)/G.W,sy=(G.y1-G.y0)/G.Hh,b=nearest(G.series,x,y,sx,sy);
+ hov=(b&&b.d<40*40)?{id:cv.id,x:b.x,y:b.y,label:b.label}:null;draw();return hov}
+function draw(){if(!S)return;for(const id of ['c1','c2','c3'])q(id).dataset.drawn=0;const C=S.charts||{};chart(q('c1'),C.return||[]);chart(q('c2'),C.rate||[]);
  const ps=C.per_step||[];q('psw').style.display=ps.length?'':'none';if(ps.length)chart(q('c3'),ps)}
 function full(){const e=ext([].concat((S.charts||{}).return||[],(S.charts||{}).rate||[]));return e?[e[0],e[1]]:[0,1]}
 // Touch: a vertical swipe scrolls the page (touch-action: pan-y + direction decided from the first movement);
@@ -189,7 +247,8 @@ for(const id of ['c1','c2','c3']){const cv=q(id);let t0=null,mode=null,moved=fal
   e.preventDefault();view=[a-dx/t0.w*span,b-dx/t0.w*span];draw()},{passive:false});
  cv.addEventListener('touchend',e=>{if(e.touches.length>0){if(mode==='pinch')begin(e);return}
   const tap=!moved&&!multi&&mode===null;t0=null;mode=null;
-  if(tap){const now=Date.now();if(now-lastTap<TAP_MS){view=null;draw();lastTap=0}else lastTap=now}else lastTap=0},{passive:true});
+  if(tap){const now=Date.now();if(now-lastTap<TAP_MS){view=null;hov=null;draw();lastTap=0}else{lastTap=now;const c=e.changedTouches[0];if(c)readout(cv,c.clientX,c.clientY)}}else lastTap=0},{passive:true});
+ cv.addEventListener('mousemove',e=>{if(S)readout(cv,e.clientX,e.clientY)});cv.addEventListener('mouseleave',()=>{if(hov){hov=null;draw()}});
  cv.addEventListener('touchcancel',()=>{t0=null;mode=null;lastTap=0},{passive:true});
  cv.addEventListener('wheel',e=>{if(!S)return;e.preventDefault();const v=view||full(),r=cv.getBoundingClientRect(),c=v[0]+(e.clientX-r.left-44)/(r.width-50)*(v[1]-v[0]),f=e.deltaY<0?0.8:1.25;view=[c-(c-v[0])*f,c+(v[1]-c)*f];draw()});
  cv.addEventListener('dblclick',()=>{view=null;draw()})}

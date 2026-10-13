@@ -23,15 +23,34 @@ PATCHES = {
         why="MuJoCo-Warp's default Newton solver uses tile kernels that compute capability 6.1 cards can't run.\n"
             "The conjugate-gradient solver with sparse Jacobians avoids them. Newer GPUs don't need this.",
         repl=[('solver="newton",', 'solver="cg", jacobian="sparse",')]),
+    "clipstart": dict(
+        file="mimickit/envs/deepmimic_env.py",
+        title="Clip start share: some random-start episodes begin at the clip start",
+        why="Adds an optional env yaml key clip_start_share (0-1, default 0 = MimicKit's normal behaviour). With rand_reset on,\n"
+            "that share of episodes starts at time 0 of the clip instead of a random time. One tensor op per reset batch.",
+        repl=[('        self._rand_reset = env_config.get("rand_reset", True)\n',
+               '        self._rand_reset = env_config.get("rand_reset", True)\n'
+               '        self._clip_start_share = float(env_config.get("clip_start_share", 0.0))  # launcher patch: clip start share\n'),
+              ('            motion_times = self._motion_lib.sample_time(motion_ids)\n',
+               '            motion_times = self._motion_lib.sample_time(motion_ids)\n'
+               '            if (self._clip_start_share > 0.0):  # launcher patch: clip start share\n'
+               '                motion_times = torch.where(torch.rand(n, device=self._device) < self._clip_start_share,\n'
+               '                                           torch.zeros_like(motion_times), motion_times)\n')]),
 }
 BACKUP_EXT = ".launcher_orig"
 
 def _path(mk, name): return os.path.join(mk, *PATCHES[name]["file"].split("/"))
 
+def _pairs(name, txt):
+    """The replacement pairs in the file's own line ending (Windows checkouts may use CRLF)."""
+    pairs = PATCHES[name]["repl"]
+    if "\r\n" in txt: pairs = [(o.replace("\n", "\r\n"), n.replace("\n", "\r\n")) for o, n in pairs]
+    return pairs
+
 def status(mk, name):
     p = _path(mk, name)
     if not os.path.isfile(p): return "missing"
-    txt = open(p, encoding="utf-8", newline="").read(); pairs = PATCHES[name]["repl"]
+    txt = open(p, encoding="utf-8", newline="").read(); pairs = _pairs(name, txt)
     done = [new in txt for old, new in pairs]; todo = [old in txt for old, new in pairs]
     if all(done): return "applied"
     if all(todo): return "not applied"
@@ -44,7 +63,7 @@ def apply(mk, name):
     if st in ("missing", "unknown"): raise RuntimeError("%s: can't patch (%s) - see README for the manual change" % (PATCHES[name]["file"], st))
     p = _path(mk, name); txt = open(p, encoding="utf-8", newline="").read()
     if not os.path.exists(p + BACKUP_EXT): shutil.copy2(p, p + BACKUP_EXT)
-    for old, new in PATCHES[name]["repl"]:
+    for old, new in _pairs(name, txt):
         if new not in txt: txt = txt.replace(old, new, 1)
     _write(p, txt); return "applied (backup: %s)" % os.path.basename(p + BACKUP_EXT)
 
@@ -53,7 +72,7 @@ def revert(mk, name):
     if st == "not applied": return "not applied - nothing to revert"
     if st in ("missing", "unknown"): raise RuntimeError("%s: can't revert (%s)" % (PATCHES[name]["file"], st))
     p = _path(mk, name); txt = open(p, encoding="utf-8", newline="").read()
-    for old, new in PATCHES[name]["repl"]: txt = txt.replace(new, old)
+    for old, new in _pairs(name, txt): txt = txt.replace(new, old)
     _write(p, txt); return "reverted"
 
 def _write(p, txt):

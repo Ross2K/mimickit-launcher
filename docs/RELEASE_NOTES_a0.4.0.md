@@ -1,4 +1,19 @@
-# MimicKit Launcher a0.3.2 (draft - not released yet)
+# MimicKit Launcher a0.4.0 (draft - not released yet)
+
+## New
+- **Training settings...**: edit the selected config's episode length, random start / share of starts at the clip
+  start, early and pose termination, pose limit, clip end hold (trim or extend the held final pose), learning settings
+  (discount, learning rates, action noise, steps per iteration, epochs, save interval, test episodes) and the number of
+  envs. Each with a one-line hint. Save writes an edited copy in `output/_launcher_configs/` (originals backed up and
+  never changed); it applies on the next Start / Resume / Continue / Watch / Preview, and a running run keeps its files.
+  Greyed-out *Coming soon / needs your input* entries: start-speed randomization, start from other animations
+  (handoff), steering goal for a walking policy, curriculum, terrain/pushes.
+- **Clip start share** MimicKit patch (opt-in, reversible, in *MimicKit patches*): `clip_start_share` in the env yaml.
+- **Close popup**: Detach / Stop / Cancel buttons, each with a one-line description, instead of Yes / No / Cancel; dark styled.
+- **Smoother charts** (desktop and phone): only the visible time range is drawn, reduced to one low/high pair per pixel
+  column (spikes kept). Hover (desktop) or tap (phone) shows the exact nearest data point.
+
+## a0.3.2
 
 ## Fixes in a0.3.2 (phone dashboard charts)
 

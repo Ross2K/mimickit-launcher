@@ -117,7 +117,9 @@ always show the same time range. The mouse wheel zooms the time axis at the curs
 chart's full data range; a chart can be dragged up/down only when it has visible data outside its vertical range.
 **Home** (or a double-click) returns to the full view and follows new data again; **Save picture...** writes a PNG/SVG/PDF.
 The view is kept through the 10 s refresh. Tick **Current session only** to see just the running session on the time axis.
-Light/dark mode switches the charts live as well.
+Light/dark mode switches the charts live as well. Charts draw only the visible time range, reduced to one low/high pair per
+pixel column, so long runs stay smooth and spikes still show; hovering a line shows the exact nearest data point (the
+phone dashboard does the same; tap a line there for the readout).
 
 The preview uses its own Warp kernel cache (`output/_launcher_preview/warp_cache`), so it never touches the cache a
 running training uses; the first preview (and the first GPU fallback) compiles its kernels once.
@@ -201,6 +203,27 @@ Why these pins: MimicKit lists Newton **1.0.0** as tested (a plain `pip install 
 needs newer drivers/GPUs. `warp-lang==1.12.1` is the version known to work with Newton 1.0.0 here.
 `requirements.txt` may try to change these; if so, re-run the `pip install "newton[sim]==1.0.0" "warp-lang==1.12.1"` line afterwards.
 
+## Training settings
+
+**Training settings...** (next to *Add args file...*) edits the selected training config without touching its files:
+
+| Section | Settings |
+|---|---|
+| Episodes | Episode length, random start time (`rand_reset`), share of episodes that start at the clip start |
+| Early termination | Early termination on/off, pose termination on/off, pose limit (m) |
+| Motion clips | Each clip's length and end hold; **End hold (s)** trims or repeats the final pose (looping clips are left alone) |
+| Learning | Discount, policy/value learning rate, action noise, steps per iteration, policy epochs, save interval, test episodes |
+| Scale | Number of envs (same as `num_envs` on the main window) |
+| Coming soon / needs your input | Start-speed randomization, start from other animations (handoff), steering goal for a walking policy, curriculum, terrain/pushes - shown greyed out, not built yet |
+
+Every setting has a one-line hint. **Save** writes a new folder `output/_launcher_configs/<config>/<time>/` with edited
+copies of the env yaml, agent yaml and (if the end hold changed) the clips and dataset; the first save also backs up the
+originals to `.../originals/`. The original files are never modified. Changes apply on the next Start, Resume, Continue,
+Watch or Preview of that config (the launcher passes `--env_config/--agent_config <copy>` in front of `--arg_file`); a
+run that is already going keeps the folder it started with, which is never rewritten. **Use originals** switches back.
+
+*Starts at clip start* needs the opt-in **Clip start share** MimicKit patch (below); without it MimicKit ignores the key.
+
 ## MimicKit patches (optional, reversible)
 
 **Settings -> MimicKit patches...** shows small changes the launcher can make to your MimicKit install, each with its
@@ -212,6 +235,9 @@ no longer contains the expected line the launcher refuses and leaves it alone. C
   `Test_Episode_Length` but logs them as *quiet* (log.txt only). The patch removes `quiet=True` from those two log
   calls so they appear in the console table the launcher reads live. Cost: two extra table rows per iteration.
 - **Solver** (`mimickit/engines/newton_engine.py`): the GTX 10-series fix below (`solver="cg", jacobian="sparse"`).
+- **Clip start share** (`mimickit/envs/deepmimic_env.py`): adds an optional env key `clip_start_share` (0-1, default 0
+  = unchanged). With `rand_reset` on, that share of episodes starts at time 0 of the clip instead of a random time
+  (`_sample_motion_times`). One tensor operation per reset batch. Set it in *Training settings*.
 
 **Avg reward per step** = Return / episode length, in %. In DeepMimic-style tasks each step's reward is 0..1, so 100%
 means perfect tracking on every step; unlike Return it doesn't rise just because episodes get longer. It is shown in
@@ -290,6 +316,9 @@ PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python P
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
 xvfb-run -a python tests/nav_test.py      # chart navigation, light/dark charts, single-instance tooltips
 xvfb-run -a python tests/patch_score_test.py  # MimicKit patches apply/revert, per-step score, URL order + QR refresh
+xvfb-run -a python tests/trainsettings_test.py  # training settings copies/overrides, clip hold, clip start patch, close popup
+xvfb-run -a python tests/decimate_test.py  # chart culling + min/max downsampling (desktop + phone), hover readouts
+xvfb-run -a python tests/dashboard_touch_test.py  # phone chart touch: pinch, pan, vertical scroll, double-tap
 xvfb-run -a python tests/remote_test.py   # phone dashboard (token, range requests, rate limit), notifications (mocked), GUI responsiveness
 # same env vars: reference ghost (both modes), staged CPU fallback (simulated crash), diagnostics
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/ghost_test.py

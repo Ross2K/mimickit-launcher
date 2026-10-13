@@ -4,7 +4,7 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.3.2"
+VERSION = "a0.4.0"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -14,6 +14,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mimickit_remote as R
+import mimickit_trainsettings as TS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 def _config_path():
@@ -89,6 +90,9 @@ HELP = {
                "(without it the value is read from log.txt, which MimicKit writes less often).",
     "patches": "Small optional changes to your MimicKit install, applied and reverted by the launcher (a backup of the original\n"
                "file is kept as <file>.launcher_orig). They affect runs started afterwards.",
+    "tsettings": "Edit the selected training config: episode length, starts, early termination, clip end hold, learning and\n"
+                 "number of envs. Saves an edited COPY (the originals are backed up and never changed); it applies on the next\n"
+                 "Start / Resume / Continue / Watch / Preview of this config. A run already going keeps its settings.",
     "remote": "Optional, off by default. Phone dashboard: a small read-only web page (status, charts, VRAM, newest preview\n"
               "video, a rate-limited 'Render preview' button) served by the launcher, protected by a random token.\n"
               "Use it over Tailscale (docs/REMOTE_ACCESS.md) - never forward the port on your router.\n"
@@ -744,6 +748,7 @@ class App:
         bf2 = ttk.Frame(job); bf2.grid(row=6, column=0, columnspan=6, sticky="w", pady=(4, 0))
         b = ttk.Button(bf2, text="Rescan args", command=self.rescan); b.pack(side="left", padx=3); Tip(b, "Re-read MimicKit's args folder.")
         b = ttk.Button(bf2, text="Add args file...", command=self._add_custom); b.pack(side="left", padx=3); Tip(b, HELP["custom"])
+        b = ttk.Button(bf2, text="Training settings...", command=self.train_settings_dialog); b.pack(side="left", padx=3); Tip(b, HELP["tsettings"])
         ttk.Label(bf2, text="Preview device").pack(side="left", padx=(24, 4))
         self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
         cb = ttk.Combobox(bf2, textvariable=self.v_pdev, values=["Auto", "CPU only", "GPU"], state="readonly", width=9)
@@ -914,6 +919,23 @@ class App:
     def _ps_toggled(self):
         self.s["per_step_chart"] = bool(self.v_ps.get()); self._save_settings_only(); self._make_axes(); self.apply_theme(); self._auto_follow()
     def _axes(self): return tuple(a for a in (self.ax1, self.ax2, self.ax3) if a is not None)
+    @staticmethod
+    def _full(ln):
+        """All points of a line (the drawn ones may be culled/downsampled)."""
+        f = getattr(ln, "_mk_full", None)
+        if f is None:
+            f = ([float(v) for v in ln.get_xdata()], [float(v) for v in ln.get_ydata()]); ln._mk_full = f
+        return f
+    def _decimate(self):
+        """Draw only what is visible: cull outside the time window, ~1 min/max pair per pixel column (spikes stay)."""
+        for ax in self._axes():
+            x0, x1 = ax.get_xlim(); w = max(50, int(ax.bbox.width))
+            for ln in ax.get_lines():
+                if ln.get_gid() == "hover": continue
+                xs, ys = self._full(ln)
+                dx, dy = R.minmax_decimate(xs, ys, x0, x1, w)
+                ln.set_data(dx, dy)
+                ln.set_markevery(None if len(dx) <= w // 4 else max(1, len(dx) // max(1, w // 8)))
     def _auto_follow(self):
         """Home / double-click: full view, follow new data, vertical scale back to the full data range."""
         self.xview = None; self.yman = [None] * len(self._axes()); self.drag = None; self._progress_tick(force=True)
@@ -922,11 +944,13 @@ class App:
     def _set_x(self, xl):
         self.xview = (float(xl[0]), float(xl[1]))
         for a in self._axes(): a.set_xlim(self.xview)     # both charts always share the time axis
+        self._decimate()
     def y_drag_allowed(self, ax):
         """Vertical drag only when this chart has data inside the visible time range that lies outside its y limits."""
         x0, x1 = sorted(ax.get_xlim()); y0, y1 = sorted(ax.get_ylim())
         for ln in ax.get_lines():
-            xs, ys = ln.get_xdata(), ln.get_ydata()
+            if ln.get_gid() == "hover": continue
+            xs, ys = App._full(ln)
             for x, y in zip(xs, ys):
                 try: x, y = float(x), float(y)
                 except (TypeError, ValueError): continue
@@ -945,9 +969,34 @@ class App:
             if ev.inaxes in self._axes():
                 ax = ev.inaxes
                 self.drag = dict(ax=ax, x=ev.x, y=ev.y, xlim=ax.get_xlim(), ylim=ax.get_ylim(), ydrag=self.y_drag_allowed(ax))
+    def _hover(self, ev):
+        """Readout of the nearest real data point (from the full data, not the downsampled drawing)."""
+        ax = ev.inaxes
+        old = getattr(self, "_hov", None)
+        if old is not None:
+            for a in old: 
+                try: a.remove()
+                except Exception: pass          # already gone with an ax.clear() refresh
+            self._hov = None
+        if ax is None or ax not in self._axes() or ev.xdata is None:
+            self.canvas.draw_idle(); return None
+        lines = [ln for ln in ax.get_lines() if ln.get_gid() not in ("hover", "bridge")]
+        if not lines: return None
+        (x0, x1), (y0, y1) = ax.get_xlim(), ax.get_ylim()
+        sx, sy = (x1 - x0) / max(ax.bbox.width, 1), (y1 - y0) / max(ax.bbox.height, 1)
+        nb = R.nearest_point([self._full(ln) for ln in lines], ev.xdata, ev.ydata, sx, sy)
+        if nb is None: return None
+        x, y, i, k = nb
+        if ((x - ev.xdata) / sx) ** 2 + ((y - ev.ydata) / sy) ** 2 > 40 ** 2: self.canvas.draw_idle(); return None
+        lab = lines[k].get_label(); lab = "" if str(lab).startswith("_") else lab + ": "
+        mk, = ax.plot([x], [y], marker="o", markersize=8, markerfacecolor="none", markeredgecolor=T["fg"], gid="hover")
+        tx = ax.annotate("%s%.4g  at %.4g M" % (lab, y, x), (x, y), xytext=(8, 8), textcoords="offset points", fontsize=8, color=T["fg"],
+                         bbox=dict(boxstyle="round,pad=0.25", fc=T["panel"], ec=T["border"], alpha=0.95))
+        self._hov = (mk, tx); self.canvas.draw_idle(); return (x, y)
     def _on_motion(self, ev):
         d = self.drag
-        if not d or ev.x is None: return
+        if not d: return self._hover(ev)
+        if ev.x is None: return
         ax = d["ax"]; bb = ax.bbox
         (x0, x1), (y0, y1) = d["xlim"], d["ylim"]
         dx = (ev.x - d["x"]) * (x1 - x0) / max(bb.width, 1)
@@ -965,7 +1014,8 @@ class App:
     def _full_range(ax, pad=0.08):
         ys = []
         for ln in ax.get_lines():
-            for y in ln.get_ydata():
+            if ln.get_gid() == "hover": continue
+            for y in App._full(ln)[1]:
                 try:
                     y = float(y)
                     if y == y: ys.append(y)
@@ -980,7 +1030,7 @@ class App:
         if self.xview: xl = self.xview
         elif cur_range: xl = cur_range
         else:
-            xs = [float(x) for ax in self._axes() for ln in ax.get_lines() for x in ln.get_xdata()]
+            xs = [float(x) for ax in self._axes() for ln in ax.get_lines() if ln.get_gid() != "hover" for x in self._full(ln)[0]]
             xl = None
             if xs:
                 lo, hi = min(xs), max(xs); p = max((hi - lo) * 0.03, 1e-3); xl = (lo - p, hi + p)
@@ -989,6 +1039,7 @@ class App:
         for i, ax in enumerate(self._axes()):
             yl = self.yman[i] or self.yfull[i]
             if yl: ax.set_ylim(yl)
+        self._decimate()
 
     def _style_ax(self, ax):
         ax.set_facecolor(T["field"])
@@ -1146,7 +1197,7 @@ class App:
                     "Tip: press No and use 'Resume training' instead, or type a new folder name.\n\nOverwrite?" % out, icon="warning"):
                 return
         it = self._item("train"); self.tt_next = dict(base=0.0, sessions=1, parent=None)
-        self._run(["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--num_envs", str(self.v_envs.get()), "--visualize", "false",
+        self._run(self._ovr(it) + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--num_envs", str(self.v_envs.get()), "--visualize", "false",
                    "--out_dir", out_rel] + self.extra_args(), kind="train", out=out)
 
     def resume(self):
@@ -1163,7 +1214,7 @@ class App:
         self._append("[gui] carrying total training time %s (%d earlier sessions)\n" % (hms(tot), ses))
         self._append("[gui] copied %s -> %s\n" % (model, start))
         it = self._item("train")
-        self._run(["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--num_envs", str(self.v_envs.get()), "--visualize", "false",
+        self._run(self._ovr(it) + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--num_envs", str(self.v_envs.get()), "--visualize", "false",
                    "--model_file", os.path.relpath(start, self.mk()).replace(os.sep, "/"), "--out_dir", new_rel] + self.extra_args(),
                   kind="train", out=new_abs)
 
@@ -1175,7 +1226,7 @@ class App:
         it = self._item("train")
         mrel = os.path.relpath(model, self.mk()) if os.path.isabs(model) else model
         view = self._view_env(it, "watch")   # first occurrence of a key wins in MimicKit's arg parser -> put it first
-        self._run((["--env_config", view] if view else []) + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() +
+        self._run((["--env_config", view] if view else []) + self._ovr(it, agent_only=True) + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() +
                   ["--mode", "test", "--num_envs", "1", "--visualize", "true", "--model_file", mrel.replace(os.sep, "/")] + self.extra_args(),
                   kind="watch", out=None)
 
@@ -1183,9 +1234,10 @@ class App:
         """Generated chronological view yaml (relative to MimicKit) for item it, or None if it has no env_config."""
         if not it.get("env"): self._append("[gui] this config has no env_config - playing it as is\n"); return None
         dst = os.path.join(self.mk(), "output", "_launcher_" + kind, "view_env.yaml")
-        if not make_view_env(self.mk(), it["env"], dst):
+        c = TS.current(self.mk(), it["name"]); src = (c or {}).get("env") or it["env"]
+        if not make_view_env(self.mk(), src, dst):
             self._append("[gui] could not read %s - playing the config as is\n" % it["env"]); return None
-        self._append("[gui] chronological view env: %s (from %s)\n" % (os.path.relpath(dst, self.mk()).replace(os.sep, "/"), it["env"]))
+        self._append("[gui] chronological view env: %s (from %s)\n" % (os.path.relpath(dst, self.mk()).replace(os.sep, "/"), src))
         return os.path.relpath(dst, self.mk()).replace(os.sep, "/")
 
     def continue_from(self):
@@ -1219,7 +1271,7 @@ class App:
         except OSError: pass
         self.tt_next = dict(base=tot, sessions=ses + 1, parent=src_dir)
         self._append("[gui] continuing from %s (total %s, %d sessions) -> %s\n" % (src_dir, hms(tot), ses, new_rel))
-        self._run(["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--num_envs", str(self.v_envs.get()), "--visualize", "false",
+        self._run(self._ovr(it) + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args() + ["--num_envs", str(self.v_envs.get()), "--visualize", "false",
                    "--model_file", os.path.relpath(start, self.mk()).replace(os.sep, "/"), "--out_dir", new_rel] + self.extra_args(),
                   kind="train", out=new_abs)
 
@@ -1249,7 +1301,7 @@ class App:
             model = model if os.path.isabs(model) else os.path.join(self.mk(), model)
             snap = os.path.join(pdir, "preview_model.pt"); shutil.copy2(model, snap)   # snapshot: training may overwrite model.pt any time
             margs = ["--model_file", os.path.relpath(snap, self.mk()).replace(os.sep, "/")]
-        mk_args = ["--env_config", view] + margs + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args()
+        mk_args = ["--env_config", view] + self._ovr(it, agent_only=True) + margs + ["--arg_file", it["file"]] + it.get("args", []) + self.engine_args()
         script = os.path.join(HERE, "mimickit_preview.py")
         if diag:
             mp4 = os.path.join(pdir, "preview_diagnostics.txt")
@@ -1561,6 +1613,167 @@ class App:
         self.per_step = v
         return "Avg reward per step: %s%s" % ("   ".join("%s %.1f%%" % (k.lower(), x) for k, x in v.items()), src)
 
+    # ---------- small themed choice dialog (one-word action buttons)
+    def choose(self, title, text, options, default=None, danger=None):
+        """options: [(label, value, one-line hint)]. Returns the chosen value, or None (window closed / Esc)."""
+        hook = getattr(self, "_choose_hook", None)
+        if hook: return hook(title, text, options)
+        top = tk.Toplevel(self.root); top.title(title); top.configure(bg=T["bg"]); top.transient(self.root); top.resizable(False, False)
+        res = {"v": None}
+        f = ttk.Frame(top, padding=14); f.pack(fill="both", expand=True)
+        ttk.Label(f, text=text, wraplength=460, justify="left").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        def pick(v): res["v"] = v; top.destroy()
+        first = None
+        for i, (lab, val, hint) in enumerate(options):
+            b = ttk.Button(f, text=lab, width=10, command=lambda v=val: pick(v), style="Stop.TButton" if val == danger and val is not None else "TButton")
+            b.grid(row=1 + i, column=0, sticky="w", pady=3)
+            ttk.Label(f, text=hint, style="Dim.TLabel", justify="left").grid(row=1 + i, column=1, sticky="w", padx=(10, 0))
+            if val == default: first = b
+        top.bind("<Escape>", lambda _=None: pick(None)); top.protocol("WM_DELETE_WINDOW", lambda: pick(None))
+        if first: first.focus_set(); top.bind("<Return>", lambda _=None: pick(default))
+        self._choose_dlg = top
+        try: top.grab_set()
+        except tk.TclError: pass
+        self.root.wait_window(top)
+        return res["v"]
+
+    # ---------- training settings (edited copies of the config's yaml + clips)
+    def _ovr(self, it, agent_only=False):
+        """Args that point MimicKit at the saved edited copies (first value of a key wins, so they go first)."""
+        if not it: return []
+        a = TS.override_args(self.mk(), it["name"])
+        if agent_only: a = a[a.index("--agent_config"):a.index("--agent_config") + 2] if "--agent_config" in a else []
+        if a: self._append("[gui] using edited training settings: %s\n" % " ".join(a))
+        return a
+
+    def _cfg_files(self, it):
+        """(env yaml, agent yaml) of a config, relative to MimicKit (preset extra args win, like on the command line)."""
+        a = read_args_file(os.path.join(self.mk(), it["file"])); ex = it.get("args", [])
+        env = ex[ex.index("--env_config") + 1] if "--env_config" in ex else (a.get("env_config") or [""])[0]
+        ag = ex[ex.index("--agent_config") + 1] if "--agent_config" in ex else (a.get("agent_config") or [""])[0]
+        return env, ag
+
+    def train_settings_dialog(self):
+        import mimickit_patches as MP
+        it = self._item("train")
+        if not it: messagebox.showinfo("No training config", "Pick a training config first."); return
+        mk = self.mk(); oenv, oag = self._cfg_files(it); cur = TS.current(mk, it["name"])
+        env, ag = (cur.get("env") or oenv, cur.get("agent") or oag) if cur else (oenv, oag)
+        base = TS.read_values(mk, env, ag)
+        top = tk.Toplevel(self.root); top.title("Training settings - " + it["name"]); top.configure(bg=T["bg"])
+        f = ttk.Frame(top, padding=10); f.pack(fill="both", expand=True)
+        src = "edited copy saved %s" % cur["saved"] if cur else "original files"
+        hdr = ttk.Label(f, text="Config %s  -  now using: %s\nenv: %s    agent: %s" % (it["name"], src, env or "(none)", ag or "(none)"),
+                        style="Dim.TLabel", justify="left"); hdr.grid(row=0, column=0, columnspan=2, sticky="w")
+        cols = [ttk.Frame(f), ttk.Frame(f)]
+        for i, c in enumerate(cols): c.grid(row=1, column=i, sticky="nw", padx=(0, 12) if i == 0 else 0)
+        vars_ = {}
+        def section(parent, title):
+            lf = ttk.LabelFrame(parent, text=title, padding=6); lf.pack(fill="x", pady=4); return lf
+        def row(lf, r, label, widget, hint):
+            l = ttk.Label(lf, text=label); l.grid(row=r, column=0, sticky="w")
+            widget.grid(row=r, column=1, sticky="w", padx=6)
+            h = ttk.Label(lf, text=hint, style="Dim.TLabel", wraplength=330, justify="left"); h.grid(row=r, column=2, sticky="w")
+            Tip(l, hint); Tip(widget, hint)
+        for si, (title, kind, fields) in enumerate(TS.SECTIONS):
+            lf = section(cols[0] if kind == "env" else cols[1], title)
+            for r, (path, label, typ, hint) in enumerate(fields):
+                v0 = base.get((kind, path))
+                if path == ("clip_start_share",) and v0 is None: v0 = 0.0
+                if typ == "bool":
+                    var = tk.BooleanVar(value=bool(v0)); w = ttk.Checkbutton(lf, variable=var)
+                else:
+                    var = tk.StringVar(value="" if v0 is None else ("%g" % v0 if isinstance(v0, float) else str(v0)))
+                    w = ttk.Entry(lf, textvariable=var, width=10)
+                if v0 is None and path != ("clip_start_share",): w.state(["disabled"]); hint += " (not in this config)"
+                vars_[(kind, path)] = (var, typ, v0); row(lf, r, label, w, hint)
+            if title == "Episodes":
+                st = MP.status(mk, TS.PATCH_NAME)
+                pl = ttk.Label(lf, text="Clip start share patch: " + st, style="Good.TLabel" if st == "applied" else "Dim.TLabel")
+                pl.grid(row=len(fields), column=0, columnspan=2, sticky="w", pady=(4, 0))
+                def ap(lbl=pl):
+                    try: msg = MP.apply(mk, TS.PATCH_NAME)
+                    except Exception as e: msg = "failed: %s" % e
+                    self._append("[patch] %s: %s\n" % (TS.PATCH_NAME, msg)); lbl.configure(text="Clip start share patch: " + MP.status(mk, TS.PATCH_NAME))
+                b = ttk.Button(lf, text="Apply patch", command=ap); b.grid(row=len(fields), column=2, sticky="w", pady=(4, 0)); Tip(b, HELP["patches"])
+        # clips
+        lf = section(cols[0], "Motion clips")
+        envtxt = ""
+        try: envtxt = open(os.path.join(mk, env), encoding="utf-8").read() if env else ""
+        except OSError: pass
+        clips = TS.motion_files(mk, TS.get(envtxt, ("motion_file",)) if envtxt else "")
+        lines = []
+        for fpath, _ in clips[:8]:
+            try:
+                ci = TS.clip_info(os.path.join(mk, fpath))
+                lines.append("%s: %.2f s, end hold %.2f s%s" % (os.path.basename(fpath), ci["length"], ci["hold"], " (loops: unchanged)" if ci["loop"] else ""))
+            except Exception as e: lines.append("%s: can't read (%s)" % (os.path.basename(fpath), type(e).__name__))
+        if len(clips) > 8: lines.append("... and %d more" % (len(clips) - 8))
+        ttk.Label(lf, text="\n".join(lines) or "(no clips found)", style="Dim.TLabel", justify="left").grid(row=0, column=0, columnspan=3, sticky="w")
+        self.v_hold = tk.StringVar(value="")
+        w = ttk.Entry(lf, textvariable=self.v_hold, width=10)
+        if not clips: w.state(["disabled"])
+        row(lf, 1, "End hold (s)", w, "How long each clip holds its final pose. Blank = keep. Trims or repeats the last frame "
+                                      "(edited copies of the clips; looping clips are left alone).")
+        # scale
+        lf = section(cols[0], "Scale")
+        sp = ttk.Spinbox(lf, from_=1, to=65536, increment=512, textvariable=self.v_envs, width=8)
+        row(lf, 0, "Number of envs", sp, "Parallel simulations. More = faster but more GPU memory. Same as num_envs on the main window.")
+        # stubs
+        lf = section(cols[1], "Coming soon / needs your input")
+        for r, (name, what) in enumerate(TS.STUBS):
+            cb = ttk.Checkbutton(lf, text=name); cb.state(["disabled", "!selected"]); cb.grid(row=r, column=0, sticky="w")
+            ttk.Label(lf, text=what, style="Dim.TLabel", wraplength=360, justify="left").grid(row=r, column=1, sticky="w", padx=6)
+        ttk.Label(lf, text="Not built yet: each needs your input on how it should work.", style="Dim.TLabel").grid(row=len(TS.STUBS), column=0, columnspan=2, sticky="w", pady=(4, 0))
+        note = ttk.Label(f, text="Save writes an edited copy (originals backed up, never changed). It applies on the next Start, Resume, Continue, "
+                                 "Watch or Preview of this config.\nA run that is already going keeps the settings it started with.",
+                         style="Dim.TLabel", justify="left"); note.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 4))
+        def collect():
+            changes, bad = {}, []
+            for (kind, path), (var, typ, v0) in vars_.items():
+                raw = var.get()
+                if typ == "bool": v = bool(raw)
+                else:
+                    raw = str(raw).strip()
+                    if raw == "": continue
+                    try: v = int(raw) if typ == "int" else float(raw)
+                    except ValueError: bad.append(path[-1]); continue
+                if v0 is None and path != ("clip_start_share",): continue
+                if v != v0 and not (path == ("clip_start_share",) and v0 is None and v == 0.0): changes[(kind, path)] = v
+            share = changes.get(("env", ("clip_start_share",)))
+            if share is not None and not 0.0 <= share <= 1.0: bad.append("clip_start_share (0-1)")
+            el = changes.get(("env", ("episode_length",)))
+            if el is not None and el <= 0: bad.append("episode_length (> 0)")
+            hold = self.v_hold.get().strip(); h = None
+            if hold:
+                try: h = float(hold); assert 0 <= h <= 30
+                except (ValueError, AssertionError): bad.append("end hold (0-30 s)")
+            return changes, h, bad
+        def save():
+            changes, h, bad = collect()
+            if bad: messagebox.showerror("Check these values", "\n".join(bad), parent=top); return None
+            if not changes and h is None:
+                self._append("[gui] training settings: nothing changed\n"); return "same"
+            share = changes.get(("env", ("clip_start_share",)))
+            if share and MP.status(mk, TS.PATCH_NAME) != "applied":
+                self._append("[gui] note: 'Starts at clip start' only works with the Clip start share patch (Apply patch)\n")
+            try: c = TS.save(mk, it["name"], env, ag, changes, hold=h, orig_env=oenv, orig_agent=oag)
+            except Exception as e:
+                messagebox.showerror("Could not save", str(e), parent=top); return None
+            self._append("[gui] training settings saved -> %s (%s). Applies on the next Start / Resume.\n" % (
+                c["dir"], ", ".join("%s=%s" % kv for kv in c["values"].items()) + (", end hold %gs" % h if h is not None else "")))
+            top.destroy(); return c
+        def originals():
+            TS.clear(mk, it["name"]); self._append("[gui] training settings: back to the original files for %s\n" % it["name"]); top.destroy()
+        bf = ttk.Frame(f); bf.grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Button(bf, text="Save", command=save).pack(side="left", padx=3)
+        b = ttk.Button(bf, text="Use originals", command=originals); b.pack(side="left", padx=3)
+        Tip(b, "Stop using the edited copy for this config (saved copies stay in output/_launcher_configs).")
+        if not cur: b.state(["disabled"])
+        ttk.Button(bf, text="Close", command=top.destroy).pack(side="left", padx=3)
+        self._ts_dlg = dict(top=top, vars=vars_, save=save, collect=collect, originals=originals)
+        return top
+
     def patch_dialog(self):
         import mimickit_patches as MP
         top = tk.Toplevel(self.root); top.title("MimicKit patches"); top.configure(bg=T["bg"])
@@ -1589,11 +1802,11 @@ class App:
         def series(ax):
             out = []
             for ln in ax.get_lines():
-                xs, ys = [float(v) for v in ln.get_xdata()], [float(v) for v in ln.get_ydata()]
-                step = max(1, len(xs) // 600)
+                if ln.get_gid() == "hover": continue
+                xs, ys = self._full(ln)       # full data, min/max-reduced to ~1500 columns (the phone culls/decimates again per view)
+                if xs: xs, ys = R.minmax_decimate(xs, ys, xs[0], xs[-1], 1500)
                 out.append(dict(role=ln.get_gid() or "", label=(ln.get_label() if not str(ln.get_label()).startswith("_") else None),
-                                x=xs[::step] + ([xs[-1]] if xs and (len(xs) - 1) % step else []),
-                                y=[None if v != v else v for v in ys[::step]] + ([ys[-1]] if ys and (len(ys) - 1) % step else [])))
+                                x=xs, y=[None if v is None or v != v else v for v in ys]))
             return out
         txt = "\n".join(lines)
         def grab(pat):
@@ -1773,10 +1986,13 @@ class App:
 
     def _on_close(self):
         if self.proc and self.proc.poll() is None:
-            a = messagebox.askyesnocancel("Still running", "MimicKit is still running.\n\nYes = keep it running in the background "
-                                          "(reopen the launcher to see it again)\nNo = stop it and close\nCancel = don't close")
+            a = self.choose("Training is still running",
+                            "Training is still running. What should happen to it when the launcher closes?",
+                            [("Detach", "detach", "Close the launcher, training keeps going in the background.\nOpen the launcher again to see it."),
+                             ("Stop", "stop", "Stop training and close. The last saved model.pt is kept."),
+                             ("Cancel", None, "Don't close.")], default="detach", danger="stop")
             if a is None: return
-            if a: self._tt_save(); self.root.destroy(); return   # it keeps running; the next launcher window reattaches
+            if a == "detach": self._tt_save(); self.root.destroy(); return   # it keeps running; the next launcher window reattaches
             self.stop()
         self._tt_save(final=True)
         if self.dash: self.dash.stop()

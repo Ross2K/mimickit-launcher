@@ -62,8 +62,8 @@ check("run-state marked ended", bool(json.load(open(stp)).get("ended")))
 check("no reattach to an ended run", app._reattach() is False)
 # 4) close window with 'keep running', reopen -> reattach (watch run, own log folder)
 app.watch(); wait(2); wpid = app.proc.pid
-G.messagebox.askyesnocancel = lambda *a, **k: True; app._on_close()
-time.sleep(1); check("watch keeps running after closing with 'keep running'", alive(wpid))
+app._choose_hook = lambda *a: "detach"; app._on_close()   # the close popup: Detach
+time.sleep(1); check("watch keeps running after closing with 'Detach'", alive(wpid))
 root = tk.Tk(); app = G.App(root); wait(2.5)
 check("new window reattaches to watch", app.proc is not None and app.proc.pid == wpid and app.run_kind == "watch")
 check("watch log replayed", "test mode: would open a viewer window" in app.t_log.get("1.0", "end"))
