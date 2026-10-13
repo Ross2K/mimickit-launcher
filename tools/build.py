@@ -24,6 +24,7 @@ TESTS = [
     "trainsettings_test",
     "decimate_test",
     "fixes042_test",
+    "status_test",
     "preview_test",
     "ghost_test",
     "multi_test",

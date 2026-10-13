@@ -1,7 +1,30 @@
 # Changelog
 
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
-place: `VERSION` in `mimickit_launcher.py`.
+place: `VERSION` in `mkl/core.py`.
+
+## a0.5.0
+
+### Added
+- **Status panel**: a Status / Console switch above the output. Status shows the stage, iteration, progress to the next
+  save, score / speed / episode-length tiles, the last checkpoint, highlighted warnings and errors, and short
+  plain-language lines - all read from MimicKit's console output. The raw console (and the exact command) is one click away.
+- **Health banner**: one line at the top - training normally / slowed down / no output for a while / finished /
+  stopped / crashed.
+- **Error cards** for known failures, each saying what happened, whether training is still safe, and offering one
+  fix: GPU out of memory (*Use N envs*), CPU preview crash 0xC0000005 (*Use the GPU for previews*), no `model.pt` yet
+  (*Pick a model...*), a yaml typo (*Open the file*), MimicKit folder not found (*Choose folder...*). They replace the
+  pop-ups for missing models and a missing MimicKit folder.
+- **"Looks trained" prompt** when the plateau estimate reaches 95% (or the target is reached): Render preview / Stop
+  training / Keep training, once per run chain, optionally sent to Discord/Telegram (new checkbox in Phone +
+  notifications...). The dashboard data carries a `looks_trained` flag.
+
+### Changed
+- All pop-ups are dark (themed) like the rest of the window.
+- The code is split into modules (`mkl/`: core, window, process, charts, dashboard, settings, status); the longest
+  methods are broken up. No behaviour change, all tests green.
+- Concise labels; the settings row no longer clips the About / Phone buttons at 1280 px; the version moved into the
+  banner; the exact command box moved into the Console view.
 
 ## a0.4.2
 

@@ -39,7 +39,17 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
   PID, command and start time are saved to `launcher_run.json`, so the next launcher window **reattaches** to a still-running
   training or Watch run (replays the log, keeps tailing, timers stay correct). STOP still kills the whole process tree.
   Closing the window while something runs asks whether to keep it running in the background.
-- **Command echo**: shows the exact command it runs, so you can copy it into a terminal.
+- **Status panel** (default) or **raw console**, one click apart. The status panel reads MimicKit's console output and
+  shows the stage (building the simulation, compiling GPU code, training...), the iteration, progress to the next
+  `model.pt` save (every `iters_per_output` iterations of the agent config), score / speed / episode-length tiles, the
+  last checkpoint, highlighted warnings and errors, and a few plain-language lines about what just happened.
+- **Health banner** at the top: one line saying whether training is running normally, slowed down, silent for a
+  while, finished, stopped or crashed.
+- **Error cards** for known failures (GPU out of memory, CPU preview crash, missing `model.pt`, a typo in a yaml file,
+  MimicKit folder not found): what happened, whether training is still safe, and one button that applies the fix.
+- **"Looks trained" prompt** when the progress estimate says the score has levelled off (once per run), with Render
+  preview / Stop / Keep training - optionally also sent to your phone (Phone + notifications...).
+- **Command echo**: shows the exact command it runs (in the Console view), so you can copy it into a terminal.
 - **Live progress** parsed from MimicKit's console tables (`| Iteration | N |`), with `log.txt` as a fallback when watching a run the launcher did not start (MimicKit writes log.txt rarely, so it can lag): iteration, samples, training time, samples/hour,
   last `model.pt` save, plus charts of Train/Test return and speed.
 - **Total training time across resumes**: "Running for (this session)" and "(total)" lines, saved every 10 s to
@@ -56,10 +66,10 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
 - **GPU monitor**: polls `nvidia-smi` every 5 s (memory, utilization, temperature).
 - **"Use Newton engine"** switch (on by default) - adds `--engine_config data/engines/newton_engine.yaml`,
   since Isaac Gym does not run on Windows.
-- **Dark mode** by default, with a Light mode toggle. Hover tooltips on everything.
+- **Dark mode** by default (pop-ups too), with a Light mode toggle. Hover tooltips on everything.
 - First-run setup asks for your MimicKit folder and auto-detects a venv (`.venv` / `venv` inside or next to it);
   otherwise it uses the Python that runs the launcher.
-- One file, standard library + matplotlib. Settings live in `%APPDATA%\mimickit-launcher\settings.json`
+- Standard library + matplotlib only (`mimickit_launcher.py` + the `mkl/` package). Settings live in `%APPDATA%\mimickit-launcher\settings.json`
   (Windows) or `~/.config/mimickit-launcher/settings.json` (Linux).
 
 ## Preview MP4 (no GPU memory needed)
@@ -289,14 +299,14 @@ Leave ~1 GB free for Windows. Watch the GPU line in the launcher while training 
 
 | Problem | Fix |
 |---|---|
-| "MimicKit not found" | Settings -> MimicKit folder must contain `mimickit\run.py`. Then **Save + rescan**. |
+| "MimicKit folder not found" card | Press **Choose folder...** on the card (the folder that contains `mimickit\run.py`). |
 | No configs in the lists | The `args` folder is missing or empty - re-clone MimicKit. |
 | Something silently didn't work | Look at `launcher_errors.log` next to the launcher settings: errors the launcher skips over are listed there (secrets masked). |
 | `No module named torch` / wrong packages | Settings -> Python venv must point at the venv you installed MimicKit into (folder or `python.exe`). |
 | `torch.cuda.is_available()` is False / `no kernel image` | Reinstall torch: `pip uninstall -y torch` then `pip install torch --index-url https://download.pytorch.org/whl/cu126` |
 | `J_kj` codegen error, `libmathdx`/`tile_matmul` error | See the Pascal section. |
 | Isaac Gym import errors on Windows | Keep **Use Newton engine** on. |
-| Out of memory | Lower `num_envs` (see above). |
+| Out of memory | The error card offers half the `num_envs` in one click; then **Resume training**. See VRAM tuning above. |
 | GPU line says `nvidia-smi not available` | Install/update the NVIDIA driver, or ignore it (only the monitor is affected). |
 | Charts stay empty | They fill from the console output after the first iteration table. For runs started elsewhere they read `log.txt`, which MimicKit writes rarely. |
 | Launcher doesn't open on Linux | `sudo apt install python3-tk` and `pip install matplotlib`. |
@@ -316,6 +326,7 @@ xvfb-run -a python tests/time_test.py      # total training time: start/stop/res
 xvfb-run -a python tests/history_test.py   # chart history across two resumes
 xvfb-run -a python tests/detach_test.py    # runs survive the GUI: detach, reattach, stop
 xvfb-run -a python tests/chain_test.py     # Continue from run: chains across folders (time + history), view env yaml
+xvfb-run -a python tests/status_test.py    # status panel, health banner, error cards + fixes, "looks trained", dark pop-ups
 # preview pipeline end to end - needs a real MimicKit install; run with its venv python:
 PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python PREVIEW_TEST_ARGS=args/<training args>.txt \
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
