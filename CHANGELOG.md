@@ -1,6 +1,20 @@
-# MimicKit Launcher a0.4.0 (draft - not released yet)
+# Changelog
 
-## New
+All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
+place: `VERSION` in `mimickit_launcher.py`.
+
+## a0.4.1
+
+### Changed (cleanup, no behaviour change)
+- Code formatted with `black` (line length 100).
+- One `VERSION` constant feeds the window title, the top-left label, the new **About** box and the zip names.
+- This `CHANGELOG.md` replaces the separate `docs/RELEASE_NOTES_*.md` files.
+- The built starter `.exe` and `__pycache__` are no longer stored in git (the `.exe` is still included in release zips).
+- `tools/build.py` runs the test suite before it writes the zips.
+
+## a0.4.0
+
+### New
 - **Training settings...**: edit the selected config's episode length, random start / share of starts at the clip
   start, early and pose termination, pose limit, clip end hold (trim or extend the held final pose), learning settings
   (discount, learning rates, action noise, steps per iteration, epochs, save interval, test episodes) and the number of
@@ -15,7 +29,7 @@
 
 ## a0.3.2
 
-## Fixes in a0.3.2 (phone dashboard charts)
+### Fixes (phone dashboard charts)
 
 - **No more snap-back when zooming in**: a pinch's second finger landing shortly after the first was taken as a
   double-tap and reset the view. Double-tap now means two quick single-finger taps without movement; deep zoom is kept
@@ -25,7 +39,7 @@
 
 ## a0.3.1
 
-## Fixes and additions in a0.3.1
+### Fixes and additions
 
 - **Phone dialog**: the QR code appears after `pip install qrcode` without restarting (Refresh button; import caches are
   cleared). Links are labelled and ordered Tailscale -> LAN -> hostname (Tailscale CLI used when installed), the QR
@@ -41,7 +55,9 @@
   previews go straight to it (a ~17 MB GPU footprint, no training impact); the log says so calmly. Preview diagnostics
   still tests both.
 
-## New in a0.3.0
+## a0.3.0
+
+### New
 
 - **Phone dashboard** (optional, off by default; Settings -> Phone + notifications...): read-only, mobile-friendly
   dark page with status, times, speed, VRAM bar, progress estimate, both charts (touch zoom), the newest preview MP4
@@ -50,7 +66,7 @@
 - **Notifications** (optional): Discord webhook and/or Telegram bot - chart + status every N hours (default 3), new
   preview MP4s (size limits respected), *Send test*. Stored locally only; failures logged, never fatal.
 
-## Also in this release (from the untested a0.2.8 step)
+### Also in a0.3.0 (from the a0.2.8 step, not released separately)
 
 - **Preview of every training motion** (the first 4): one env per motion, each forced onto its own motion id from t=0
   (before, the preview always showed whichever motion the reset sampled). New *Clip layout*: All at once (default,
@@ -64,7 +80,9 @@
 - **Tooltip fix**: the progress-target tooltip could pop up several times (the frame and its children each had one).
   Now one tooltip per widget, at most one on screen, shown after a short delay, closed on leave/click.
 
-## New in a0.2.7
+## a0.2.7
+
+### New
 
 - **Reference ghost in the preview MP4** - dropdown *Reference ghost*: Side by side (default) / Overlay / Off, saved in
   the settings. The recorder logs the reference pose of the clip the policy tracks (same motion id and time, from the
@@ -77,7 +95,7 @@
   MimicKit imports, build_env on the CPU, a short recording per CPU variant), each isolated with crash tracebacks and
   checkpoints; report in the log and `output/_launcher_preview/preview_diagnostics.txt`.
 
-## Since a0.1.5
+## a0.2.6 (since a0.1.5)
 
 Vibe coded with AI, light testing. GPL-3.0-or-later.
 
