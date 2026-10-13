@@ -5,9 +5,8 @@ Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
 
-VERSION = (
-    "a0.5.0"  # the one version string: window title, banner, About box, zip names (tools/build.py)
-)
+# the one version string: window title, banner, About box, zip names (tools/build.py)
+VERSION = "a0.5.0"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog

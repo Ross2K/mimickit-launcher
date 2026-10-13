@@ -40,7 +40,7 @@ def _version_file(d):
 
 
 def version(d):
-    v = re.search(r'^VERSION = "([^"]+)"', open(_version_file(d)).read(), re.M).group(1)
+    v = re.search(r'^VERSION = \(?\s*"([^"]+)"', open(_version_file(d)).read(), re.M).group(1)
     prof = os.path.join(d, "launcher_profile.py")
     if os.path.isfile(prof):
         m = re.search(r'^VERSION_SUFFIX = "([^"]*)"', open(prof).read(), re.M)
