@@ -56,7 +56,10 @@ U.save_json(p, {"v": 4})
 open(p, "w").write("garbage")
 U.save_json(p, {"v": 5})
 check("a damaged file never becomes the backup", U.load_json(p + ".bak") == {})
-srcs = {f: open(os.path.join(ROOT, f)).read() for f in os.listdir(ROOT) if f.endswith(".py")}
+srcs = {
+    os.path.relpath(f, ROOT): open(f).read()
+    for f in glob.glob(os.path.join(ROOT, "*.py")) + glob.glob(os.path.join(ROOT, "mkl", "*.py"))
+}
 left = [
     f
     for f, s in srcs.items()

@@ -1,5 +1,5 @@
 """Build the release zips: run the tests first, then zip.  python tools/build.py [--z DIR] [--skip-tests]
-Version and zip names come from VERSION in mimickit_launcher.py (+ VERSION_SUFFIX of a launcher_profile.py overlay).
+Version and zip names come from VERSION in mkl/core.py (+ VERSION_SUFFIX of a launcher_profile.py overlay).
 Public zip = git archive of HEAD (+ the starter .exe if built, it is not in git). --z DIR also zips that overlay folder.
 Preview tests need a MimicKit install: set PREVIEW_TEST_MK / PREVIEW_TEST_PY / PREVIEW_TEST_ARGS (else they skip).
 """
@@ -32,10 +32,14 @@ TESTS = [
 KNOWN = {"replay_test": "5/12"}
 
 
+def _version_file(d):
+    """VERSION lives in mkl/core.py since a0.5.0 (mimickit_launcher.py before)."""
+    p = os.path.join(d, "mkl", "core.py")
+    return p if os.path.isfile(p) else os.path.join(d, "mimickit_launcher.py")
+
+
 def version(d):
-    v = re.search(
-        r'^VERSION = "([^"]+)"', open(os.path.join(d, "mimickit_launcher.py")).read(), re.M
-    ).group(1)
+    v = re.search(r'^VERSION = "([^"]+)"', open(_version_file(d)).read(), re.M).group(1)
     prof = os.path.join(d, "launcher_profile.py")
     if os.path.isfile(prof):
         m = re.search(r'^VERSION_SUFFIX = "([^"]*)"', open(prof).read(), re.M)
