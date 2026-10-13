@@ -154,7 +154,8 @@ yourself to force one.
 
 ## Install and run the launcher
 
-**Easiest (Windows):** download/clone the repo and double-click **`MimicKit Launcher.exe`**. It is a tiny starter
+**Easiest (Windows):** download the release zip and double-click **`MimicKit Launcher.exe`** (a git clone has no
+.exe: build it with `tools/exe-starter/build.sh`, or start the .py as below). It is a tiny starter
 (source in `tools/exe-starter/`) that finds your venv's `pythonw.exe` (from the launcher settings, a `.venv`/`venv`
 next to MimicKit, the `MIMICKIT_LAUNCHER_PYTHON` variable, or `pythonw` on PATH) and runs `mimickit_launcher.py`.
 If it can't find Python it shows a message saying where it looked. Keep the .exe next to the .py file.
@@ -301,6 +302,9 @@ Leave ~1 GB free for Windows. Watch the GPU line in the launcher while training 
 | STOP didn't stop it | Press again; on Windows check Task Manager for leftover `python.exe`. |
 
 ## Running the tests
+
+`python tools/build.py [--z OVERLAY_DIR]` runs the whole suite first and only writes `mimickit_launcher_<VERSION>.zip`
+when every test passes (`replay_test` needs real console captures; 5/12 is its known result without them).
 
 ```bash
 xvfb-run -a python tests/gui_test.py                 # fake MimicKit tree in tests/fake_mimickit
