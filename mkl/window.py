@@ -7,6 +7,8 @@ from mkl.core import __all__ as _core_names  # noqa: F401
 class MainWindowMixin:
     """Main window: layout, theme, dialogs, log panel, GPU/VRAM meter, closing."""
 
+    VRAM_COLORS = dict(ok="#3f9a54", warn="#d0952c", bad="#c0392b")
+
     def _build(self):
         """The main window, top to bottom: settings row, what to run, command line, status + output | charts."""
         ttk.Label(self.root, text="version " + VERSION, style="Dim.TLabel").pack(
