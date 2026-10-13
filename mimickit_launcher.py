@@ -5,7 +5,7 @@ Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
 
-VERSION = "a0.4.0"
+VERSION = "a0.4.1"  # the one version string: window title, top-left label, About box, zip names (tools/build.py)
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -1145,6 +1145,8 @@ class App:
         b2 = ttk.Button(st, text="MimicKit patches...", command=self.patch_dialog)
         b2.grid(row=1, column=5, padx=4)
         Tip(b2, HELP["patches"])
+        b3 = ttk.Button(st, text="About", command=self.about_dialog)
+        b3.grid(row=0, column=6, padx=4)
         Tip(b, HELP["remote"])
 
         job = ttk.LabelFrame(top, text="What to run", padding=6)
@@ -3345,6 +3347,26 @@ class App:
             b.state(["disabled"])
         ttk.Button(bf, text="Close", command=top.destroy).pack(side="left", padx=3)
         self._ts_dlg = dict(top=top, vars=vars_, save=save, collect=collect, originals=originals)
+        return top
+
+    def about_dialog(self):
+        top = tk.Toplevel(self.root)
+        top.title("About")
+        top.configure(bg=T["bg"])
+        f = ttk.Frame(top, padding=14)
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text="MimicKit Launcher " + VERSION, style="TLabelframe.Label").pack(
+            anchor="w"
+        )
+        ttk.Label(
+            f,
+            text="A GUI for training and previewing MimicKit policies.\n"
+            "GPL-3.0-or-later. https://github.com/curelessSky/mimickit-launcher",
+            style="Dim.TLabel",
+            justify="left",
+        ).pack(anchor="w", pady=(6, 10))
+        ttk.Button(f, text="Close", command=top.destroy).pack(anchor="w")
+        self._about = top
         return top
 
     def patch_dialog(self):
