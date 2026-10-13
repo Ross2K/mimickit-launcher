@@ -130,7 +130,7 @@ header{display:flex;justify-content:space-between;align-items:center;padding:10p
 h1{font-size:16px;margin:0}.card{background:var(--panel);margin:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--b)}
 .row{display:flex;justify-content:space-between;gap:8px;padding:2px 0}.k{color:var(--dim)}.v{text-align:right}
 .bar{height:10px;background:var(--b);border-radius:5px;overflow:hidden}.bar>div{height:100%;width:0}
-canvas{width:100%;height:190px;touch-action:none;display:block}video{width:100%;border-radius:8px;background:#000}
+canvas{width:100%;height:190px;touch-action:pan-y;display:block}video{width:100%;border-radius:8px;background:#000}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;width:100%}
 button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
 </style></head><body>
@@ -143,7 +143,7 @@ button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color
 <div class="row"><span class="k">Estimate</span><span class="v" id="estimate"></span></div>
 <div class="row"><span class="k">Reward / step</span><span class="v" id="per_step"></span></div>
 <div class="row"><span class="k">VRAM</span><span class="v" id="vram"></span></div><div class="bar"><div id="vbar"></div></div></div>
-<div class="card"><small>Return - pinch/drag to zoom time, double-tap to reset</small><canvas id="c1"></canvas>
+<div class="card"><small>Return - drag sideways to pan, pinch to zoom time, double-tap to reset</small><canvas id="c1"></canvas>
 <small>M samples / hour</small><canvas id="c2"></canvas>
 <div id="psw" style="display:none"><small>Avg reward per step (%)</small><canvas id="c3"></canvas></div></div>
 <div class="card"><div id="pv"><small>No preview yet.</small></div><p></p>
@@ -169,13 +169,28 @@ function chart(cv,series){const r=window.devicePixelRatio||1,w=cv.clientWidth,h=
 function draw(){if(!S)return;const C=S.charts||{};chart(q('c1'),C.return||[]);chart(q('c2'),C.rate||[]);
  const ps=C.per_step||[];q('psw').style.display=ps.length?'':'none';if(ps.length)chart(q('c3'),ps)}
 function full(){const e=ext([].concat((S.charts||{}).return||[],(S.charts||{}).rate||[]));return e?[e[0],e[1]]:[0,1]}
-for(const id of ['c1','c2','c3']){const cv=q(id);let t0=null,last=0;
- cv.addEventListener('touchstart',e=>{if(!S)return;const v=view||full(),r=cv.getBoundingClientRect();
-  if(e.touches.length===1&&Date.now()-last<300){view=null;draw();t0=null;return}last=Date.now();
-  t0={v:v.slice(),xs:[...e.touches].map(t=>t.clientX-r.left),w:r.width}},{passive:true});
- cv.addEventListener('touchmove',e=>{if(!t0)return;const r=cv.getBoundingClientRect(),xs=[...e.touches].map(t=>t.clientX-r.left),[a,b]=t0.v,span=b-a;
-  if(xs.length>1&&t0.xs.length>1){const d0=Math.abs(t0.xs[0]-t0.xs[1])||1,d1=Math.abs(xs[0]-xs[1])||1,f=d0/d1,c=a+((t0.xs[0]+t0.xs[1])/2)/t0.w*span;view=[c-(c-a)*f,c+(b-c)*f]}
-  else{const dx=(xs[0]-t0.xs[0])/t0.w*span;view=[a-dx,b-dx]}draw()},{passive:true});
+// Touch: a vertical swipe scrolls the page (touch-action: pan-y + direction decided from the first movement);
+// a horizontal drag pans and a two-finger pinch zooms the time axis; deep zoom is allowed (no snap-back);
+// a double-tap (two quick single-finger taps without movement) resets. A pinch's second finger is never a tap.
+const SLOP=8,TAP_MS=300;
+for(const id of ['c1','c2','c3']){const cv=q(id);let t0=null,mode=null,moved=false,lastTap=0,multi=false;
+ const pos=e=>{const r=cv.getBoundingClientRect();return [...e.touches].map(t=>[t.clientX-r.left,t.clientY-r.top])};
+ const begin=e=>{const v=view||full(),r=cv.getBoundingClientRect();t0={v:v.slice(),p:pos(e),w:r.width}};
+ cv.addEventListener('touchstart',e=>{if(!S)return;if(e.touches.length>1){multi=true;mode='pinch';begin(e);return}
+  multi=false;mode=null;moved=false;begin(e)},{passive:true});
+ cv.addEventListener('touchmove',e=>{if(!t0)return;const p=pos(e),[a,b]=t0.v,span=b-a;
+  if(p.length>1&&t0.p.length>1){mode='pinch';e.preventDefault();
+   const d0=Math.abs(t0.p[0][0]-t0.p[1][0])||1,d1=Math.abs(p[0][0]-p[1][0])||1,f=d0/d1,c=a+((t0.p[0][0]+t0.p[1][0])/2)/t0.w*span;
+   let nv=[c-(c-a)*f,c+(b-c)*f];if(nv[1]-nv[0]<1e-9){const m=(nv[0]+nv[1])/2;nv=[m-5e-10,m+5e-10]}view=nv;draw();return}
+  if(p.length!==1||mode==='pinch')return;
+  const dx=p[0][0]-t0.p[0][0],dy=p[0][1]-t0.p[0][1];
+  if(!mode){if(Math.abs(dx)<SLOP&&Math.abs(dy)<SLOP)return;moved=true;mode=Math.abs(dx)>Math.abs(dy)?'pan':'scroll'}
+  if(mode!=='pan')return;              // vertical: the browser scrolls the page
+  e.preventDefault();view=[a-dx/t0.w*span,b-dx/t0.w*span];draw()},{passive:false});
+ cv.addEventListener('touchend',e=>{if(e.touches.length>0){if(mode==='pinch')begin(e);return}
+  const tap=!moved&&!multi&&mode===null;t0=null;mode=null;
+  if(tap){const now=Date.now();if(now-lastTap<TAP_MS){view=null;draw();lastTap=0}else lastTap=now}else lastTap=0},{passive:true});
+ cv.addEventListener('touchcancel',()=>{t0=null;mode=null;lastTap=0},{passive:true});
  cv.addEventListener('wheel',e=>{if(!S)return;e.preventDefault();const v=view||full(),r=cv.getBoundingClientRect(),c=v[0]+(e.clientX-r.left-44)/(r.width-50)*(v[1]-v[0]),f=e.deltaY<0?0.8:1.25;view=[c-(c-v[0])*f,c+(v[1]-c)*f];draw()});
  cv.addEventListener('dblclick',()=>{view=null;draw()})}
 async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){q('state').textContent='access denied ('+r.status+')';return}

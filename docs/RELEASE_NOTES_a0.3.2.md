@@ -1,4 +1,14 @@
-# MimicKit Launcher a0.3.1 (draft - not released yet)
+# MimicKit Launcher a0.3.2 (draft - not released yet)
+
+## Fixes in a0.3.2 (phone dashboard charts)
+
+- **No more snap-back when zooming in**: a pinch's second finger landing shortly after the first was taken as a
+  double-tap and reset the view. Double-tap now means two quick single-finger taps without movement; deep zoom is kept
+  (also through the 10 s refresh).
+- **Page scrolling over charts**: a vertical swipe that starts on a chart scrolls the page (`touch-action: pan-y`, the
+  direction is decided from the first movement); only a sideways drag pans and a two-finger pinch zooms the chart.
+
+## a0.3.1
 
 ## Fixes and additions in a0.3.1
 

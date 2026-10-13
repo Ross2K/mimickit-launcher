@@ -4,7 +4,7 @@ Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
 Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
-VERSION = "a0.3.1"
+VERSION = "a0.3.2"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
