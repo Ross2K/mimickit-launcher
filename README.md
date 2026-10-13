@@ -138,8 +138,8 @@ yourself to force one.
   progress estimate, both charts (touch zoom/pan of the time axis), the newest preview MP4 (streams with HTTP range
   requests), and a *Render preview* button (same background pipeline as the window's button, at most one per 5 min).
   No start/stop from the web. Every request needs the random access token from the dialog (link + QR code if the
-  `qrcode` package is installed). Port 8765 by default; listen on 0.0.0.0 (other devices, e.g. over Tailscale) or
-  127.0.0.1 (this PC only). Use **Tailscale** to reach it from anywhere - see [docs/REMOTE_ACCESS.md](docs/REMOTE_ACCESS.md).
+  `qrcode` package is installed). Port 8765 by default. *Who can open it*: **This PC only** (default) or
+  **My phone and other devices (Tailscale recommended)**. Use **Tailscale** to reach it from anywhere - see [docs/REMOTE_ACCESS.md](docs/REMOTE_ACCESS.md).
   **Never forward the port on your router.**
 - **Notifications** - Discord webhook and/or Telegram bot (token + chat id): a chart picture + status every N hours
   (default 3), optionally each new preview MP4 (skipped with a note if over the upload limit). *Send test* button.
@@ -291,6 +291,7 @@ Leave ~1 GB free for Windows. Watch the GPU line in the launcher while training 
 |---|---|
 | "MimicKit not found" | Settings -> MimicKit folder must contain `mimickit\run.py`. Then **Save + rescan**. |
 | No configs in the lists | The `args` folder is missing or empty - re-clone MimicKit. |
+| Something silently didn't work | Look at `launcher_errors.log` next to the launcher settings: errors the launcher skips over are listed there (secrets masked). |
 | `No module named torch` / wrong packages | Settings -> Python venv must point at the venv you installed MimicKit into (folder or `python.exe`). |
 | `torch.cuda.is_available()` is False / `no kernel image` | Reinstall torch: `pip uninstall -y torch` then `pip install torch --index-url https://download.pytorch.org/whl/cu126` |
 | `J_kj` codegen error, `libmathdx`/`tile_matmul` error | See the Pascal section. |
@@ -320,6 +321,7 @@ PREVIEW_TEST_MK=/path/MimicKit PREVIEW_TEST_PY=/path/MimicKit/.venv/bin/python P
   xvfb-run -a /path/MimicKit/.venv/bin/python tests/preview_test.py
 xvfb-run -a python tests/nav_test.py      # chart navigation, light/dark charts, single-instance tooltips
 xvfb-run -a python tests/patch_score_test.py  # MimicKit patches apply/revert, per-step score, URL order + QR refresh
+xvfb-run -a python tests/fixes042_test.py  # atomic JSON + .bak, damaged-settings popup, logged errors, bind choice, secrets
 xvfb-run -a python tests/trainsettings_test.py  # training settings copies/overrides, clip hold, clip start patch, close popup
 xvfb-run -a python tests/decimate_test.py  # chart culling + min/max downsampling (desktop + phone), hover readouts
 xvfb-run -a python tests/dashboard_touch_test.py  # phone chart touch: pinch, pan, vertical scroll, double-tap

@@ -3,7 +3,20 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mimickit_launcher.py`.
 
-## a0.4.1
+## a0.4.2
+
+### Fixed
+- Settings, run state, training time, run links, edited training settings and preview state are saved atomically (temp
+  file + `os.replace`) with a `.bak` copy of the last good file, through one shared helper (`mimickit_util.py`).
+- A damaged settings file is no longer silently reset: a popup asks *"Your settings file was damaged. Restore the
+  backup from <date>?"* with **Restore** / **Start fresh**; the damaged file is kept as `settings.json.damaged-<time>`.
+- Errors the launcher deliberately ignores are now written to `launcher_errors.log` next to the settings (repeats
+  capped, secrets masked) instead of vanishing.
+- Phone dashboard: *Who can open it* - **This PC only** (default for new installs) or **My phone and other devices
+  (Tailscale recommended)**. Existing setups that listened on all interfaces keep doing so.
+- **Show** / **Hide** buttons on the masked Discord webhook and Telegram token fields. Webhook URLs and tokens are
+  masked in the error log and notification error texts and never appear on the dashboard.
+
 
 ### Changed (cleanup, no behaviour change)
 - Code formatted with `black` (line length 100).

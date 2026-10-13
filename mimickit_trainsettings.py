@@ -10,6 +10,8 @@ The yaml is edited line by line, so comments and layout stay as they were. No th
 
 import datetime, json, os, pickle, re, shutil
 
+import mimickit_util as U
+
 # (key path, label, kind, hint).  kind: bool / int / float / text.  Paths with 2 parts are nested one level (agent yaml).
 SECTIONS = [
     (
@@ -299,11 +301,14 @@ def rel(mk, p):
 def current(mk, name):
     """dict(env, agent, values, dir, saved) of the active override set, or None."""
     try:
-        c = json.load(open(os.path.join(root(mk, name), "current.json"), encoding="utf-8"))
+        c = U.load_json(os.path.join(root(mk, name), "current.json"))
         if c.get("env") and not os.path.isfile(os.path.join(mk, c["env"])):
             return None
         return c
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, AttributeError) as e:
+        U.log_exc("reading the edited training settings of " + name, e)
         return None
 
 
@@ -400,8 +405,5 @@ def save(mk, name, env_rel, agent_rel, changes, hold=None, orig_env=None, orig_a
         with open(p, "w", encoding="utf-8", newline="") as fh:
             fh.write(txt)
         out[kind] = rel(mk, p)
-    tmp = os.path.join(base, "current.json.tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(out, fh, indent=1)
-    os.replace(tmp, os.path.join(base, "current.json"))
+    U.save_json(os.path.join(base, "current.json"), out)
     return out

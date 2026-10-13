@@ -285,7 +285,7 @@ root.update()
 v = app._rdlg_vars
 check(
     "settings dialog: port, bind address, token URL",
-    v["port"].get() == str(port) and v["host"].get() == "127.0.0.1",
+    v["port"].get() == str(port) and v["host"].get() == G.BIND_LABEL["127.0.0.1"] == "This PC only",
 )
 v["enabled"].set(False)
 v["apply"]()

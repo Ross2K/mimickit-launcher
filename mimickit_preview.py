@@ -34,6 +34,9 @@ import faulthandler
 faulthandler.enable()  # a native crash prints the Python stack (pinpoints the line)
 import argparse, json, socket, math, shutil, subprocess, tempfile, threading, time
 
+import mimickit_util as U
+from mimickit_util import log_exc
+
 FPS_DEFAULT = 30
 RAM_FRACTION = 0.80  # budget = 80% of free RAM at launch
 ABORT_AT = 0.92  # abort when the process tree uses 92% of the budget
@@ -147,8 +150,8 @@ class RamGuard:
                     for c in list(self.children):
                         try:
                             c.kill()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log_exc("mimickit_preview: _loop", e)
             time.sleep(0.25)
 
     def stop(self):
@@ -310,8 +313,8 @@ def install_build_ckpts():
             (torch.Tensor, "pin_memory"),
         ):
             wrap(owner, attr, "torch.%s" % attr)
-    except Exception:
-        pass
+    except Exception as e:
+        log_exc("mimickit_preview: install_build_ckpts", e)
     return done
 
 
@@ -1125,23 +1128,24 @@ def _state_path(a):
 
 def load_state(a):
     try:
-        return json.load(open(_state_path(a))).get(socket.gethostname(), {})
-    except Exception:
+        return U.load_json(_state_path(a)).get(socket.gethostname(), {})
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        log_exc("reading preview_state.json", e)
         return {}
 
 
 def save_state(a, upd):
     p = _state_path(a)
-    try:
-        allst = json.load(open(p))
-    except Exception:
+    allst = U.load_json_or(p, {}, "reading preview_state.json")
+    if not isinstance(allst, dict):
         allst = {}
     allst.setdefault(socket.gethostname(), {}).update(upd)
     try:
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        json.dump(allst, open(p, "w"), indent=1)
-    except OSError:
-        pass
+        U.save_json(p, allst)
+    except OSError as e:
+        log_exc("saving preview_state.json", e)
 
 
 def stages_for(device):
@@ -1180,8 +1184,8 @@ def proc_vram_mb(pid, baseline=None):
                 ),
                 "total-delta",
             )
-    except Exception:
-        pass
+    except Exception as e:
+        log_exc("mimickit_preview: proc_vram_mb", e)
     return 0.0, "unavailable"
 
 
@@ -1425,8 +1429,8 @@ def diag_probes(env_yaml):
         import yaml
 
         env_mod = (yaml.safe_load(open(env_yaml)) or {}).get("env_name", "")
-    except Exception:
-        pass
+    except Exception as e:
+        log_exc("mimickit_preview: diag_probes", e)
     return [
         (
             "P1",

@@ -51,7 +51,9 @@ def run_tests(d):
     )
     bad = []
     for t in TESTS + list(KNOWN):
-        shutil.rmtree(os.path.join(d, "tests", "fake_mimickit", "output"), ignore_errors=True)  # fresh state per test
+        shutil.rmtree(
+            os.path.join(d, "tests", "fake_mimickit", "output"), ignore_errors=True
+        )  # fresh state per test
         r = subprocess.run(
             xvfb + [py, os.path.join("tests", t + ".py")],
             cwd=d,

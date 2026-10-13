@@ -7,6 +7,8 @@ The web server never touches Tk: the GUI publishes a snapshot dict (set_snapshot
 import hmac, html, io, json, mimetypes, os, queue, re, secrets, socket, threading, time, urllib.parse, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from mimickit_util import log_exc
+
 RENDER_MIN_INTERVAL = 300  # s between web-triggered previews
 DISCORD_MAX_MB = 10.0  # default upload limit for webhooks (non-boosted server)
 TELEGRAM_MAX_MB = 50.0  # Bot API upload limit
@@ -143,8 +145,8 @@ def tailscale_info(timeout=4):
         me = (json.loads(out or "{}") or {}).get("Self") or {}
         name = (me.get("DNSName") or "").rstrip(".")
         ips = [a for a in me.get("TailscaleIPs") or [] if "." in a]
-    except Exception:
-        pass
+    except Exception as e:
+        log_exc("mimickit_remote: tailscale_info", e)
     if not ips:
         try:
             out = subprocess.run(
@@ -155,8 +157,8 @@ def tailscale_info(timeout=4):
                 creationflags=flags,
             ).stdout
             ips = [l.strip() for l in out.splitlines() if l.strip()]
-        except Exception:
-            pass
+        except Exception as e:
+            log_exc("mimickit_remote: tailscale_info", e)
     return ips, name
 
 
@@ -197,8 +199,8 @@ def load_qrcode():
         import site
 
         importlib.reload(site)  # picks up a user site-packages dir created by the install
-    except Exception:
-        pass
+    except Exception as e:
+        log_exc("mimickit_remote: load_qrcode", e)
     try:
         return importlib.import_module("qrcode")
     except ImportError:
@@ -605,7 +607,9 @@ def redact(text, cfg):
         v = (cfg or {}).get(k)
         if v:
             text = text.replace(v, "<%s>" % k)
-    return text
+    from mimickit_util import scrub
+
+    return scrub(text)  # also anything else registered / shaped like a webhook or bot token
 
 
 class Notifier:

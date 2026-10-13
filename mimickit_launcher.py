@@ -5,7 +5,7 @@ Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
 
-VERSION = "a0.4.1"  # the one version string: window title, top-left label, About box, zip names (tools/build.py)
+VERSION = "a0.4.2"  # the one version string: window title, top-left label, About box, zip names (tools/build.py)
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -17,6 +17,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mimickit_remote as R
+import mimickit_util as U
+from mimickit_util import log_exc
 import mimickit_trainsettings as TS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -262,15 +264,90 @@ THEMES = {
     ),
 }
 T = dict(THEMES["dark"])  # current colours (updated in place)
+# dashboard bind address -> what the user picks
+BIND_LABEL = {
+    "127.0.0.1": "This PC only",
+    "0.0.0.0": "My phone and other devices (Tailscale recommended)",
+}
 
 
-def load_settings():
-    s = dict(mimickit="", venv="", light_mode=False, force_newton=True)
+def default_settings():
+    return dict(mimickit="", venv="", light_mode=False, force_newton=True)
+
+
+def load_settings(problems=None):
+    """Settings from CONFIG over the defaults. A damaged file is NOT silently replaced: it is reported in
+    `problems` (list) as dict(error, backup=(path, datetime) or None) and the defaults are returned.
+    """
+    s = default_settings()
     try:
-        s.update(json.load(open(CONFIG)))
-    except Exception:
-        pass
+        data = U.load_json(CONFIG)
+        if not isinstance(data, dict):
+            raise U.JsonDamaged("settings file does not hold an object")
+        s.update(data)
+    except FileNotFoundError:
+        pass  # first start
+    except (U.JsonDamaged, OSError) as e:
+        log_exc("loading settings", e)
+        if problems is not None:
+            problems.append(dict(error=str(e), backup=U.backup_info(CONFIG)))
+    return migrate_settings(s)
+
+
+def migrate_settings(s):
+    """Older settings: a dashboard that was set up before the bind choice existed listened on all interfaces -
+    keep that explicitly (new installs default to this PC only)."""
+    r = s.get("remote")
+    if isinstance(r, dict) and "host" not in r and (r.get("enabled") or r.get("token")):
+        r["host"] = "0.0.0.0"
     return s
+
+
+def resolve_damaged_settings(choose, problem, path=None):
+    """Ask what to do with a damaged settings file. choose(title, text, options) -> value.
+    Returns the settings to use. The damaged file is kept as <file>.damaged-<time> either way."""
+    path = path or CONFIG
+    b = problem.get("backup")
+    if b:
+        text = "Your settings file was damaged. Restore the backup from %s?" % b[1].strftime(
+            "%Y-%m-%d %H:%M"
+        )
+        opts = [
+            (
+                "Restore",
+                "restore",
+                "Use the backup (your folders, presets and phone settings as they were then).",
+            ),
+            (
+                "Start fresh",
+                "fresh",
+                "Default settings. The damaged file is kept next to it for reference.",
+            ),
+        ]
+    else:
+        text = "Your settings file was damaged and there is no backup to restore."
+        opts = [
+            (
+                "Start fresh",
+                "fresh",
+                "Default settings. The damaged file is kept next to it for reference.",
+            )
+        ]
+    a = choose("Settings file damaged", text, opts) or "fresh"
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    try:
+        if os.path.exists(path):
+            os.replace(path, "%s.damaged-%s" % (path, stamp))
+    except OSError as e:
+        log_exc("moving the damaged settings file aside", e)
+    s = default_settings()
+    if a == "restore" and b:
+        try:
+            s.update(U.load_json(b[0]))
+            shutil.copy2(b[0], path)
+        except (OSError, U.JsonDamaged) as e:
+            log_exc("restoring the settings backup", e)
+    return migrate_settings(s)
 
 
 # ---------------------------------------------------------------- log.txt parsing
@@ -314,19 +391,20 @@ TIME_FILE = "launcher_time.json"
 
 def read_time(d):
     try:
-        j = json.load(open(os.path.join(d, TIME_FILE)))
+        j = U.load_json(os.path.join(d, TIME_FILE))
         return j if isinstance(j.get("seconds"), (int, float)) else None
-    except (OSError, ValueError, AttributeError):
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, AttributeError) as e:
+        log_exc("reading the training time of " + d, e)
         return None
 
 
 def write_time(d, j):
     try:
-        tmp = os.path.join(d, TIME_FILE + ".tmp")
-        json.dump(j, open(tmp, "w"), indent=1)
-        os.replace(tmp, os.path.join(d, TIME_FILE))
-    except OSError:
-        pass
+        U.save_json(os.path.join(d, TIME_FILE), j)
+    except OSError as e:
+        log_exc("saving the training time of " + d, e)
 
 
 def chain_total(dirs):
@@ -374,11 +452,13 @@ def parent_of(d):
     if j and j.get("parent"):
         cands.append(j["parent"])
     try:
-        l = json.load(open(os.path.join(d, LINK_FILE)))
+        l = U.load_json(os.path.join(d, LINK_FILE))
         if l.get("parent"):
             cands.append(l["parent"])
-    except (OSError, ValueError, AttributeError):
-        pass
+    except FileNotFoundError:
+        pass  # most folders have no link file
+    except (OSError, ValueError, AttributeError) as e:
+        log_exc("reading the run link of " + d, e)
     for c in cands:
         if os.path.isdir(c):
             return c
@@ -557,18 +637,19 @@ def run_state_matches(st):
 
 def read_run_state(path):
     try:
-        return json.load(open(path))
-    except (OSError, ValueError):
+        return U.load_json(path)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        log_exc("reading run state " + path, e)
         return None
 
 
 def write_run_state(path, st):
     try:
-        tmp = path + ".tmp"
-        json.dump(st, open(tmp, "w"), indent=1)
-        os.replace(tmp, path)
-    except OSError:
-        pass
+        U.save_json(path, st, backup=False)
+    except OSError as e:
+        log_exc("saving run state " + path, e)
 
 
 class PidProc:
@@ -1076,7 +1157,16 @@ class App:
         self.root = root
         root.title("MimicKit Launcher  %s" % VERSION)
         root.geometry("1280x880")
-        self.s = load_settings()
+        U.set_log_path(
+            os.path.join(os.path.dirname(os.path.abspath(CONFIG)), "launcher_errors.log")
+        )
+        problems = []
+        self.s = load_settings(problems)
+        if problems:
+            self.v_light = tk.BooleanVar(value=False)
+            self.apply_theme()
+            self.s = resolve_damaged_settings(self.choose, problems[0])
+        self._register_secrets()
         self.proc = None
         self.q = queue.Queue()
         self.preview_proc = None
@@ -1485,6 +1575,8 @@ class App:
         self.root.option_add("*TCombobox*Listbox.selectForeground", T["fg"])
         self.root.option_add("*Listbox.background", T["field"])
         self.root.option_add("*Listbox.foreground", T["fg"])
+        if not hasattr(self, "t_cmd"):
+            return  # early (before the window is built): only the ttk styles, e.g. for a startup popup
         self.t_cmd.configure(
             bg=T["panel"],
             fg=T["fg"],
@@ -1708,8 +1800,10 @@ class App:
             for a in old:
                 try:
                     a.remove()
-                except Exception:
-                    pass  # already gone with an ax.clear() refresh
+                except Exception as e:
+                    log_exc(
+                        "mimickit_launcher: _hover - already gone with an ax.clear() refresh", e
+                    )
             self._hov = None
         if ax is None or ax not in self._axes() or ev.xdata is None:
             self.canvas.draw_idle()
@@ -1861,8 +1955,7 @@ class App:
         if hasattr(self, "v_newton"):
             self.s["force_newton"] = bool(self.v_newton.get())
         try:
-            os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-            json.dump(self.s, open(CONFIG, "w"), indent=1)
+            U.save_json(CONFIG, self.s)
         except OSError as e:
             self._append("[gui] could not save settings: %s\n" % e)
 
@@ -2297,7 +2390,8 @@ class App:
         start = os.path.join(new_abs, "start_model.pt")
         shutil.copy2(model, start)
         try:
-            json.dump(
+            U.save_json(
+                os.path.join(new_abs, LINK_FILE),
                 dict(
                     parent=src_dir,
                     parent_model=model,
@@ -2306,11 +2400,9 @@ class App:
                     created=datetime.datetime.now().isoformat(timespec="seconds"),
                     launcher_version=VERSION,
                 ),
-                open(os.path.join(new_abs, LINK_FILE), "w"),
-                indent=1,
             )
-        except OSError:
-            pass
+        except OSError as e:
+            log_exc("writing the run link", e)
         self.tt_next = dict(base=tot, sessions=ses + 1, parent=src_dir)
         self._append(
             "[gui] continuing from %s (total %s, %d sessions) -> %s\n"
@@ -2577,11 +2669,11 @@ class App:
         self.t_cmd.configure(state="disabled")
 
     def _save_settings_only(self):
+        self._register_secrets()
         try:
-            os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-            json.dump(self.s, open(CONFIG, "w"), indent=1)
-        except OSError:
-            pass
+            U.save_json(CONFIG, self.s)
+        except OSError as e:
+            log_exc("saving settings", e)
 
     def _reattach(self):
         """On startup: if a detached run from an earlier window is still running, show it again and keep tailing its log."""
@@ -3349,6 +3441,18 @@ class App:
         self._ts_dlg = dict(top=top, vars=vars_, save=save, collect=collect, originals=originals)
         return top
 
+    @staticmethod
+    def _toggle_secret(entry, button):
+        """Show / hide a masked field (the value itself never leaves the field)."""
+        hidden = entry.cget("show") != ""
+        entry.configure(show="" if hidden else "*")
+        button.configure(text="Hide" if hidden else "Show")
+
+    def _register_secrets(self):
+        """Secrets from the settings are masked in the error log and anything else the launcher writes out."""
+        n, r = self.s.get("notify") or {}, self.s.get("remote") or {}
+        U.add_secret(n.get("discord_webhook"), n.get("telegram_token"), r.get("token"))
+
     def about_dialog(self):
         top = tk.Toplevel(self.root)
         top.title("About")
@@ -3491,7 +3595,7 @@ class App:
         """Start/stop the dashboard from the settings. Port in use etc. is logged, never fatal."""
         c = self._remote_cfg()
         want = bool(c.get("enabled"))
-        host = c.get("host", "0.0.0.0")
+        host = c.get("host", "127.0.0.1")
         port = int(c.get("port", 8765))
         if self.dash and (
             not want
@@ -3573,7 +3677,9 @@ class App:
         f.pack(fill="both", expand=True)
         v_en = tk.BooleanVar(value=bool(c.get("enabled")))
         v_port = tk.StringVar(value=str(c.get("port", 8765)))
-        v_host = tk.StringVar(value=c.get("host", "0.0.0.0"))
+        v_host = tk.StringVar(
+            value=BIND_LABEL.get(c.get("host", "127.0.0.1"), BIND_LABEL["0.0.0.0"])
+        )
         ttk.Label(f, text="Phone dashboard", style="TLabelframe.Label").grid(
             row=0, column=0, sticky="w"
         )
@@ -3582,20 +3688,21 @@ class App:
         )
         ttk.Label(f, text="Port").grid(row=2, column=0, sticky="w")
         ttk.Entry(f, textvariable=v_port, width=8).grid(row=2, column=1, sticky="w")
-        ttk.Label(f, text="Listen on").grid(row=3, column=0, sticky="w")
+        ttk.Label(f, text="Who can open it").grid(row=3, column=0, sticky="w")
         ttk.Combobox(
-            f, textvariable=v_host, values=["0.0.0.0", "127.0.0.1"], state="readonly", width=12
-        ).grid(row=3, column=1, sticky="w")
+            f, textvariable=v_host, values=list(BIND_LABEL.values()), state="readonly", width=46
+        ).grid(row=3, column=1, columnspan=2, sticky="w")
+        host_of = lambda: {v: k for k, v in BIND_LABEL.items()}.get(v_host.get(), "127.0.0.1")
         warn = ttk.Label(f, style="Dim.TLabel", wraplength=520, justify="left")
         warn.grid(row=4, column=0, columnspan=3, sticky="w")
 
         def upd_warn(*_):
             warn.configure(
                 text=(
-                    "0.0.0.0 = reachable from other devices on your networks (Tailscale, home Wi-Fi). Anyone who has the "
-                    "link incl. token can watch. Never forward this port on your router - use Tailscale (docs/REMOTE_ACCESS.md)."
-                    if v_host.get() == "0.0.0.0"
-                    else "127.0.0.1 = this PC only (for testing, or behind your own tunnel)."
+                    "Reachable from your other devices (Tailscale, home Wi-Fi). Anyone with the link incl. token can "
+                    "watch. Never forward this port on your router - use Tailscale (docs/REMOTE_ACCESS.md)."
+                    if host_of() == "0.0.0.0"
+                    else "Only this PC can open the page (http://127.0.0.1). Pick the other option to use your phone."
                 )
             )
 
@@ -3619,7 +3726,7 @@ class App:
             except ValueError:
                 port = 8765
             items = R.dashboard_urls(
-                v_host.get(), port, c.get("token") or "(enable to create a token)", labelled=True
+                host_of(), port, c.get("token") or "(enable to create a token)", labelled=True
             )
             for w in urlf.winfo_children():
                 w.destroy()
@@ -3692,9 +3799,14 @@ class App:
         ):
             vs[k] = tk.StringVar(value=str(n.get(k, 3 if k == "every_hours" else "")))
             ttk.Label(f, text=lab).grid(row=9 + i, column=0, sticky="w")
-            ttk.Entry(f, textvariable=vs[k], width=w, show="*" if hide else "").grid(
-                row=9 + i, column=1, columnspan=3, sticky="w"
-            )
+            ent = ttk.Entry(f, textvariable=vs[k], width=w, show="*" if hide else "")
+            ent.grid(row=9 + i, column=1, columnspan=2, sticky="w")
+            if hide:
+                sb = ttk.Button(f, text="Show", width=6)
+                sb.configure(command=lambda e=ent, b=sb: self._toggle_secret(e, b))
+                sb.grid(row=9 + i, column=3, sticky="w")
+                self._secret_entries = getattr(self, "_secret_entries", {})
+                self._secret_entries[k] = (ent, sb)
         v_sp = tk.BooleanVar(value=bool(n.get("send_preview", False)))
         ttk.Checkbutton(
             f,
@@ -3708,7 +3820,7 @@ class App:
             except ValueError:
                 c["port"] = 8765
             c["enabled"] = bool(v_en.get())
-            c["host"] = v_host.get()
+            c["host"] = host_of()
             for k, v in vs.items():
                 n[k] = v.get().strip()
             try:
@@ -3716,6 +3828,7 @@ class App:
             except ValueError:
                 n["every_hours"] = 3.0
             n["send_preview"] = bool(v_sp.get())
+            self._register_secrets()
             self._save_settings_only()
 
         def apply_():
