@@ -3,6 +3,8 @@
 from mkl.core import *  # noqa: F401,F403 - shared helpers/constants
 from mkl.core import __all__ as _core_names  # noqa: F401
 
+STATUS_PANEL_SHOWS = ("model.pt last saved", "No training data yet", "Avg reward per step: needs")
+
 
 class ChartsMixin:
     """Training progress: status text, charts (navigation, downsampling, hover) and the progress estimate."""
@@ -362,6 +364,10 @@ class ChartsMixin:
         )
         self._finish_axes(ax3, d, earlier, lines, log, off)
         self._status_lines(d, est_rate, lines, running, segs)
+        if getattr(self, "v_outview", None) is not None and self.v_outview.get() == "status":
+            lines = [
+                l for l in lines if not l.startswith(STATUS_PANEL_SHOWS)
+            ]  # already in the status panel
         self.l_status.configure(text="\n".join(lines))
         self.canvas.draw_idle()
         try:
@@ -662,6 +668,7 @@ class ChartsMixin:
                     )
                     txt = re.sub(r"~?\d+%", "~%d%%" % round(shown), txt, count=1)
                 lines.append(txt)
+                self._check_looks_trained(d, e, running)
         except Exception as ex:
             lines.append("Progress estimate unavailable (%s)" % ex)
 

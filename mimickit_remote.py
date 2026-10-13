@@ -613,7 +613,7 @@ def redact(text, cfg):
 
 
 class Notifier:
-    """cfg keys: discord_webhook, telegram_token, telegram_chat, every_hours, send_preview."""
+    """cfg keys: discord_webhook, telegram_token, telegram_chat, every_hours, send_preview, send_trained."""
 
     def __init__(self, cfg_get, log=None, post=None):
         self.cfg_get = cfg_get

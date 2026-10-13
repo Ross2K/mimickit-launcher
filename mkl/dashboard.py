@@ -298,6 +298,10 @@ class DashboardMixin:
             text="Also send each new preview MP4 (skipped with a note if over the upload limit)",
             variable=v_sp,
         ).grid(row=13, column=0, columnspan=4, sticky="w")
+        v_lt = tk.BooleanVar(value=bool(n.get("send_trained", False)))
+        ttk.Checkbutton(f, text="Send a message when training looks trained", variable=v_lt).grid(
+            row=14, column=0, columnspan=4, sticky="w"
+        )
 
         def collect():
             try:
@@ -313,6 +317,7 @@ class DashboardMixin:
             except ValueError:
                 n["every_hours"] = 3.0
             n["send_preview"] = bool(v_sp.get())
+            n["send_trained"] = bool(v_lt.get())
             self._register_secrets()
             self._save_settings_only()
 
@@ -335,7 +340,7 @@ class DashboardMixin:
             ).start()
 
         bf = ttk.Frame(f)
-        bf.grid(row=14, column=0, columnspan=4, sticky="e", pady=(10, 0))
+        bf.grid(row=15, column=0, columnspan=4, sticky="e", pady=(10, 0))
         ttk.Button(bf, text="Send test", command=test).pack(side="left", padx=4)
         ttk.Button(bf, text="Apply", command=apply_).pack(side="left", padx=4)
         ttk.Button(bf, text="Close", command=lambda: (apply_(), top.destroy())).pack(

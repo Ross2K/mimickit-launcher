@@ -5,7 +5,9 @@ Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later.
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
 
-VERSION = "a0.5.0"  # the one version string: window title, top-left label, About box, zip names (tools/build.py)
+VERSION = (
+    "a0.5.0"  # the one version string: window title, banner, About box, zip names (tools/build.py)
+)
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -237,6 +239,8 @@ THEMES = {
         line1="#6ea8d8",
         line2="#d8a05e",
         line3="#7fb38a",
+        warn="#d8b35e",
+        err="#e07070",
     ),
     "light": dict(
         bg="#ececec",
@@ -261,9 +265,15 @@ THEMES = {
         line1="tab:blue",
         line2="tab:orange",
         line3="tab:green",
+        warn="#9a6200",
+        err="#b02a2a",
     ),
 }
 T = dict(THEMES["dark"])  # current colours (updated in place)
+
+from mkl.dialogs import DarkMessageBox
+
+messagebox = DarkMessageBox(T)  # dark popups; same API as tkinter.messagebox
 # dashboard bind address -> what the user picks
 BIND_LABEL = {
     "127.0.0.1": "This PC only",

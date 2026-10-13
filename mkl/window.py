@@ -10,21 +10,19 @@ class MainWindowMixin:
     VRAM_COLORS = dict(ok="#3f9a54", warn="#d0952c", bad="#c0392b")
 
     def _build(self):
-        """The main window, top to bottom: settings row, what to run, command line, status + output | charts."""
-        ttk.Label(self.root, text="version " + VERSION, style="Dim.TLabel").pack(
-            anchor="nw", padx=6
-        )
+        """The main window, top to bottom: banner, settings row, what to run, status + cards + output | charts."""
+        self._build_banner()  # health banner, version on its right
         top = ttk.Frame(self.root, padding=6)
         top.pack(fill="x")
         self._build_settings(top)
         self._build_job(top)
-        self._build_command_box()
         mid = ttk.Panedwindow(self.root, orient="horizontal")
         mid.pack(fill="both", expand=True, padx=6, pady=4)
         left = ttk.Frame(mid)
         mid.add(left, weight=1)
         self._build_status(left)
-        self._build_log(left)
+        self._build_cards(left)
+        self._build_output(left)
         self._build_charts(mid)
         self.apply_theme()
 
@@ -37,14 +35,21 @@ class MainWindowMixin:
         for r, (lab, var) in enumerate(
             (
                 ("MimicKit folder", self.v_mk),
-                ("Python venv (folder or python exe; empty = this Python)", self.v_venv),
+                ("Python venv", self.v_venv),
             )
         ):
-            ttk.Label(st, text=lab).grid(row=r, column=0, sticky="w")
-            ttk.Entry(st, textvariable=var, width=60).grid(row=r, column=1, sticky="we", padx=4)
+            lw = ttk.Label(st, text=lab)
+            lw.grid(row=r, column=0, sticky="w")
+            ttk.Entry(st, textvariable=var, width=40).grid(row=r, column=1, sticky="we", padx=4)
+            if var is self.v_venv:
+                Tip(
+                    lw,
+                    "A venv folder or a python executable. Empty = the Python running this launcher.",
+                )
             ttk.Button(st, text="Browse...", command=lambda v=var: self._browse(v)).grid(
                 row=r, column=2
             )
+        st.columnconfigure(1, weight=1)
         ttk.Button(st, text="Save + rescan", command=lambda: (self._save(), self.rescan())).grid(
             row=0, column=3, rowspan=2, padx=8
         )
@@ -63,7 +68,8 @@ class MainWindowMixin:
         b2.grid(row=1, column=5, padx=4)
         Tip(b2, HELP["patches"])
         b3 = ttk.Button(st, text="About", command=self.about_dialog)
-        b3.grid(row=0, column=6, padx=4)
+        b3.grid(row=1, column=4, padx=8)
+        cbx.grid_configure(row=0, rowspan=1)
         Tip(b, HELP["remote"])
 
     def _build_job(self, top):
@@ -196,15 +202,13 @@ class MainWindowMixin:
         self.custom = list(self.s.get("custom_args", []))
         self.rescan()
 
-    def _build_command_box(self):
+    def _build_command_box(self, parent):
         """The exact command being run (copyable)."""
         cmdf = ttk.LabelFrame(
-            self.root,
-            text="Exact command being run (copy it into a terminal to run it yourself)",
-            padding=4,
+            parent, text="Exact command (copy it into a terminal to run it yourself)", padding=4
         )
-        cmdf.pack(fill="x", padx=6)
-        self.t_cmd = tk.Text(cmdf, height=3, width=100, wrap="word")
+        cmdf.pack(side="top", fill="x", pady=(0, 4))
+        self.t_cmd = tk.Text(cmdf, height=2, width=60, wrap="word")
         self.t_cmd.pack(fill="x")
         self.t_cmd.configure(state="disabled")
 
@@ -253,21 +257,6 @@ class MainWindowMixin:
         )
         self.vram = None
         self.root.after(10, self._draw_vram)
-
-    def _build_log(self, left):
-        """Program output (raw console)."""
-        logf = ttk.LabelFrame(left, text="Program output", padding=4)
-        logf.pack(fill="both", expand=True)
-        self.t_log = tk.Text(
-            logf,
-            wrap="none",
-            width=70,
-            font=("DejaVu Sans Mono", 9) if not IS_WIN else ("Consolas", 9),
-        )
-        ys = ttk.Scrollbar(logf, command=self.t_log.yview)
-        self.t_log.configure(yscrollcommand=ys.set)
-        ys.pack(side="right", fill="y")
-        self.t_log.pack(fill="both", expand=True)
 
     def _build_charts(self, mid):
         """Training progress charts with navigation buttons."""
@@ -348,6 +337,11 @@ class MainWindowMixin:
         st.configure("TLabel", background=T["bg"], foreground=T["fg"])
         st.configure("Dim.TLabel", background=T["bg"], foreground=T["dim"])
         st.configure("Good.TLabel", background=T["bg"], foreground=T["good"])
+        st.configure(
+            "Big.TLabel", background=T["bg"], foreground=T["fg"], font=("Segoe UI", 12, "bold")
+        )
+        st.configure("Toolbutton", background=T["btn"], foreground=T["fg"], padding=(10, 3))
+        st.map("Toolbutton", background=[("selected", T["sel"]), ("active", T["btn_act"])])
         st.configure("TLabelframe", background=T["bg"], bordercolor=T["border"])
         st.configure("TLabelframe.Label", background=T["bg"], foreground=T["accent"])
         st.configure(
@@ -432,6 +426,7 @@ class MainWindowMixin:
         self.canvas.get_tk_widget().configure(bg=T["panel"], highlightthickness=0)
         self._restyle_artists()
         self.canvas.draw_idle()
+        self._status_theme()
 
     def _browse(self, var):
         d = filedialog.askdirectory(initialdir=var.get() or "/")

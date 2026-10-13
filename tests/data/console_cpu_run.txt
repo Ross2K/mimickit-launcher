@@ -1,0 +1,260 @@
+Setting seed: 458720354910
+Building deepmimic env
+/venv/lib/python3.13/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/venv/lib/python3.13/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+Warp CUDA warning: Could not find or load the NVIDIA CUDA driver. GPU execution will not be available.
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, CUDA driver not available (NVRTC compilation available)
+   Devices:
+     "cpu"      : "CPU"
+   Kernel cache:
+     /home/user/.cache/warp/1.17.0
+Building 1/4 envsBuilding 2/4 envsBuilding 3/4 envsBuilding 4/4 envs
+
+Loading 1/2 motion files: output/_launcher_configs/deepmimic_humanoid_clips/20261012-210830/motions/00_humanoid_clip_a.pkl
+Loading 2/2 motion files: output/_launcher_configs/deepmimic_humanoid_clips/20261012-210830/motions/01_humanoid_clip_b.pkl
+Loaded motion file: output/_launcher_configs/deepmimic_humanoid_clips/20261012-210830/dataset.yaml
+Loaded 2 motions with a total length of 5.867s.
+Building 1/4 objsBuilding 2/4 objsBuilding 3/4 objsBuilding 4/4 objs
+Initializing simulation...
+Module validate_and_correct_inertia_kernel_72e651ea eb839dc load on device 'cpu' took 2.04 ms  (cached)
+Module newton._src.sim.articulation 824f0fc load on device 'cpu' took 0.40 ms  (cached)
+Module newton._src.sim.graph_coloring 7fb7808 load on device 'cpu' took 0.34 ms  (cached)
+Module newton._src.solvers.mujoco.kernels 62cf85d load on device 'cpu' took 0.59 ms  (cached)
+Module repeat_array_kernel_795a0e35 a407884 load on device 'cpu' took 0.35 ms  (cached)
+Module repeat_array_kernel_795a0e35 ca300f2 load on device 'cpu' took 0.23 ms  (cached)
+Module repeat_array_kernel_795a0e35 ed8c990 load on device 'cpu' took 0.20 ms  (cached)
+Module repeat_array_kernel_795a0e35 d25056a load on device 'cpu' took 0.21 ms  (cached)
+Module repeat_array_kernel_795a0e35 17ff895 load on device 'cpu' took 0.25 ms  (cached)
+Module repeat_array_kernel_795a0e35 245b9ce load on device 'cpu' took 0.25 ms  (cached)
+Module repeat_array_kernel_795a0e35 f6f4a6f load on device 'cpu' took 0.25 ms  (cached)
+Module mujoco_warp._src.io 87828ec load on device 'cpu' took 0.31 ms  (cached)
+Module mujoco_warp._src.smooth 774ca02 load on device 'cpu' took 0.43 ms  (cached)
+Module _tile_cholesky_factorize__locals__cholesky_factorize_5f0dbd48 23d5853 load on device 'cpu' took 0.21 ms  (cached)
+Module _tile_cholesky_solve__locals__cholesky_solve_ab573b1e 5f9e5b5 load on device 'cpu' took 0.22 ms  (cached)
+Char 0 properties
+	DoFs: 21
+	Mass: 70.000 kg
+
+Building PPO agent
+Total parameter count: 1851414
+Logging data to output/_console_capture/log.txt
+Module engines.newton_engine fb44262 load on device 'cpu' took 0.39 ms  (cached)
+Module mujoco_warp._src.collision_driver 2d8f678 load on device 'cpu' took 0.26 ms  (cached)
+Module _nxn_broadphase__locals__kernel_e226d8a9 b290e87 load on device 'cpu' took 0.29 ms  (cached)
+Module _primitive_narrowphase__locals__primitive_narrowphase_d950dd4b 550d89f load on device 'cpu' took 0.40 ms  (cached)
+Module mujoco_warp._src.constraint cacfed0 load on device 'cpu' took 0.41 ms  (cached)
+Module _actuator_velocity__locals__actuator_velocity_87b2adc3 ec7eafc load on device 'cpu' took 0.26 ms  (cached)
+Module mujoco_warp._src.passive cb05db9 load on device 'cpu' took 0.30 ms  (cached)
+Module mujoco_warp._src.forward 5df00ae load on device 'cpu' took 0.29 ms  (cached)
+Module mujoco_warp._src.support 5301a98 load on device 'cpu' took 0.19 ms  (cached)
+Module _tile_cholesky_factorize_solve__locals__cholesky_factorize_solve_a0e65362 5aa6311 load on device 'cpu' took 0.22 ms  (cached)
+Module mujoco_warp._src.solver 3282b84 load on device 'cpu' took 0.34 ms  (cached)
+Module solve_init_jaref__locals__kernel_4953496c 11c2093 load on device 'cpu' took 0.20 ms  (cached)
+Module mul_m_dense__locals___mul_m_dense_e8e000f0 fc59aab load on device 'cpu' took 0.21 ms  (cached)
+Module update_constraint_efc__locals__kernel_ca4d5844 f2ec6cd load on device 'cpu' took 0.22 ms  (cached)
+Module update_constraint_gauss_cost__locals__kernel_c6214327 421cf0b load on device 'cpu' took 0.21 ms  (cached)
+Module update_gradient_JTDAJ_dense_tiled__locals__kernel_f465dd51 6569a33 load on device 'cpu' took 0.22 ms  (cached)
+Module update_gradient_cholesky__locals__kernel_24b677b0 886013a load on device 'cpu' took 0.22 ms  (cached)
+Module linesearch_iterative__locals__kernel_ba21a1c2 a94927a load on device 'cpu' took 0.23 ms  (cached)
+Module update_constraint_efc__locals__kernel_452d9436 945b76e load on device 'cpu' took 0.26 ms  (cached)
+Module mujoco_warp._src.derivative bdb7d01 load on device 'cpu' took 0.21 ms  (cached)
+Module _qderiv_actuator_passive_actuation_dense__locals__kernel_96e1a0d0 270e857 load on device 'cpu' took 0.19 ms  (cached)
+Module newton._src.sensors.sensor_contact ce0ef42 load on device 'cpu' took 0.32 ms  (cached)
+------------------------------------------
+|            Iteration |               0 |
+|            Wall_Time |          0.0053 |
+|              Samples |              32 |
+|          Test_Return |            8.23 |
+|         Train_Return |               0 |
+|          Critic_Loss |            3.44 |
+|           Actor_Loss |          -0.111 |
+|            Clip_Frac |           0.769 |
+|            Imp_Ratio |            1.94 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |            1.62 |
+|              Adv_Std |               1 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               1 |
+|            Wall_Time |         0.00577 |
+|              Samples |              64 |
+|          Test_Return |            8.23 |
+|         Train_Return |               0 |
+|          Critic_Loss |            3.68 |
+|           Actor_Loss |         -0.0411 |
+|            Clip_Frac |           0.788 |
+|            Imp_Ratio |            23.7 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |            1.78 |
+|              Adv_Std |            0.99 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               2 |
+|            Wall_Time |         0.00607 |
+|              Samples |              96 |
+|          Test_Return |            8.23 |
+|         Train_Return |            4.83 |
+|          Critic_Loss |            1.05 |
+|           Actor_Loss |         0.00648 |
+|            Clip_Frac |           0.819 |
+|            Imp_Ratio |              10 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |           0.945 |
+|              Adv_Std |           0.646 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               3 |
+|            Wall_Time |           0.013 |
+|              Samples |             128 |
+|          Test_Return |            8.14 |
+|         Train_Return |             5.9 |
+|          Critic_Loss |            2.02 |
+|           Actor_Loss |         -0.0789 |
+|            Clip_Frac |           0.788 |
+|            Imp_Ratio |        1.34e+03 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |            1.27 |
+|              Adv_Std |           0.845 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               4 |
+|            Wall_Time |          0.0133 |
+|              Samples |             160 |
+|          Test_Return |            8.14 |
+|         Train_Return |               0 |
+|          Critic_Loss |            2.77 |
+|           Actor_Loss |          -0.105 |
+|            Clip_Frac |           0.744 |
+|            Imp_Ratio |            3.31 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |             1.6 |
+|              Adv_Std |           0.852 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               5 |
+|            Wall_Time |          0.0156 |
+|              Samples |             192 |
+|          Test_Return |            8.14 |
+|         Train_Return |             6.2 |
+|          Critic_Loss |           0.785 |
+|           Actor_Loss |         -0.0913 |
+|            Clip_Frac |           0.744 |
+|            Imp_Ratio |            1.09 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |           0.436 |
+|              Adv_Std |           0.855 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               6 |
+|            Wall_Time |          0.0203 |
+|              Samples |             224 |
+|          Test_Return |            7.59 |
+|         Train_Return |            6.85 |
+|          Critic_Loss |           0.873 |
+|           Actor_Loss |         -0.0478 |
+|            Clip_Frac |           0.831 |
+|            Imp_Ratio |            69.1 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |           0.732 |
+|              Adv_Std |           0.718 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               7 |
+|            Wall_Time |          0.0207 |
+|              Samples |             256 |
+|          Test_Return |            7.59 |
+|         Train_Return |            3.66 |
+|          Critic_Loss |            1.95 |
+|           Actor_Loss |         -0.0631 |
+|            Clip_Frac |           0.762 |
+|            Imp_Ratio |            2.52 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |            1.15 |
+|              Adv_Std |           0.994 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               8 |
+|            Wall_Time |          0.0209 |
+|              Samples |             288 |
+|          Test_Return |            7.59 |
+|         Train_Return |            5.47 |
+|          Critic_Loss |            1.55 |
+|           Actor_Loss |         -0.0409 |
+|            Clip_Frac |             0.8 |
+|            Imp_Ratio |            1.85 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |           0.599 |
+|              Adv_Std |            1.21 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |               9 |
+|            Wall_Time |          0.0243 |
+|              Samples |             320 |
+|          Test_Return |            7.21 |
+|         Train_Return |            5.55 |
+|          Critic_Loss |           0.961 |
+|           Actor_Loss |         -0.0931 |
+|            Clip_Frac |           0.706 |
+|            Imp_Ratio |            3.25 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |           0.812 |
+|              Adv_Std |           0.807 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |              10 |
+|            Wall_Time |          0.0244 |
+|              Samples |             352 |
+|          Test_Return |            7.21 |
+|         Train_Return |               0 |
+|          Critic_Loss |            1.11 |
+|           Actor_Loss |          -0.109 |
+|            Clip_Frac |           0.775 |
+|            Imp_Ratio |            3.95 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |            1.15 |
+|              Adv_Std |           0.544 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |              11 |
+|            Wall_Time |          0.0246 |
+|              Samples |             384 |
+|          Test_Return |            7.21 |
+|         Train_Return |             4.9 |
+|          Critic_Loss |            1.42 |
+|           Actor_Loss |         -0.0412 |
+|            Clip_Frac |            0.75 |
+|            Imp_Ratio |            2.15 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |           0.352 |
+|              Adv_Std |            1.22 |
+|             Exp_Prob |               1 |
+------------------------------------------
+------------------------------------------
+|            Iteration |              12 |
+|            Wall_Time |           0.028 |
+|              Samples |             416 |
+|          Test_Return |            7.85 |
+|         Train_Return |            5.82 |
+|          Critic_Loss |            1.02 |
+|           Actor_Loss |          0.0354 |
+|            Clip_Frac |           0.794 |
+|            Imp_Ratio |            4.43 |
+|    Action_Bound_Loss |               0 |
+|             Adv_Mean |           0.598 |
+|              Adv_Std |           0.953 |
+|             Exp_Prob |               1 |
+------------------------------------------

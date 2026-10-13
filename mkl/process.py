@@ -183,11 +183,8 @@ class ProcessMixin:
             messagebox.showwarning("Busy", "Something is already running. Press STOP first.")
             return False
         if not os.path.exists(os.path.join(self.mk(), "mimickit", "run.py")):
-            messagebox.showerror(
-                "MimicKit not found",
-                "Can't find mimickit/run.py in:\n%s\n\nSet the MimicKit folder in Settings."
-                % self.mk(),
-            )
+            self._append("[gui] MimicKit not found: no mimickit/run.py in %s\n" % self.mk())
+            self._show_card("mk_missing", folder=self.mk())
             return False
         it = self._item(kind)
         if not it:
@@ -233,6 +230,10 @@ class ProcessMixin:
     def _model_dirs(self, base_rel):
         """base folder + its _resumeN folders, as (N, abs path)"""
         return chain_folders(self.outdir_abs(base_rel))
+
+    def _no_model_card(self):
+        self._append("[gui] no model.pt in %s yet\n" % self.outdir_abs())
+        self._show_card("no_model", folder=self.outdir_abs(), ipo=self._ipo(None))
 
     def _latest_model(self):
         best = None
@@ -288,9 +289,9 @@ class ProcessMixin:
             return
         model = self._latest_model()
         if not model:
-            messagebox.showinfo(
-                "Nothing to resume",
-                "No model.pt found in %s (or its _resume folders).\nStart a training run first."
+            self._no_model_card()
+            self._append(
+                "[gui] nothing to resume: no model.pt in %s (or its _resume folders)\n"
                 % self.outdir_abs(),
             )
             return
@@ -333,10 +334,7 @@ class ProcessMixin:
             return
         model = self.v_model.get().strip() or self._latest_model()
         if not model:
-            messagebox.showinfo(
-                "No model yet",
-                "No model.pt found in the output folder yet.\nTrain first, or pick a .pt file in 'Model for Watch'.",
-            )
+            self._no_model_card()
             return
         it = self._item("train")
         mrel = os.path.relpath(model, self.mk()) if os.path.isabs(model) else model
@@ -476,17 +474,18 @@ class ProcessMixin:
                 self._kill(self.preview_proc.pid, "preview")
             return
         if not os.path.exists(os.path.join(self.mk(), "mimickit", "run.py")):
-            messagebox.showerror("MimicKit not found", "Set the MimicKit folder in Settings.")
+            self._append("[gui] MimicKit not found: no mimickit/run.py in %s\n" % self.mk())
+            self._show_card("mk_missing", folder=self.mk())
             return
         it = self._item("train")
         model = self.v_model.get().strip() or self._latest_model()
         if diag and it:
             return self._start_preview(it, model, diag=True)
-        if not it or not model:
-            messagebox.showinfo(
-                "No model yet",
-                "No model.pt found in the output folder yet.\nTrain first, or pick a .pt file in 'Model for Watch'.",
-            )
+        if not it:
+            messagebox.showinfo("No training config", "Pick a training config first.")
+            return
+        if not model:
+            self._no_model_card()
             return
         return self._start_preview(it, model)
 
@@ -586,6 +585,7 @@ class ProcessMixin:
             return
         pid = self.proc.pid
         self._tt_save(final=True)
+        self.sm.stopped_by_user = True
         self._kill(pid)
         self._append("[gui] stopped. The last saved model.pt is kept.\n")
 
@@ -643,6 +643,7 @@ class ProcessMixin:
             messagebox.showerror("Could not start", str(e))
             return
         self.run_kind, self.started = kind, time.time()
+        self._status_reset(kind)
         if out:
             self.run_dir = out
         nxt = None
@@ -710,6 +711,7 @@ class ProcessMixin:
         self.proc = PidProc(st["pid"], st)
         self.state_path = p
         self.run_kind, self.started = st["kind"], st["started"]
+        self._status_reset(st["kind"])
         self._show_cmd(st.get("cmd", []), st.get("cwd"))
         if st.get("out"):
             self.run_dir = st["out"]
@@ -745,6 +747,8 @@ class ProcessMixin:
         def emit(lines):
             for line in lines:
                 self.q.put(line)
+                if kind is None:
+                    self.sm_q.put(line)
                 if feed:
                     with self.live_lock:
                         self.live.feed(line)
@@ -778,10 +782,15 @@ class ProcessMixin:
                 st["ended"] = datetime.datetime.now().isoformat(timespec="seconds")
                 st["exit_code"] = proc.returncode
                 write_run_state(state_path, st)
-        self.q.put(
-            "[gui] %sprocess ended (exit code %s)\n"
-            % ("%s " % kind if kind else "", proc.returncode)
+        ended = "[gui] %sprocess ended (exit code %s)\n" % (
+            "%s " % kind if kind else "",
+            proc.returncode,
         )
+        self.q.put(ended)
+        if kind is None:
+            self.sm_q.put(ended)
+        elif kind == "preview" and proc.returncode not in (0, None):
+            self.sm_q.put(("preview_end", proc.returncode, logp))
         if kind == "preview" and proc.returncode == 0:
             self._preview_finished()
 
