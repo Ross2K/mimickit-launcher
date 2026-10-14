@@ -154,9 +154,7 @@ class DashboardMixin:
             return
         c = self._remote_cfg()
         n = self.s.setdefault("notify", {})
-        top = tk.Toplevel(self.root)
-        top.title("Phone dashboard + notifications")
-        top.configure(bg=T["bg"])
+        top = new_popup(self.root, "Phone dashboard + notifications", T)
         self._rdlg = top
         f = ttk.Frame(top, padding=10)
         f.pack(fill="both", expand=True)

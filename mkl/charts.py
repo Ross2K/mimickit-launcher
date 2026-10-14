@@ -200,6 +200,14 @@ class ChartsMixin:
                     ydrag=self.y_drag_allowed(ax),
                 )
 
+    @staticmethod
+    def _label_offset(ax, x, y, w=170, h=28):
+        """Readout offset (points) and alignment: right of / above the point, flipped left / below near the chart's
+        right / top edge, so the label stays inside the chart (and so the window)."""
+        px, py = ax.transData.transform((x, y))
+        left, down = px + w > ax.bbox.x1, py + h > ax.bbox.y1
+        return (-8 if left else 8, -8 if down else 8), ("right" if left else "left"), ("top" if down else "bottom")
+
     def _hover(self, ev):
         """Readout of the nearest real data point (from the full data, not the downsampled drawing)."""
         ax = ev.inaxes
@@ -239,11 +247,14 @@ class ChartsMixin:
             markeredgecolor=T["fg"],
             gid="hover",
         )
+        off, ha, va = self._label_offset(ax, x, y)
         tx = ax.annotate(
             "%s%.4g  at %.4g M" % (lab, y, x),
             (x, y),
-            xytext=(8, 8),
+            xytext=off,
             textcoords="offset points",
+            ha=ha,
+            va=va,
             fontsize=8,
             color=T["fg"],
             bbox=dict(boxstyle="round,pad=0.25", fc=T["panel"], ec=T["border"], alpha=0.95),

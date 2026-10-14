@@ -275,7 +275,7 @@ THEMES = {
 }
 T = dict(THEMES["dark"])  # current colours (updated in place)
 
-from mkl.dialogs import DarkMessageBox
+from mkl.dialogs import DarkMessageBox, new_popup, place_popup, tip_position
 
 messagebox = DarkMessageBox(T)  # dark popups; same API as tkinter.messagebox
 # dashboard bind address -> what the user picks
@@ -1101,10 +1101,9 @@ class Tip:
         if Tip._active is not None and Tip._active is not self:
             Tip._active.hide()
         try:
-            x, y = self.w.winfo_rootx() + 10, self.w.winfo_rooty() + self.w.winfo_height() + 4
             self.top = tk.Toplevel(self.w)
+            self.top.withdraw()
             self.top.wm_overrideredirect(True)
-            self.top.geometry("+%d+%d" % (x, y))
             self.top._mk_tip = True
             tk.Label(
                 self.top,
@@ -1118,6 +1117,10 @@ class Tip:
                 padx=6,
                 pady=4,
             ).pack()
+            self.top.update_idletasks()  # measure, then place inside the window (above the widget if no room below)
+            x, y = tip_position(self.w, self.top.winfo_reqwidth(), self.top.winfo_reqheight())
+            self.top.geometry("+%d+%d" % (x, y))
+            self.top.deiconify()
         except tk.TclError:
             self.top = None
             return

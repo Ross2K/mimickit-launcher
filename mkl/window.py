@@ -306,7 +306,10 @@ class MainWindowMixin:
         Tip(self.b_home, HELP["chartnav"])
         Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
-        Tip(self.canvas.get_tk_widget(), HELP["chartnav"])
+        # chart help: a small '?' badge in the top-right corner (hover shows the help, kept inside the window)
+        self.chart_help = tk.Label(self.canvas.get_tk_widget(), text="?", width=2, cursor="question_arrow")
+        self.chart_help.place(relx=1.0, x=-6, y=6, anchor="ne")
+        Tip(self.chart_help, HELP["chartnav"])
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
         self.canvas.mpl_connect("button_press_event", self._on_click)
         self.canvas.mpl_connect("motion_notify_event", self._on_motion)
@@ -432,6 +435,10 @@ class MainWindowMixin:
         for ax in self._axes():
             self._style_ax(ax)
         self.canvas.get_tk_widget().configure(bg=T["panel"], highlightthickness=0)
+        self.chart_help.configure(
+            bg=T["panel"], fg=T["dim"], relief="solid", bd=1, font=("Segoe UI", 8, "bold"),
+            highlightthickness=0,
+        )
         self._restyle_artists()
         self.canvas.draw_idle()
         self._status_theme()
@@ -454,9 +461,9 @@ class MainWindowMixin:
         if hook:
             return hook(title, text, options)
         top = tk.Toplevel(self.root)
+        top.withdraw()
         top.title(title)
         top.configure(bg=T["bg"])
-        top.transient(self.root)
         top.resizable(False, False)
         res = {"v": None}
         f = ttk.Frame(top, padding=14)
@@ -490,6 +497,7 @@ class MainWindowMixin:
             first.focus_set()
             top.bind("<Return>", lambda _=None: pick(default))
         self._choose_dlg = top
+        place_popup(top, self.root)  # centred over the main window (the close dialog uses this)
         try:
             top.grab_set()
         except tk.TclError:
@@ -498,9 +506,7 @@ class MainWindowMixin:
         return res["v"]
 
     def about_dialog(self):
-        top = tk.Toplevel(self.root)
-        top.title("About")
-        top.configure(bg=T["bg"])
+        top = new_popup(self.root, "About", T)
         f = ttk.Frame(top, padding=14)
         f.pack(fill="both", expand=True)
         ttk.Label(f, text="MimicKit Launcher " + VERSION, style="TLabelframe.Label").pack(

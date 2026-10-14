@@ -41,9 +41,7 @@ class SettingsMixin:
         cur = TS.current(mk, it["name"])
         env, ag = (cur.get("env") or oenv, cur.get("agent") or oag) if cur else (oenv, oag)
         base = TS.read_values(mk, env, ag)
-        top = tk.Toplevel(self.root)
-        top.title("Training settings - " + it["name"])
-        top.configure(bg=T["bg"])
+        top = new_popup(self.root, "Training settings - " + it["name"], T)
         f = ttk.Frame(top, padding=10)
         f.pack(fill="both", expand=True)
         src = "edited copy saved %s" % cur["saved"] if cur else "original files"
@@ -297,9 +295,7 @@ class SettingsMixin:
     def patch_dialog(self):
         import mimickit_patches as MP
 
-        top = tk.Toplevel(self.root)
-        top.title("MimicKit patches")
-        top.configure(bg=T["bg"])
+        top = new_popup(self.root, "MimicKit patches", T)
         f = ttk.Frame(top, padding=10)
         f.pack(fill="both", expand=True)
         rows = {}

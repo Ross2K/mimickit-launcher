@@ -1,8 +1,11 @@
 """Dark-themed replacement for tkinter.messagebox (same function names, so callers and tests are unchanged)."""
 
+import sys
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox as _native
+
+from mimickit_util import log_exc
 
 ICONS = {
     "info": ("i", "accent"),
@@ -10,6 +13,88 @@ ICONS = {
     "error": ("x", "err"),
     "question": ("?", "accent"),
 }
+
+
+# ---- placement shared by every pop-up and tooltip ---------------------------------------------------------------
+
+
+def monitor_rect(w):
+    """Work area (x, y, width, height) of the monitor that holds w's toplevel window (Tk only knows the primary
+    screen, so on Windows ask the OS for the monitor under the window; elsewhere the virtual root)."""
+    top = w.winfo_toplevel()
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wintypes.DWORD),
+                    ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT),
+                    ("dwFlags", wintypes.DWORD),
+                ]
+
+            cx = top.winfo_rootx() + top.winfo_width() // 2
+            cy = top.winfo_rooty() + top.winfo_height() // 2
+            mon = ctypes.windll.user32.MonitorFromPoint(wintypes.POINT(cx, cy), 2)  # 2 = nearest
+            mi = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+            if mon and ctypes.windll.user32.GetMonitorInfoW(mon, ctypes.byref(mi)):
+                r = mi.rcWork
+                return (r.left, r.top, r.right - r.left, r.bottom - r.top)
+        except Exception as e:
+            log_exc("dialogs: monitor_rect - falling back to the virtual root", e)
+    return (top.winfo_vrootx(), top.winfo_vrooty(), top.winfo_vrootwidth(), top.winfo_vrootheight())
+
+
+def clamp(x, y, w, h, area):
+    """Top-left corner that keeps a w x h box inside area (x, y, width, height); top-left wins if it can't fit."""
+    ax, ay, aw, ah = area
+    return max(ax, min(x, ax + aw - w)), max(ay, min(y, ay + ah - h))
+
+
+def window_rect(w):
+    top = w.winfo_toplevel()
+    return (top.winfo_rootx(), top.winfo_rooty(), top.winfo_width(), top.winfo_height())
+
+
+def place_popup(win, parent):
+    """Centre win over parent's main window, kept on parent's monitor; transient + raised. Use for every pop-up."""
+    owner = parent.winfo_toplevel()
+    try:
+        win.transient(owner)
+    except tk.TclError:
+        pass
+    win.update_idletasks()
+    w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+    px, py, pw, ph = window_rect(owner)
+    x, y = clamp(px + (pw - w) // 2, py + (ph - h) // 2, w, h, monitor_rect(owner))
+    win.geometry("+%d+%d" % (x, y))
+    win.deiconify()
+    win.lift()
+    return x, y
+
+
+def new_popup(parent, title, theme):
+    """Themed Toplevel that places itself (place_popup) once its content is built (first idle moment)."""
+    top = tk.Toplevel(parent)
+    top.withdraw()
+    top.title(title)
+    top.configure(bg=theme["bg"])
+    top.after_idle(lambda: top.winfo_exists() and place_popup(top, parent))
+    return top
+
+
+def tip_position(anchor, w, h, gap=4):
+    """Tooltip below the anchor widget (flipped above when there's no room), clamped inside the anchor's window
+    (or its monitor if the tooltip is bigger than the window)."""
+    ax, ay, ah = anchor.winfo_rootx(), anchor.winfo_rooty(), anchor.winfo_height()
+    win, mon = window_rect(anchor), monitor_rect(anchor)
+    area = win if w <= win[2] and h <= win[3] else mon
+    x, y = ax + 10, ay + ah + gap
+    if y + h > area[1] + area[3]:
+        y = ay - h - gap
+    return clamp(x, y, w, h, area)
 
 
 class DarkMessageBox:
@@ -80,10 +165,6 @@ class DarkMessageBox:
         top.withdraw()
         top.title(title or "")
         top.configure(bg=T["bg"])
-        try:
-            top.transient(root.winfo_toplevel())
-        except tk.TclError:
-            pass
         top.resizable(False, False)
         res = {"v": esc}
         f = ttk.Frame(top, padding=14)
@@ -111,24 +192,7 @@ class DarkMessageBox:
         top.bind("<Escape>", lambda _=None: pick(esc))
         top.protocol("WM_DELETE_WINDOW", lambda: pick(esc))
         top.bind("<Return>", lambda _=None: pick(default))
-        top.update_idletasks()
-        try:  # centre over the main window
-            rx, ry, rw, rh = (
-                root.winfo_rootx(),
-                root.winfo_rooty(),
-                root.winfo_width(),
-                root.winfo_height(),
-            )
-            top.geometry(
-                "+%d+%d"
-                % (
-                    rx + max(0, (rw - top.winfo_reqwidth()) // 2),
-                    ry + max(0, (rh - top.winfo_reqheight()) // 3),
-                )
-            )
-        except tk.TclError:
-            pass
-        top.deiconify()
+        place_popup(top, root)
         if first:
             first.focus_set()
         try:
