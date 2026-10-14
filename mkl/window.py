@@ -101,6 +101,8 @@ class MainWindowMixin:
         Tip(self.b_envswitch, HELP["envs_live"])
         self.l_envswitch = ttk.Label(job, text="", style="Dim.TLabel")
         self.l_envswitch.grid(row=7, column=0, columnspan=6, sticky="w")
+        self.l_stopsave = ttk.Label(job, text="", style="Dim.TLabel")
+        self.l_stopsave.grid(row=8, column=0, columnspan=6, sticky="w")
         ttk.Label(job, text="Output folder").grid(row=2, column=2, sticky="e")
         self.v_out = tk.StringVar()
         e = ttk.Entry(job, textvariable=self.v_out, width=36)
@@ -134,17 +136,20 @@ class MainWindowMixin:
             ("continue", "Continue from run...", self.continue_from),
             ("watch", "Watch latest model", self.watch),
             ("preview", "Render preview MP4", self.preview),
+            ("stopsave", "Stop after next save", self.stop_after_save),
             ("stop", "STOP", self.stop),
         ):
             b = ttk.Button(
                 bf,
                 text=txt,
                 command=fn,
-                width=17,
+                width=22 if key == "stopsave" else 17,
                 style="Stop.TButton" if key == "stop" else "TButton",
             )
             b.pack(side="left", padx=3)
             Tip(b, HELP[key])
+            if key == "stopsave":
+                self.b_stopsave = b
         bf2 = ttk.Frame(job)
         bf2.grid(row=6, column=0, columnspan=6, sticky="w", pady=(4, 0))
         b = ttk.Button(bf2, text="Rescan args", command=self.rescan)

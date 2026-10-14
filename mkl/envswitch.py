@@ -47,6 +47,9 @@ class EnvSwitchMixin:
         if not self._training_running() or not self.run_dir:
             self._append("[gui] live num_envs change: no training is running - just set num_envs and start\n")
             return
+        if getattr(self, "stop_save", None):
+            self._append("[gui] 'Stop after next save' is armed - cancel it first\n")
+            return
         n = int(self.v_envs.get())
         self.env_switch = dict(n=n, watch=CheckpointWatch(os.path.join(self.run_dir, "model.pt")), phase="wait")
         self._envswitch_status("Waiting for next checkpoint... (then restarts with %d envs)" % n)

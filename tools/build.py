@@ -28,6 +28,7 @@ TESTS = [
     "fixes042_test",
     "status_test",
     "envswitch_test",
+    "stopsave_test",
     "icon_test",
     "actions_test",
     "preview_test",
