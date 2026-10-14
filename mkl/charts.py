@@ -121,7 +121,8 @@ class ChartsMixin:
         return f
 
     def _decimate(self):
-        """Draw only what is visible: cull outside the time window, ~1 min/max pair per pixel column (spikes stay)."""
+        """One smooth polyline per series, no point markers (like the phone page): only the visible time window, about one
+        min/max pair per pixel column (spikes stay). The same Line2D is reused; hover reads the full data."""
         for ax in self._axes():
             x0, x1 = ax.get_xlim()
             w = max(50, int(ax.bbox.width))
@@ -131,7 +132,8 @@ class ChartsMixin:
                 xs, ys = self._full(ln)
                 dx, dy = R.minmax_decimate(xs, ys, x0, x1, w)
                 ln.set_data(dx, dy)
-                ln.set_markevery(None if len(dx) <= w // 4 else max(1, len(dx) // max(1, w // 8)))
+                ln.set_marker("o" if len(xs) == 1 else "None")  # a lone point needs a dot to be seen
+                ln.set_markersize(4)
 
     def _auto_follow(self):
         """Home / double-click: full view, follow new data, vertical scale back to the full data range."""
@@ -457,8 +459,6 @@ class ChartsMixin:
                         ys,
                         color=T["dim"],
                         alpha=0.7,
-                        marker="o",
-                        markersize=5,
                         linewidth=1.5,
                         label=lab if key == "Train_Return" else None,
                         gid="earlier",
@@ -473,8 +473,6 @@ class ChartsMixin:
                         ys,
                         color=T["dim"],
                         alpha=0.7,
-                        marker="o",
-                        markersize=4,
                         linewidth=1.3,
                         gid="earlier",
                     )
@@ -488,8 +486,6 @@ class ChartsMixin:
                     rv,
                     color=T["dim"],
                     alpha=0.7,
-                    marker="o",
-                    markersize=5,
                     linewidth=1.5,
                     gid="earlier",
                 )
@@ -540,8 +536,6 @@ class ChartsMixin:
                         log[key][:n],
                         label=lab,
                         color=col,
-                        marker="o",
-                        markersize=3,
                         gid=g,
                     )
             if ax3 is not None:
@@ -552,8 +546,6 @@ class ChartsMixin:
                         x[: len(ys)],
                         ys,
                         color=T["line1"] if k == "Train" else T["line2"],
-                        marker="o",
-                        markersize=3,
                         gid="cur1" if k == "Train" else "cur2",
                         label="%s per step" % k.lower(),
                     )
@@ -563,8 +555,6 @@ class ChartsMixin:
                     x[: len(rates)],
                     [r / 1e6 for r in rates],
                     color=T["line3"],
-                    marker="o",
-                    markersize=3,
                     gid="cur3",
                 )
             if (

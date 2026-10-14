@@ -118,7 +118,7 @@ def steps():
     # old run without history file: backfill from log.txt
     check(
         "grey history clearly visible",
-        all(l.get_markersize() >= 5 and l.get_alpha() >= 0.6 for l in g),
+        all(l.get_linewidth() >= 1.5 and l.get_alpha() >= 0.6 for l in g),
     )
     os.remove(f0)
     app._progress_tick(force=True)

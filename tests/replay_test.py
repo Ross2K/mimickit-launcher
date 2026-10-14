@@ -60,8 +60,8 @@ def verify():
     l1 = app.ax1.get_lines()
     l2 = app.ax2.get_lines()
     check(
-        "top chart has lines with markers",
-        len(l1) == 2 and l1[0].get_marker() == "o" and len(l1[0].get_xdata()) >= 150,
+        "top chart: smooth lines, no per-point markers",
+        len(l1) == 2 and l1[0].get_marker() in ("None", "", None) and len(l1[0].get_xdata()) >= 150,
     )
     check(
         "x = samples (millions)",

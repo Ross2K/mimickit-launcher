@@ -23,6 +23,7 @@ TESTS = [
     "dashboard_touch_test",
     "trainsettings_test",
     "decimate_test",
+    "chart_lines_test",
     "fixes042_test",
     "status_test",
     "envswitch_test",
