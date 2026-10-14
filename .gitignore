@@ -18,3 +18,5 @@ launcher_profile.py
 # built files (the starter .exe is attached to releases / added to zips by tools/build.py)
 *.exe
 tools/exe-starter/out/
+# written into release zips by tools/build.py
+BUILD

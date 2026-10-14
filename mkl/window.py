@@ -514,7 +514,7 @@ class MainWindowMixin:
         top = new_popup(self.root, "About", T)
         f = ttk.Frame(top, padding=14)
         f.pack(fill="both", expand=True)
-        ttk.Label(f, text="MimicKit Launcher " + VERSION, style="TLabelframe.Label").pack(
+        ttk.Label(f, text="MimicKit Launcher %s  (build %s)" % (VERSION, build_id()), style="TLabelframe.Label").pack(
             anchor="w"
         )
         ttk.Label(

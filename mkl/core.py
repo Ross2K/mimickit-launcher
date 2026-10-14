@@ -204,6 +204,15 @@ HELP = {
 #   PREFERRED_TRAIN / PREFERRED_VIEW (list of config names), PRESETS (list of dicts:
 #   name, kind "train"/"view", file, args (extra list), out, num_envs, help),
 #   ACTIONS (list of dicts: text, help, run(app)) - extra buttons, see mkl/actions.py
+def build_id():
+    """Commit a release zip was built from (tools/build.py writes BUILD into the zip); a git checkout has none."""
+    try:
+        with open(os.path.join(HERE, "BUILD")) as f:
+            return f.read().split()[1]
+    except (OSError, IndexError):
+        return "dev"
+
+
 RETURN_TEXT = "Return = how well the character copies the animation (higher is better)."
 DEFAULT_ENVS = 4096
 PREFERRED_TRAIN = ["deepmimic_humanoid_ppo"]
