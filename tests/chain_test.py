@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = os.path.join(tempfile.mkdtemp(), "s.json")
 os.environ.update(STUB_ITERS="100000", STUB_SLEEP="0.05")
 import tkinter as tk, mimickit_launcher as G
+import expect  # per-build expected defaults
 
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: print("[dialog]", a))
@@ -165,8 +166,8 @@ def steps():
     app.watch()
     c = app.t_cmd.get("1.0", "end")
     check(
-        "watch: generated view env + 1 env",
-        "--env_config output/_launcher_watch/view_env.yaml" in c and "--num_envs 1" in c,
+        "watch: generated view env (or the preset's args) + 1 env",
+        expect.watch_ok(c, app) and "--num_envs 1" in c,
         c.strip().splitlines()[-1],
     )
     app.stop()

@@ -253,7 +253,15 @@ check(
     "notification text redacted",
     "SECRETPART" not in R.redact("error at " + hook_url, app.s["notify"]),
 )
+# ---------- unknown saved host (QA a0.6.0)
+if getattr(app, "_rdlg", None) and app._rdlg.winfo_exists():
+    app._rdlg.destroy()
+app.s.setdefault("remote", {})["host"] = "192.168.1.50"  # not offered by this version (hand-edited / older build)
+app.remote_dialog()
+root.update()
+check("unknown saved host falls back to 'This PC only'", app._rdlg_vars["host"].get() == "This PC only")
 app.dash.stop()
 app.dash = None
 root.destroy()
+
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

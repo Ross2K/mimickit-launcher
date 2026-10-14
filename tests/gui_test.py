@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 cfg = os.path.join(tempfile.mkdtemp(), "settings.json")
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = cfg
 import tkinter as tk, mimickit_launcher as G
+import expect  # per-build expected defaults
 
 mk = (
     os.path.abspath(sys.argv[1])
@@ -139,7 +140,7 @@ def s_watch():
             "--mode test" in c
             and "--num_envs 1" in c
             and "model.pt" in c
-            and "--env_config output/_launcher_watch/view_env.yaml" in c,
+            and expect.watch_ok(c, app),
             c.splitlines()[-1],
         )
 

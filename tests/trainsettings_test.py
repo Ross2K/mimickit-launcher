@@ -236,6 +236,7 @@ else:
 
 # ---------- GUI: dialog, override wiring, STOP/close popup
 import tkinter as tk, mimickit_launcher as G
+from expect import PROFILE_PRESETS
 
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
@@ -249,6 +250,8 @@ app.v_mk.set(mk)
 app._save()
 app.rescan()
 root.update()
+if PROFILE_PRESETS:  # an overlay selects its own preset by default; this test is about the dialog
+    app.v_train.set("deepmimic_t")
 it = app._item("train")
 check(
     "dialog opens for the selected config",

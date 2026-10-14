@@ -161,7 +161,7 @@ class DashboardMixin:
         v_en = tk.BooleanVar(value=bool(c.get("enabled")))
         v_port = tk.StringVar(value=str(c.get("port", 8765)))
         v_host = tk.StringVar(
-            value=BIND_LABEL.get(c.get("host", "127.0.0.1"), BIND_LABEL["0.0.0.0"])
+            value=BIND_LABEL.get(c.get("host", "127.0.0.1"), BIND_LABEL["127.0.0.1"])  # unknown saved host: safest choice
         )
         ttk.Label(f, text="Phone dashboard", style="TLabelframe.Label").grid(
             row=0, column=0, sticky="w"

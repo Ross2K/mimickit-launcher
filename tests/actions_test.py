@@ -7,6 +7,7 @@ os.environ["MIMICKIT_LAUNCHER_CONFIG"] = os.path.join(tempfile.mkdtemp(), "s.jso
 import tkinter as tk, mimickit_launcher as G
 from mkl import core
 from mkl.actions import install_files
+import expect  # per-build expected defaults
 
 ok = []
 
@@ -37,7 +38,7 @@ check("second run keeps the first backup", b == [] and open(os.path.join(bk, "da
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
 G.filedialog.askdirectory = lambda **k: os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_mimickit")
-check("public build has no actions", core.ACTIONS == [])
+check("actions: none in the public build, the profile's in an overlay", len(core.ACTIONS) == expect.PROFILE_ACTIONS)
 hit = []
 core.ACTIONS = [dict(text="Do thing", help="tip", run=lambda app: hit.append(app))]
 root = tk.Tk()
