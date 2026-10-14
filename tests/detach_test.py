@@ -154,6 +154,9 @@ wait(2)
 check("stop after reattach (watch)", not alive(wpid))
 # 5) PID reuse protection
 sl = subprocess.Popen(["sleep", "60"])
+t_exec = time.time()  # until exec() the child still looks like (or has no) cmdline: wait for "sleep"
+while "sleep" not in ((G.proc_info(sl.pid) or {}).get("cmd") or "") and time.time() - t_exec < 5:
+    time.sleep(0.02)
 fake = dict(pid=sl.pid, started=time.time(), proc_start=G.proc_info(sl.pid)["start"], kind="train")
 check("rejects a PID that is not MimicKit python", not G.run_state_matches(fake))
 fake2 = dict(st, proc_start=(st.get("proc_start") or 0) - 3600, ended=None)
