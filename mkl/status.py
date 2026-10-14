@@ -32,9 +32,24 @@ class StatusMixin:
         self.ban_ver.pack(side="right")
         self.ban_dot = tk.Label(f, text="\u25cf", font=("Segoe UI", 11))
         self.ban_dot.pack(side="left")
-        self.ban_lab = tk.Label(f, text=SM.BANNER["idle"][1], anchor="w")
+        self.ban_detail = tk.Label(f, text="", anchor="e")  # grey technical detail (exit code)
+        self.ban_detail.pack(side="right", padx=(8, 8))
+        self.ban_lab = tk.Label(f, text=SM.BANNER["idle"][1], anchor="w", justify="left")
         self.ban_lab.pack(side="left", fill="x", expand=True, padx=(4, 0))
         self.ban_level = "idle"
+        f.bind("<Configure>", self._wrap_banner)
+
+    def _wrap_banner(self, _=None):
+        """The banner text wraps onto a second line instead of being cut off on a narrow window."""
+        room = (
+            self.ban_f.winfo_width()
+            - self.ban_ver.winfo_reqwidth()
+            - self.ban_dot.winfo_reqwidth()
+            - self.ban_detail.winfo_reqwidth()
+            - 40
+        )
+        if int(self.ban_lab.cget("wraplength")) != max(200, room):
+            self.ban_lab.configure(wraplength=max(200, room))
 
     def _build_cards(self, left):
         self.cards_f = ttk.Frame(left)  # packed above the output panel by _build_output
@@ -276,6 +291,7 @@ class StatusMixin:
         bg = T["panel"]
         self.ban_f.configure(bg=bg)
         self.ban_ver.configure(bg=bg, fg=T["dim"])
+        self.ban_detail.configure(bg=bg, fg=T["dim"])
         self.ban_dot.configure(bg=bg, fg=col)
         self.ban_lab.configure(bg=bg, fg=T["fg"] if level in ("idle", "info", "ok") else col)
 
@@ -285,6 +301,10 @@ class StatusMixin:
         lvl, text = SM.health(m, running, looks_trained=self._looks_now)
         if (lvl, text) != (self.ban_level, self.ban_lab.cget("text")):
             self._paint_banner(lvl, text)
+        detail = SM.banner_detail(m, running)
+        if detail != self.ban_detail.cget("text"):
+            self.ban_detail.configure(text=detail)
+            self._wrap_banner()
         if not force and self.v_outview.get() != "status":
             return
         stage = (
@@ -434,14 +454,16 @@ class StatusMixin:
             inner, text=c["title"], bg=T["panel"], fg=col, anchor="w", font=("Segoe UI", 10, "bold")
         ).grid(row=0, column=0, sticky="we")
         labs = []
-        for r, (key, fg) in enumerate((("what", T["fg"]), ("safe", T["dim"]))):
+        for r, (key, fg) in enumerate((("what", T["fg"]), ("safe", T["dim"]), ("detail", T["dim"]))):
+            if not c.get(key):
+                continue
             l = tk.Label(
                 inner, text=c[key], bg=T["panel"], fg=fg, anchor="w", justify="left", wraplength=380
             )
             l.grid(row=1 + r, column=0, sticky="we")
             labs.append(l)
         bf = tk.Frame(inner, bg=T["panel"])
-        bf.grid(row=0, column=1, rowspan=3, sticky="ne", padx=(8, 0))
+        bf.grid(row=0, column=1, rowspan=4, sticky="ne", padx=(8, 0))
         for lab, act in c["actions"]:
             ttk.Button(bf, text=lab, command=lambda a=act: self._card_action(cid, a, ctx)).pack(
                 fill="x", pady=1
@@ -472,11 +494,13 @@ class StatusMixin:
             self.s["preview_device"] = "GPU"
             self._save_settings_only()
             self._append("[gui] previews now render on the GPU (Preview device: GPU)\n")
-        elif act == "halve_envs":
+        elif act == "halve_envs":  # one click: lower num_envs and resume (running: after the next save)
             self.v_envs.set(int(ctx.get("n", 512)))
-            self._append(
-                "[gui] num_envs set to %s - press Resume training to continue\n" % ctx.get("n")
-            )
+            if self._training_running():
+                self.change_envs_live()
+            else:
+                self._append("[gui] num_envs set to %s - resuming\n" % ctx.get("n"))
+                self.resume()
         elif act == "pick_model":
             self._browse_model()
             if not self.v_model.get().strip():

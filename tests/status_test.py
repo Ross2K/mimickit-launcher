@@ -309,12 +309,39 @@ check(
     app.card_texts["cuda_oom"]["safe"] == SM.CARDS["cuda_oom"]["safe"] and app.ban_level == "error",
     app.ban_lab.cget("text"),
 )
-check("fix button label", app.card_texts["cuda_oom"]["fix_label"] == "Use 2048 envs")
+check("fix button label", app.card_texts["cuda_oom"]["fix_label"] == "Lower to 2048 and resume")
+resumed = []
+real_resume, app.resume = app.resume, lambda: resumed.append(app.v_envs.get())
 app._card_action("cuda_oom", "halve_envs", app.cards["cuda_oom"][1])
+app.resume = real_resume
 check(
-    "fix: num_envs halved, card closed, card area collapsed",
-    app.v_envs.get() == 2048 and "cuda_oom" not in app.cards and not app.cards_f.winfo_manager(),
+    "fix: num_envs halved and resumed in one click, card closed, card area collapsed",
+    app.v_envs.get() == 2048 and resumed == [2048] and "cuda_oom" not in app.cards
+    and not app.cards_f.winfo_manager(),
 )
+check("OOM card says 'practice characters (num_envs)'", "number of practice characters (num_envs)" in app.card_texts["cuda_oom"]["what"])
+check("OOM card: first mention 'saved progress (model.pt)'", "Your saved progress (model.pt)" in app.card_texts["cuda_oom"]["safe"])
+check("error banner wording", SM.BANNER["error"][1] == "Training stopped with an error. Your saved progress is safe; see below.")
+app.root.geometry("700x880")
+app._paint_banner("error", SM.BANNER["error"][1])
+app.root.update()
+check(
+    "banner wraps instead of clipping on a narrow window",
+    app.ban_lab.winfo_reqwidth() <= app.ban_f.winfo_width() and int(app.ban_lab.cget("wraplength")) < 700,
+    "%s / %s" % (app.ban_lab.winfo_reqwidth(), app.ban_f.winfo_width()),
+)
+app.root.geometry("1280x880")
+app.root.update()
+for cid in SM.CARDS:
+    c = SM.card(cid)
+    check("card %s: no hex code in the main sentence" % cid, not re.search(r"0x[0-9A-Fa-f]{4,}", c["what"] + c["safe"]))
+c = SM.card("cpu_preview_crash")
+check("CPU preview card wording", c["what"] == "Windows stopped the CPU preview with a crash that happens on some PCs.")
+check("CPU preview code in the grey detail line", "0xC0000005" in c["detail"])
+cr = SM.StatusModel()
+cr.feed("[gui] process ended (exit code 3221225477)\n")
+check("crash banner: code only in the grey detail", "exit code" not in SM.health(cr, False)[1]
+      and SM.banner_detail(cr, False) == "exit code 0xC0000005", SM.banner_detail(cr, False))
 
 # bad yaml -> open file
 opened = []

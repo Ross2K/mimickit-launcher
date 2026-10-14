@@ -26,15 +26,15 @@ BANNER = {
     ),
     "error": (
         "error",
-        "Training stopped with an error - see the card below. Your last saved model.pt is kept.",
+        "Training stopped with an error. Your saved progress is safe; see below.",
     ),
     "crashed": (
         "error",
-        "Training stopped unexpectedly (exit code {code}). Your last saved model.pt is kept.",
+        "Training stopped unexpectedly. Your saved progress (model.pt) is kept.",  # code: banner_detail()
     ),
-    "stopped": ("idle", "Stopped by you. Your last saved model.pt is kept."),
+    "stopped": ("idle", "Stopped by you. Your saved progress (model.pt) is kept."),
     "finished": ("ok", "Finished - the last model was saved at iteration {it}."),
-    "finished_noit": ("ok", "Finished. Your model.pt is saved in the output folder."),
+    "finished_noit": ("ok", "Finished. Your saved progress (model.pt) is in the output folder."),
     "closed": ("idle", "{kind} closed."),
     "failed": ("error", "{kind} stopped with an error - see the card below."),
     "trained": (
@@ -44,26 +44,30 @@ BANNER = {
 }
 
 # ---------------------------------------------------------------- error cards
-# what: what happened. safe: is training still OK. fix: (button label, action id)
+# what: what happened (plain words; codes go in detail). safe: is training still OK. detail: grey line with the
+# technical bits. fix: (button label, action id). First mention: "your saved progress (model.pt)", then "saved progress".
 CARDS = {
     "cpu_preview_crash": dict(
         title="The preview crashed on the CPU",
-        what="Windows stopped the CPU preview with an access violation (0xC0000005). This is a known problem "
-        "with CPU-only previews on some PCs.",
+        what="Windows stopped the CPU preview with a crash that happens on some PCs.",
         safe="Training is safe: previews run in their own process.",
+        detail="Error code 0xC0000005 (access violation), a known problem with CPU-only previews.",
         fix=("Use the GPU for previews", "preview_gpu"),
     ),
     "cuda_oom": dict(
         title="The GPU ran out of memory",
-        what="MimicKit needed more video memory than the card has. This usually means num_envs is too high "
-        "for this GPU.",
-        safe="Training stopped. Your last saved model.pt is safe - press Resume after the fix.",
-        safe_running="Training is still running but may fail - consider stopping and resuming with fewer envs.",
-        fix=("Use {n} envs", "halve_envs"),
+        what="MimicKit needed more video memory than the card has. This usually means the number of practice "
+        "characters (num_envs) is too high for this GPU.",
+        safe="Training stopped. Your saved progress (model.pt) is safe.",
+        safe_running="Training is still running but may fail. Your saved progress (model.pt) is safe; the button "
+        "below restarts from the next save with fewer practice characters.",
+        detail="CUDA out of memory",
+        fix=("Lower to {n} and resume", "halve_envs"),
     ),
     "no_model": dict(
         title="No saved model yet",
-        what="There is no model.pt in {folder}. MimicKit writes it every {ipo} iterations of training.",
+        what="There is no saved progress (model.pt) in {folder} yet. MimicKit saves it every {ipo} iterations "
+        "of training.",
         safe="Nothing is broken, and any running training is unaffected.",
         fix=("Pick a model...", "pick_model"),
     ),
@@ -76,7 +80,7 @@ CARDS = {
     "mk_missing": dict(
         title="MimicKit folder not found",
         what="There is no mimickit/run.py in {folder}.",
-        safe="Nothing is running, and your runs and models are untouched.",
+        safe="Nothing is running, and your runs and saved progress are untouched.",
         fix=("Choose folder...", "choose_mk"),
     ),
 }
@@ -372,9 +376,18 @@ def card(cid, **ctx):
         title=c["title"],
         what=c["what"].format(**fmt),
         safe=safe,
+        detail=c.get("detail", ""),
         fix_label=lab.format(**fmt),
         fix=act,
     )
+
+
+def banner_detail(m, running):
+    """Grey detail next to the banner: the raw exit code of an unexplained crash (hex for Windows NTSTATUS codes)."""
+    if running or m.kind != "train" or m.stopped_by_user or m.exit_code in (None, 0) or diagnose_text(m.text):
+        return ""
+    c = m.exit_code
+    return "exit code 0x%08X" % (c & 0xFFFFFFFF) if abs(c) > 0xFFFF else "exit code %d" % c
 
 
 def halve_envs(n):

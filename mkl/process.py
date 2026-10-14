@@ -587,7 +587,7 @@ class ProcessMixin:
         self._tt_save(final=True)
         self.sm.stopped_by_user = True
         self._kill(pid)
-        self._append("[gui] stopped. The last saved model.pt is kept.\n")
+        self._append("[gui] stopped. Your saved progress (model.pt) is kept.\n")
 
     def _kill(self, pid, what=""):
         """Kill a detached process and its whole tree (Windows: taskkill /T /F, Linux: its process group)."""

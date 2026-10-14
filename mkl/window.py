@@ -617,7 +617,7 @@ class MainWindowMixin:
                         "detach",
                         "Close the launcher, training keeps going in the background.\nOpen the launcher again to see it.",
                     ),
-                    ("Stop", "stop", "Stop training and close. The last saved model.pt is kept."),
+                    ("Stop", "stop", "Stop training and close. Your saved progress (model.pt) is kept."),
                     ("Cancel", None, "Don't close."),
                 ],
                 default="detach",

@@ -185,13 +185,14 @@ HELP = {
     "GPU only if both fail or the CPU is far too slow. Each attempt is a fresh process; the log says which one ran.\n"
     "CPU only = never touches the GPU. GPU = cuda:0, refused if less than ~600 MB of VRAM is free. Rendering is always on the CPU.",
     "stop": "Stop: kills the running MimicKit process and all its child processes (taskkill /T /F).\n"
-    "Training keeps the last saved model.pt. (Windows: taskkill /T /F, Linux: kills the process group.)",
-    "envs": "How many simulated characters train at once. More = faster but more GPU memory.\n"
+    "Your saved progress (model.pt) is kept. (Windows: taskkill /T /F, Linux: kills the process group.)",
+    "envs": "Number of practice characters (num_envs) that train at once. More = faster but more GPU memory.\n"
     "An 8 GB card fits roughly 4000-5000 with the Newton engine. Out of memory? Lower it (see README).",
-    "stopsave": "Let training finish its current iteration and save model.pt once more, then stop.\n"
-    "Nothing since the last save is lost. Press again to cancel.",
-    "envs_live": "Change num_envs while training runs: set the new number in the num_envs box, then press this.\n"
-    "The launcher waits for the next saved model.pt, stops training and resumes from it with the new number\n"
+    "stopsave": "Let training finish its current iteration and write your saved progress (model.pt) once more,\n"
+    "then stop. Nothing since the last saved progress is lost. Press again to cancel.",
+    "envs_live": "Change the number of practice characters (num_envs) while training runs: set the new number in the\n"
+    "box, then press this.\n"
+    "The launcher waits for the next saved progress, stops training and resumes from it with the new number\n"
     "(new _resumeN folder; time, sessions and charts carry over). Press again to cancel.",
     "out": "Folder (inside MimicKit) where log.txt and model.pt are written.",
 }
