@@ -188,6 +188,9 @@ HELP = {
     "Training keeps the last saved model.pt. (Windows: taskkill /T /F, Linux: kills the process group.)",
     "envs": "How many simulated characters train at once. More = faster but more GPU memory.\n"
     "An 8 GB card fits roughly 4000-5000 with the Newton engine. Out of memory? Lower it (see README).",
+    "envs_live": "Change num_envs while training runs: set the new number in the num_envs box, then press this.\n"
+    "The launcher waits for the next saved model.pt, stops training and resumes from it with the new number\n"
+    "(new _resumeN folder; time, sessions and charts carry over). Press again to cancel.",
     "out": "Folder (inside MimicKit) where log.txt and model.pt are written.",
 }
 
