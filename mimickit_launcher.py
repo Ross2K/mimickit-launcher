@@ -15,10 +15,11 @@ from mkl.dashboard import DashboardMixin
 from mkl.settings import SettingsMixin
 from mkl.status import StatusMixin
 from mkl.envswitch import EnvSwitchMixin
+from mkl.actions import ActionsMixin
 from mkl import icon
 
 
-class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin):
+class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, ActionsMixin):
     def __init__(self, root):
         self.root = root
         root.title("MimicKit Launcher  %s" % VERSION)

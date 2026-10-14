@@ -156,6 +156,7 @@ class MainWindowMixin:
         b = ttk.Button(bf2, text="Training settings...", command=self.train_settings_dialog)
         b.pack(side="left", padx=3)
         Tip(b, HELP["tsettings"])
+        self._build_actions(bf2)  # launcher_profile.py ACTIONS (none in the public build)
         ttk.Label(bf2, text="Preview device").pack(side="left", padx=(24, 4))
         self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
         cb = ttk.Combobox(

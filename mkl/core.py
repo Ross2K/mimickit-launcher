@@ -199,12 +199,14 @@ HELP = {
 # without touching the generic code. Supported names (all optional):
 #   VERSION_SUFFIX (str), HELP (dict, merged), RETURN_TEXT (str), DEFAULT_ENVS (int),
 #   PREFERRED_TRAIN / PREFERRED_VIEW (list of config names), PRESETS (list of dicts:
-#   name, kind "train"/"view", file, args (extra list), out, num_envs, help)
+#   name, kind "train"/"view", file, args (extra list), out, num_envs, help),
+#   ACTIONS (list of dicts: text, help, run(app)) - extra buttons, see mkl/actions.py
 RETURN_TEXT = "Return = how well the character copies the animation (higher is better)."
 DEFAULT_ENVS = 4096
 PREFERRED_TRAIN = ["deepmimic_humanoid_ppo"]
 PREFERRED_VIEW = ["view_motion_humanoid"]
 PRESETS = []
+ACTIONS = []
 if os.path.exists(os.path.join(HERE, "launcher_profile.py")):
     sys.path.insert(0, HERE)
     try:
@@ -213,7 +215,7 @@ if os.path.exists(os.path.join(HERE, "launcher_profile.py")):
         sys.path.remove(HERE)
     VERSION += getattr(_P, "VERSION_SUFFIX", "")
     HELP.update(getattr(_P, "HELP", {}))
-    for _k in ("RETURN_TEXT", "DEFAULT_ENVS", "PREFERRED_TRAIN", "PREFERRED_VIEW", "PRESETS"):
+    for _k in ("RETURN_TEXT", "DEFAULT_ENVS", "PREFERRED_TRAIN", "PREFERRED_VIEW", "PRESETS", "ACTIONS"):
         if hasattr(_P, _k):
             globals()[_k] = getattr(_P, _k)
 
