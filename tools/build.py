@@ -26,6 +26,7 @@ TESTS = [
     "fixes042_test",
     "status_test",
     "envswitch_test",
+    "icon_test",
     "preview_test",
     "ghost_test",
     "multi_test",

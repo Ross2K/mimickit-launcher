@@ -15,12 +15,14 @@ from mkl.dashboard import DashboardMixin
 from mkl.settings import SettingsMixin
 from mkl.status import StatusMixin
 from mkl.envswitch import EnvSwitchMixin
+from mkl import icon
 
 
 class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin):
     def __init__(self, root):
         self.root = root
         root.title("MimicKit Launcher  %s" % VERSION)
+        icon.apply_icon(root)
         root.geometry("1280x880")
         U.set_log_path(
             os.path.join(os.path.dirname(os.path.abspath(CONFIG)), "launcher_errors.log")
@@ -66,6 +68,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
 
 
 if __name__ == "__main__":
+    icon.set_app_id()  # before the first window, so the taskbar shows our icon
     root = tk.Tk()
     App(root)
     root.mainloop()
