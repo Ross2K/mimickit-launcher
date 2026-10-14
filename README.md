@@ -20,7 +20,7 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
   (DeepMimic, AMP, ASE, ADD, ...) and *view* configs (`view_motion_*`), and fills in `num_envs`, output folder,
   motion file and engine from each file.
 - **Custom args files** (your own characters) and an **Extra args** box for any extra command-line options.
-- **View clip / Start training / Resume training / Continue from run / Watch latest model / Render preview MP4 / STOP** buttons.
+- **View clip / Start training / Resume training / Continue from run / Watch latest model / Render preview MP4 / Stop after next save / STOP** buttons.
   - Start warns before overwriting an earlier run.
   - Resume copies the newest `model.pt` into a new `_resumeN` folder and continues from it (nothing is overwritten).
   - **Continue from run...** starts the *currently selected* config from the newest `model.pt` of any other run chain
@@ -33,7 +33,8 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
     `pose_termination` off and a long `episode_length` to `output/_launcher_watch/view_env.yaml` (your `data/` folder
     is never changed) and passes it with `--env_config ... --num_envs 1`.
   - **Render preview MP4** - see below.
-  - STOP kills the whole process tree (`taskkill /T /F` on Windows, process-group kill on Linux).
+  - STOP kills the whole process tree (`taskkill /T /F` on Windows, process-group kill on Linux). *Stop after next
+    save* waits until training writes `model.pt` once more, then stops (press again to cancel).
 - **Runs survive the launcher closing or crashing**: MimicKit is started detached (Windows: new process group with a
   hidden console; Linux: its own session) and writes straight into the run's `console_log.txt`; the launcher tails that file.
   PID, command and start time are saved to `launcher_run.json`, so the next launcher window **reattaches** to a still-running

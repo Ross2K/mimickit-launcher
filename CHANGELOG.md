@@ -3,6 +3,33 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.6.0
+
+### Added
+- **Stop after next save**: lets training finish its current iteration and write your saved progress (`model.pt`)
+  once more, then stops. The launcher shows *Will stop after next save...*; press the button again to cancel.
+- **'?' badge** in the corner of the charts: hover it for the chart help (replaces the hint that popped up whenever
+  the mouse was over the charts).
+- The About box shows the build (commit) a release zip was made from.
+
+### Changed
+- **Charts draw like the phone page**: one smooth line per series, no dot on every data point. Still only the
+  visible time range, reduced to about one low/high pair per pixel column; hovering shows the exact nearest data point.
+- Plainer wording: *your saved progress (model.pt)*, *number of practice characters (num_envs)*; error codes moved
+  out of the main sentence into a grey detail line. Out of GPU memory: one button, *Lower to N and resume*.
+- The error banner reads *Training stopped with an error. Your saved progress is safe; see below.* and wraps onto a
+  second line instead of being cut off.
+
+### Fixed
+- The close dialog (Detach / Stop / Cancel) and every other pop-up open centred over the main window again, kept on
+  its monitor; tooltips and the chart hover readout stay inside the window (flipping above / left near the edges).
+- Taskbar icon on Windows: DPI awareness and AppUserModelID are set before the first window, the `.ico` uses BMP
+  entries Tk can read, window icons are set independently (one failing no longer skips the other), and `launch.bat`
+  always prefers `pythonw.exe`.
+- Phone dashboard dialog: an unknown saved address falls back to *This PC only*.
+- `tools/build.py` refuses to build from uncommitted changes or a stale overlay folder, and stamps the commit into
+  each zip (`BUILD`).
+
 ## a0.5.1
 
 ### Added
