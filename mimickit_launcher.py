@@ -68,8 +68,12 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         self.root.after(800, self._remote_apply)
 
 
-if __name__ == "__main__":
-    icon.set_app_id()  # before the first window, so the taskbar shows our icon
+def main():
+    icon.prepare_process()  # before the first window, so the taskbar shows our icon (Windows)
     root = tk.Tk()
-    App(root)
+    App(root)  # applies the window icon first thing
     root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
