@@ -293,6 +293,9 @@ Two problems hit Pascal cards (GTX 1050-1080, Titan Xp, P100...):
 | 5120 | ~6.8 GB |
 
 If you get `CUDA out of memory` or the PC becomes unresponsive, lower `num_envs` (e.g. 4096 -> 2048).
+
+To change `num_envs` without losing progress while training runs: type the new number and press **Apply while
+training**. The launcher waits for the next saved `model.pt`, stops, and resumes from it with the new number.
 Leave ~1 GB free for Windows. Watch the GPU line in the launcher while training starts.
 
 ## Troubleshooting

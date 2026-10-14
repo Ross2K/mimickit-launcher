@@ -3,6 +3,18 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.5.1
+
+### Added
+- **Change num_envs while training**: set a new number in the num_envs box and press *Apply while training*. The
+  launcher shows *Waiting for next checkpoint...*, and once the next `model.pt` is saved it stops training and resumes
+  from that checkpoint with the new number (next `_resumeN` folder; time, sessions and charts carry over). Press the
+  button again to cancel.
+- **Own window and taskbar icon** instead of the Python logo (`assets/icon.png` + multi-size `assets/icon.ico`; on
+  Windows the launcher sets its own AppUserModelID so the taskbar uses it). To change the icon, replace those two files.
+- `launcher_profile.py` can add extra buttons (`ACTIONS`), with a helper that copies files into the MimicKit folder
+  after backing up the originals.
+
 ## a0.5.0
 
 ### Added
