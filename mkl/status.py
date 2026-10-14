@@ -23,6 +23,8 @@ class StatusMixin:
         self._looks = None  # chain key the "looks trained" prompt was shown for
         self._looks_now = False
         self._ckpt_t = 0
+        self._ckpt_seen = None  # (path, mtime) of the last model.pt seen, to report new saves
+        self._ep_log = (0.0, None, None)  # (read time, log.txt path, its newest Train_Episode_Length)
 
     def _build_banner(self):
         f = tk.Frame(self.root, padx=6, pady=3)
@@ -335,11 +337,13 @@ class StatusMixin:
         )
         r = tl["rate"]
         self._tile("rate", "%.1f M/h" % (r / 1e6) if r else "-", "samples per hour")
-        ep = tl["ep_len"]
+        ep, sub = tl["ep_len"], "steps per episode"
+        if ep is None:  # stock MimicKit writes episode length only to log.txt (the logging patch adds it live)
+            ep, sub = self._ep_from_log(), "steps per episode (log.txt)"
         self._tile(
             "ep",
             "%.0f" % ep if ep is not None else "-",
-            "steps per episode" if ep is not None else "needs MimicKit patches...",
+            sub if ep is not None else "needs MimicKit patches...",
         )
         self._paint_ckpt()
         sig = (
@@ -396,6 +400,27 @@ class StatusMixin:
         w.configure(state="disabled")
         w.see("end")
 
+    def _ep_from_log(self):
+        """Newest Train_Episode_Length of the shown run's log.txt (re-read every 30 s, or when the run changes)."""
+        p = os.path.join(self.run_dir or self.outdir_abs(), "log.txt")
+        t, seen, v = self._ep_log
+        if seen == p and time.time() - t < 30:
+            return v
+        v = None
+        try:
+            vals = [x for x in parse_log(p).get("Train_Episode_Length", []) if x == x]
+            v = vals[-1] if vals else None
+        except Exception as e:
+            log_exc("status: episode length from log.txt", e)
+        self._ep_log = (time.time(), p, v)
+        return v
+
+    def _note_new_save(self, p, t):
+        """A model.pt newer than the last one seen while training runs -> 'Progress saved' event."""
+        seen, self._ckpt_seen = self._ckpt_seen, (p, t)
+        if seen and (p, t) != seen and t > seen[1] and self.proc and self.proc.poll() is None:
+            self.sm.note_save()
+
     def _paint_ckpt(self):
         if time.time() - self._ckpt_t < 5:
             return
@@ -408,7 +433,8 @@ class StatusMixin:
         if not p or not os.path.exists(p):
             self.st_ckpt.configure(text="Last checkpoint: none yet")
             return
-        t = os.path.getmtime(p)
+        t = os.path.getmtime(p)  # re-read every time: the 'ago' text and new saves follow the file
+        self._note_new_save(p, t)
         ago = int((time.time() - t) // 60)
         it = self.sm.last_save_iteration()
         self.st_ckpt.configure(

@@ -29,6 +29,7 @@ TESTS = [
     "placement_test",
     "fixes042_test",
     "status_test",
+    "status_longrun_test",
     "envswitch_test",
     "stopsave_test",
     "icon_test",

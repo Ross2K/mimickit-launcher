@@ -40,14 +40,16 @@ child = subprocess.Popen(
 )  # like a worker process
 n = int(get("num_envs", "1024"))
 cols = ["Iteration", "Wall_Time", "Samples", "Test_Return", "Train_Return"]
-tpl = "{:<25}" * len(cols)
+# STUB_LOG_EPLEN=1: like stock MimicKit, episode length goes to log.txt only (not the console table)
+fcols = cols + (["Train_Episode_Length"] if os.environ.get("STUB_LOG_EPLEN") else [])
+ftpl = "{:<25}" * len(fcols)
 with open(os.path.join(out, "log.txt"), "w") as f:
-    f.write(tpl.format(*cols) + "\r")
+    f.write(ftpl.format(*fcols) + "\r")
     for it in range(int(os.environ.get("STUB_ITERS", "400"))):
         samples = (it + 1) * n * 32
         wall = samples / 7.5e6
         vals = [it, round(wall, 5), samples, round(3 + it * 0.01, 3), round(3.5 + it * 0.012, 3)]
-        f.write(tpl.format(*map(str, vals)) + "\r")
+        f.write(ftpl.format(*map(str, (vals + [100 + it])[: len(fcols)])) + "\r")
         f.flush()
         print(
             "-" * 42

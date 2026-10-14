@@ -26,6 +26,10 @@ place: `VERSION` in `mkl/core.py`.
 - Taskbar icon on Windows: DPI awareness and AppUserModelID are set before the first window, the `.ico` uses BMP
   entries Tk can read, window icons are set independently (one failing no longer skips the other), and `launch.bat`
   always prefers `pythonw.exe`.
+- Status view on long / resumed runs: *What's happening* no longer stops after *First training iteration done.* -
+  it adds a line every 100 iterations (with the scores), new best test scores, and each new `model.pt` save (seen on
+  disk, also when the save interval can't be read from the config). The *Episode length* card falls back to log.txt
+  (stock MimicKit doesn't print it to the console), and the last-checkpoint line follows the file.
 - Phone dashboard dialog: an unknown saved address falls back to *This PC only*.
 - `tools/build.py` refuses to build from uncommitted changes or a stale overlay folder, and stamps the commit into
   each zip (`BUILD`).

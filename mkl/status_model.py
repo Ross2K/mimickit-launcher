@@ -134,6 +134,9 @@ def fmt_rate(r):
 
 
 class StatusModel:
+    PROGRESS_EVERY = 100  # a "what's happening" line every this many iterations
+    BEST_TEST_GAP = 50  # at most one "new best test score" line per this many iterations
+
     def __init__(self, ipo=None):
         self.reset(ipo)
 
@@ -155,6 +158,7 @@ class StatusModel:
         self.ipo = ipo
         self._buf = ""
         self._prev = None  # (samples, wall_time_h) of the previous row
+        self._best_test = None  # (score, iteration of the last "new best" event)
 
     # -- feeding
     def feed(self, chunk, now=None):
@@ -187,14 +191,17 @@ class StatusModel:
             self.stats[k] = v
             if k == "Iteration":
                 first = self.iteration is None
+                prev = self.iteration if not first else 0
                 self.iteration = int(v)
                 self.stage = "training"
                 if first:
                     self._event("First training iteration done.", now)
+                elif self.iteration // self.PROGRESS_EVERY > prev // self.PROGRESS_EVERY:
+                    self._event(self._progress_text(), now)
                 if self.ipo and self.iteration % self.ipo == 0:
                     self._event("Model saved (iteration %d)." % self.iteration, now)
-            elif k == "Wall_Time" and self.samples is not None:
-                pass
+            elif k == "Test_Return" and v == v and self.iteration is not None:
+                self._test_score(v, now)
             elif k == "Samples":
                 self.samples = v
                 wt = self.stats.get("Wall_Time")
@@ -227,6 +234,31 @@ class StatusModel:
             else:
                 self.warnings.append((now, s[:300], 1))
                 del self.warnings[:-20]
+
+    def _progress_text(self):
+        st = self.stats
+        tr, te = st.get("Train_Return"), st.get("Test_Return")
+        score = "" if tr is None else ": score %.3g" % tr + ("" if te is None else " (test %.3g)" % te)
+        return "Iteration %d%s." % (self.iteration, score)
+
+    def _test_score(self, v, now):
+        best = self._best_test
+        if best is None:
+            self._best_test = (v, self.iteration)
+        elif v > best[0]:
+            if self.iteration - best[1] >= self.BEST_TEST_GAP:
+                self._event("New best test score: %.3g (iteration %d)." % (v, self.iteration), now)
+                self._best_test = (v, self.iteration)
+            else:
+                self._best_test = (v, best[1])
+
+    def note_save(self, now=None):
+        """The launcher saw model.pt change on disk. Only needed when iters_per_output is unknown (else the
+        console already gave 'Model saved (iteration N)')."""
+        if self.ipo:
+            return
+        it = " (iteration %d)" % self.iteration if self.iteration is not None else ""
+        self._event("Progress saved%s." % it, now or time.time())
 
     # -- derived
     def rate(self):
