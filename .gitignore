@@ -15,3 +15,6 @@ chart_history.csv
 *.zip
 # personal overlay (see launcher_profile.py hook) - never publish
 launcher_profile.py
+# built files (the starter .exe is attached to releases / added to zips by tools/build.py)
+*.exe
+tools/exe-starter/out/
