@@ -134,8 +134,8 @@ class MainWindowMixin:
             ("train", "Start training", self.train),
             ("resume", "Resume training", self.resume),
             ("continue", "Continue from run...", self.continue_from),
-            ("watch", "Watch latest model", self.watch),
-            ("preview", "Render preview MP4", self.preview),
+            ("watch", "Watch latest", self.watch),
+            ("preview", "Render MP4", self.preview),
             ("stopsave", "Stop after next save", self.stop_after_save),
             ("stop", "STOP", self.stop),
         ):
@@ -143,7 +143,7 @@ class MainWindowMixin:
                 bf,
                 text=txt,
                 command=fn,
-                width=22 if key == "stopsave" else 17,
+                width=max(10, len(txt) + 2),
                 style="Stop.TButton" if key == "stop" else "TButton",
             )
             b.pack(side="left", padx=3)
@@ -152,20 +152,24 @@ class MainWindowMixin:
                 self.b_stopsave = b
         bf2 = ttk.Frame(job)
         bf2.grid(row=6, column=0, columnspan=6, sticky="w", pady=(4, 0))
-        b = ttk.Button(bf2, text="Rescan args", command=self.rescan)
+        bfa = ttk.Frame(bf2)  # args/settings buttons (+ profile ACTIONS)
+        bfa.pack(side="top", anchor="w")
+        bfb = ttk.Frame(bf2)  # preview options on their own line so nothing is clipped at 1280 px
+        bfb.pack(side="top", anchor="w", pady=(4, 0))
+        b = ttk.Button(bfa, text="Rescan args", command=self.rescan)
         b.pack(side="left", padx=3)
         Tip(b, "Re-read MimicKit's args folder.")
-        b = ttk.Button(bf2, text="Add args file...", command=self._add_custom)
+        b = ttk.Button(bfa, text="Add args file...", command=self._add_custom)
         b.pack(side="left", padx=3)
         Tip(b, HELP["custom"])
-        b = ttk.Button(bf2, text="Training settings...", command=self.train_settings_dialog)
+        b = ttk.Button(bfa, text="Training settings...", command=self.train_settings_dialog)
         b.pack(side="left", padx=3)
         Tip(b, HELP["tsettings"])
-        self._build_actions(bf2)  # launcher_profile.py ACTIONS (none in the public build)
-        ttk.Label(bf2, text="Preview device").pack(side="left", padx=(24, 4))
+        self._build_actions(bfa)  # launcher_profile.py ACTIONS (none in the public build)
+        ttk.Label(bfb, text="Preview device").pack(side="left", padx=(3, 4))
         self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
         cb = ttk.Combobox(
-            bf2,
+            bfb,
             textvariable=self.v_pdev,
             values=["Auto", "CPU only", "GPU"],
             state="readonly",
@@ -180,10 +184,10 @@ class MainWindowMixin:
                 self._save_settings_only(),
             ),
         )
-        ttk.Label(bf2, text="Reference ghost").pack(side="left", padx=(12, 4))
+        ttk.Label(bfb, text="Reference ghost").pack(side="left", padx=(12, 4))
         self.v_ghost = tk.StringVar(value=self.s.get("preview_ghost", "Overlay"))
         cb = ttk.Combobox(
-            bf2, textvariable=self.v_ghost, values=list(GHOST_MODES), state="readonly", width=12
+            bfb, textvariable=self.v_ghost, values=list(GHOST_MODES), state="readonly", width=12
         )
         cb.pack(side="left")
         Tip(cb, HELP["ghost"])
@@ -194,10 +198,10 @@ class MainWindowMixin:
                 self._save_settings_only(),
             ),
         )
-        ttk.Label(bf2, text="Clip layout").pack(side="left", padx=(12, 4))
+        ttk.Label(bfb, text="Clip layout").pack(side="left", padx=(12, 4))
         self.v_layout = tk.StringVar(value=self.s.get("preview_layout", "All at once"))
         cb = ttk.Combobox(
-            bf2, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=16
+            bfb, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=16
         )
         cb.pack(side="left")
         Tip(cb, HELP["layout"])
@@ -208,10 +212,10 @@ class MainWindowMixin:
                 self._save_settings_only(),
             ),
         )
-        b = ttk.Button(bf2, text="Preview diagnostics", command=self.preview_diag)
+        b = ttk.Button(bfb, text="Preview diagnostics", command=self.preview_diag)
         b.pack(side="left", padx=(12, 3))
         Tip(b, HELP["pdiag"])
-        ttk.Label(bf2, text="Hover = help", style="Dim.TLabel").pack(side="left", padx=8)
+        ttk.Label(bfb, text="Hover = help", style="Dim.TLabel").pack(side="left", padx=8)
         self.custom = list(self.s.get("custom_args", []))
         self.rescan()
 

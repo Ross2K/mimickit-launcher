@@ -25,7 +25,14 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         self.root = root
         root.title("MimicKit Launcher  %s" % VERSION)
         icon.apply_icon(root)
-        root.geometry("1280x880")
+        # DPI awareness is on: scale the 96-dpi base size, clamped to the screen
+        try:
+            k = max(1.0, root.winfo_fpixels("1i") / 96.0)
+        except Exception:
+            k = 1.0
+        w = min(int(1280 * k), root.winfo_screenwidth())
+        h = min(int(880 * k), root.winfo_screenheight())
+        root.geometry("%dx%d" % (w, h))
         U.set_log_path(
             os.path.join(os.path.dirname(os.path.abspath(CONFIG)), "launcher_errors.log")
         )

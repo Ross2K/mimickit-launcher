@@ -152,13 +152,13 @@ HELP = {
     "Runs with no window (fast). Watch the graph and log here. Can take hours.",
     "resume": "Resume training: continues from the newest saved model.pt.\n"
     "The old model is copied into a new folder (..._resume1, _resume2, ...) so nothing gets overwritten.",
-    "watch": "Watch latest model: plays the newest saved model.pt in order - one character, starting at the beginning of the clip,\n"
+    "watch": "Watch latest: plays the newest saved model.pt in order - one character, starting at the beginning of the clip,\n"
     "no random start and no early resets (a generated view copy of the env yaml; your data folder is not changed).",
     "continue": "Continue from another run: pick a finished or older run folder (anything with model.pt in it or its _resumeN\n"
     "folders). Its newest model.pt becomes the start of a new training run of the CURRENT config in the current\n"
     "output folder (or its next _resumeN if that folder is already used). Training time, session count and the\n"
     "source run's chart history are carried over (shown grey with dotted links in front of the new run).",
-    "preview": "Render preview MP4: records the newest model.pt for one clip length in a separate background process (CPU by\n"
+    "preview": "Render MP4: records the newest model.pt for one clip length in a separate background process (CPU by\n"
     "default, so no GPU memory is used and training is not disturbed), renders it with MuJoCo and opens the video.\n"
     "Saved as preview_<iteration>.mp4 next to the model. Uses at most 80% of the RAM that is free when it starts.\n"
     "Press again while it runs to cancel it.",
