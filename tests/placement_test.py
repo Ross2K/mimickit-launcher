@@ -100,9 +100,13 @@ for corner, (cx, cy) in corners.items():
             check("%s, window %s: centred over the window" % (name, corner), centred(r, main), (r, main))
     for name, wf in TIP_WIDGETS:
         tip = G.Tip(wf(), "help " * 60)
-        tip.show()
-        root.update()
-        r = rect(tip.top)
+        r = None
+        for _ in range(5):  # a pointer <Leave> from a pop-up that just closed can hide the tip mid-update: re-show
+            tip.show()
+            root.update()
+            if tip.top is not None:
+                r = rect(tip.top)
+                break
         tip.hide()
         check("tooltip %s, window %s: inside the window" % (name, corner), inside(r, main), (r, main))
 badge = rect(app.chart_help)
