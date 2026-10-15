@@ -111,6 +111,8 @@ def run_tests(d):
         print("%-22s %s%s" % (t, res, "" if ok else "   <-- FAILED"), flush=True)
         if not ok:
             bad.append(t)
+            tail = (r.stdout.strip().splitlines()[-5:] + r.stderr.strip().splitlines()[-15:])
+            print("\n".join("    | " + x for x in tail), flush=True)
     return bad
 
 
