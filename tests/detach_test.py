@@ -2,6 +2,7 @@
 Stop kills the saved PID's whole process tree, 'keep running' on close, and PID-reuse protection.
   xvfb-run -a python tests/detach_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import json, os, shutil, signal, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

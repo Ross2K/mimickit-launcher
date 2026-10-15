@@ -2,6 +2,7 @@
 hold trim/extend, clip start share patch), the dialog incl. 'Coming soon' stubs, and the close/STOP popup actions.
   xvfb-run -a python tests/trainsettings_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import json, os, pickle, shutil, sys, tempfile, time, types
 
 HERE = os.path.dirname(os.path.abspath(__file__))

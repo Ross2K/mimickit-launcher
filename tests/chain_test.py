@@ -1,6 +1,7 @@
 """Run chains across output folders ("Continue from run"), parent-link walking for time + history, and the
 chronological view env yaml.   xvfb-run -a python tests/chain_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import json, os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

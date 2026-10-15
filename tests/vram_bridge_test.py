@@ -1,6 +1,7 @@
 """a0.1.5: VRAM bar (fake nvidia-smi) and dotted session bridges on a 5-session chain.
 xvfb-run -a python tests/vram_bridge_test.py [--shot out.png]"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, stat, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

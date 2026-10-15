@@ -3,6 +3,7 @@
 interfaces setups kept), Show buttons on masked fields, secrets kept out of logs / dashboard / notifications.
   xvfb-run -a python tests/fixes042_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import ast, datetime, glob, json, os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

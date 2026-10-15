@@ -2,6 +2,7 @@
 formatting with mocked HTTP, and GUI responsiveness while the server is hammered.   xvfb-run -a python tests/remote_test.py
 """
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import http.client, json, os, socket, sys, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

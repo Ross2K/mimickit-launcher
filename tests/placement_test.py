@@ -2,6 +2,7 @@
 the main window in each screen corner (regression: close dialog not centred, chart hint clipped bottom-left).
 xvfb-run -a -s "-screen 0 1400x1000x24" python tests/placement_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -87,9 +88,9 @@ for corner, (cx, cy) in corners.items():
             lambda: app.choose("Training is still running", "x", [("Detach", "detach", "a"), ("Cancel", None, "b")]),
             "close", corner),
         "message box": lambda: blocking(lambda: G.messagebox.showinfo("Info", "hello"), "msg", corner),
-        "training settings": lambda: nonblocking(lambda: (app.train_settings_dialog(), root.winfo_children()[-1])[1]),
+        "training settings": lambda: nonblocking(lambda: (app.train_settings_dialog(), app._tsdlg)[1]),
         "about": lambda: nonblocking(app.about_dialog),
-        "patches": lambda: nonblocking(lambda: (app.patch_dialog(), root.winfo_children()[-1])[1]),
+        "patches": lambda: nonblocking(lambda: (app.patch_dialog(), app._pdlg)[1]),
         "phone dashboard": lambda: nonblocking(lambda: (app.remote_dialog(), app._rdlg)[1]),
     }
     for name, fn in pops.items():

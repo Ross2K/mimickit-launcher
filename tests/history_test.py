@@ -1,5 +1,6 @@
 """Chart history across resumes: start, resume, second resume, log.txt backfill.  xvfb-run -a python tests/history_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

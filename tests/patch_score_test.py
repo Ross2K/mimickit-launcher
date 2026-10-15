@@ -2,6 +2,7 @@
 history CSV with old headers, dashboard URL ordering/labels and QR refresh after a late 'pip install qrcode'.
   xvfb-run -a python tests/patch_score_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

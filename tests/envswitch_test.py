@@ -1,6 +1,7 @@
 """Live num_envs change: waits for the next model.pt save, stops, resumes from it with the new count.
 xvfb-run -a python tests/envswitch_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

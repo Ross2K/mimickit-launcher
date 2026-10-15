@@ -1,6 +1,7 @@
 """Build hygiene: build.py refuses uncommitted changes and a stale overlay; the zip's BUILD stamp shows in About.
 python tests/build_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))

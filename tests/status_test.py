@@ -2,6 +2,7 @@
 prompt, Status/Console toggle, dark message boxes.
   xvfb-run -a python tests/status_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, re, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

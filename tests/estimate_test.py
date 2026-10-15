@@ -2,6 +2,7 @@
 display smoothing.   python tests/estimate_test.py  (the GUI part needs xvfb: xvfb-run -a python tests/estimate_test.py)
 """
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import math, os, random, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))

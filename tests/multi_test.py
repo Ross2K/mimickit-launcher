@@ -3,6 +3,7 @@
   PREVIEW_TEST_MULTI_ENV=data/envs/<env yaml whose motion_file is a dataset .yaml with 2+ motions> \\
       xvfb-run -a /path/to/venv/bin/python tests/multi_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))

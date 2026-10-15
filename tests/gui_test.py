@@ -2,6 +2,7 @@
 xvfb-run -a -s "-screen 0 1300x900x24" python tests/gui_test.py [MIMICKIT_DIR] [--shot docs/screenshot.png]
 """
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, subprocess, sys, tempfile, time, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))

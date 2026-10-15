@@ -10,7 +10,6 @@ import os, re, shutil, subprocess, sys, zipfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.environ.get("BUILD_OUT", os.path.dirname(HERE))
-# replay_test needs real console captures (STUB_REPLAY); without them 5/12 is the known baseline
 TESTS = [
     "gui_test",
     "chain_test",
@@ -39,8 +38,9 @@ TESTS = [
     "ghost_test",
     "multi_test",
     "view_test",
+    "replay_test",
 ]
-KNOWN = {"replay_test": "5/12"}
+KNOWN = {}  # name -> accepted "a/b"; empty: every test must pass
 
 
 def _version_file(d):
@@ -105,7 +105,9 @@ def run_tests(d):
         )
         m = re.findall(r"RESULT: (\d+)/(\d+)", r.stdout)
         res = "%s/%s" % m[-1] if m else "no result (exit %d)" % r.returncode
-        ok = (KNOWN.get(t) == res) if t in KNOWN else (bool(m) and m[-1][0] == m[-1][1])
+        ok = (KNOWN.get(t) == res) if t in KNOWN else (bool(m) and m[-1][0] == m[-1][1] and r.returncode == 0)
+        if m and r.returncode != 0 and t not in KNOWN:
+            res += " (exit %d)" % r.returncode
         print("%-22s %s%s" % (t, res, "" if ok else "   <-- FAILED"), flush=True)
         if not ok:
             bad.append(t)

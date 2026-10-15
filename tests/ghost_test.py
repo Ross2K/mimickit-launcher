@@ -2,6 +2,7 @@
 preview_test.py: PREVIEW_TEST_MK, PREVIEW_TEST_PY, PREVIEW_TEST_ARGS; run with the MimicKit venv python under xvfb-run).
 """
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

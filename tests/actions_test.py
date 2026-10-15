@@ -1,5 +1,6 @@
 """Profile ACTIONS buttons + install_files (backup originals, copy patch files).  xvfb-run -a python tests/actions_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

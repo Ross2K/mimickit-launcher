@@ -1,12 +1,20 @@
-"""Replays a real MimicKit console capture as stdout and a real log.txt, and checks the charts/status use the console.
-STUB_REPLAY=console.txt STUB_LOG=log.txt xvfb-run -a python tests/replay_test.py [--shot out.png]"""
+"""Runs the stub trainer (154 iterations at 1024 envs = 5.046 M samples, printed slowly as a console table) and checks
+the charts/status use the console while it runs, then chart_history.csv, then log.txt (attach mode, a one-row
+tests/data/replay_log.txt with Samples_Per_Second) once the window no longer owns the run.
+xvfb-run -a python tests/replay_test.py [--shot out.png]
+Set STUB_REPLAY=console.txt (+ STUB_LOG=log.txt) to replay a real capture instead; the iteration/sample checks
+assume the 154-iteration default."""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = os.path.join(tempfile.mkdtemp(), "s.json")
-import tkinter as tk, mimickit_launcher as G
+os.environ.setdefault("STUB_ITERS", "154")
+os.environ.setdefault("STUB_SLEEP", "0.05")  # ~8 s of output: the mid-run check sees a partial table
+LOG_FIXTURE = os.path.join(HERE, "data", "replay_log.txt")
+import shutil, tkinter as tk, mimickit_launcher as G
 
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: print("[dialog]", a))
@@ -88,7 +96,10 @@ def verify():
         "from chart_history.csv" in st and "Iteration 153" in st,
     )
     for fn in (G.HIST_FILE, G.CONSOLE_FILE):
-        os.remove(os.path.join(app.run_dir, fn))
+        p = os.path.join(app.run_dir, fn)
+        if os.path.exists(p):
+            os.remove(p)
+    shutil.copy(LOG_FIXTURE, os.path.join(app.run_dir, "log.txt"))  # a lagging log.txt: 1 row so far
     app._progress_tick(force=True)
     st = app.l_status.cget("text")
     check(

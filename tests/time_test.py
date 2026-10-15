@@ -1,6 +1,7 @@
 """Total-training-time persistence: start, stop, resume, external kill, GUI-crash bound, legacy seeding, watch not counted.
 xvfb-run -a python tests/time_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import json, os, shutil, signal, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

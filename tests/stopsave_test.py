@@ -1,6 +1,7 @@
 """'Stop after next save': armed while training, status + cancel, stops right after the next model.pt save.
 xvfb-run -a python tests/stopsave_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

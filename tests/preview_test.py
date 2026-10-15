@@ -4,6 +4,7 @@
 Checks: CPU recording + MuJoCo render -> playable mp4 whose frame count matches the clip, Newton->MuJoCo joint mapping,
 RAM budget sizing, low-memory refusal and mid-run abort, GPU refusal paths, and the launcher's Render preview button."""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import glob, json, math, os, re, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

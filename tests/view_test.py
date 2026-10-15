@@ -3,6 +3,7 @@ lags a frame there), so the joint mapping check passes and frame 0 is the clip's
   PREVIEW_TEST_MK=... PREVIEW_TEST_PY=... PREVIEW_TEST_VIEW_ARGS=args/<view args>.txt[,args/<another>.txt] \\
       xvfb-run -a /path/to/venv/bin/python tests/view_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))

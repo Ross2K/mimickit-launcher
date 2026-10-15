@@ -3,6 +3,7 @@ visible window at ~1 min/max pair per pixel column, through the REAL refresh pat
 of drawn items stays constant however big the history is or where you zoom. Hover still snaps to real data.
 xvfb-run -a python tests/chart_lines_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))

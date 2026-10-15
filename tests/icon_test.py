@@ -1,6 +1,7 @@
 """Window icon plumbing: assets exist, .ico is multi-size, apply_icon works, set_app_id is a no-op off Windows.
 xvfb-run -a python tests/icon_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, sys, tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

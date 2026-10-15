@@ -2,6 +2,7 @@
 desktop charts and the phone page; hover readouts report real data points.
   xvfb-run -a python tests/decimate_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import json, math, os, random, re, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

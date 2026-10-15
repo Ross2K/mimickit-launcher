@@ -3,6 +3,7 @@ snapping back, a vertical swipe leaves the chart alone (the page scrolls: touch-
 a double-tap resets.   python tests/dashboard_touch_test.py   (skips without google-chrome / chromium)
 """
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import json, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))

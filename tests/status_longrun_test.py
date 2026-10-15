@@ -2,6 +2,7 @@
 done.', the Episode length card stayed blank, the last-checkpoint line could go stale).
 xvfb-run -a python tests/status_longrun_test.py"""
 
+import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -42,6 +42,7 @@ class SettingsMixin:
         env, ag = (cur.get("env") or oenv, cur.get("agent") or oag) if cur else (oenv, oag)
         base = TS.read_values(mk, env, ag)
         top = new_popup(self.root, "Training settings - " + it["name"], T)
+        self._tsdlg = top  # tests measure this (like _rdlg)
         f = ttk.Frame(top, padding=10)
         f.pack(fill="both", expand=True)
         src = "edited copy saved %s" % cur["saved"] if cur else "original files"
@@ -296,6 +297,7 @@ class SettingsMixin:
         import mimickit_patches as MP
 
         top = new_popup(self.root, "MimicKit patches", T)
+        self._pdlg = top  # tests measure this (like _rdlg)
         f = ttk.Frame(top, padding=10)
         f.pack(fill="both", expand=True)
         rows = {}
