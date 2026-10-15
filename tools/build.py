@@ -3,6 +3,7 @@ Version and zip names come from VERSION in mkl/core.py (+ VERSION_SUFFIX of a la
 Public zip = git archive of HEAD (+ the starter .exe if built, it is not in git). --z DIR also tests and zips that
 overlay folder, whose public files must be identical to HEAD. Refuses to build from uncommitted changes. Each zip
 carries a BUILD file (commit hash) that the About box shows.
+Tests run under xvfb at 1280x1024 (TEST_SCREEN=WxH for another size, e.g. 1920x1200).
 Preview tests need a MimicKit install: set PREVIEW_TEST_MK / PREVIEW_TEST_PY / PREVIEW_TEST_ARGS (else they skip).
 """
 
@@ -87,7 +88,7 @@ def stamp(commit, suffix=""):
 def run_tests(d):
     py = os.environ.get("PREVIEW_TEST_PY") or sys.executable
     xvfb = (
-        ["xvfb-run", "-a", "-s", "-screen 0 1400x1000x24"]
+        ["xvfb-run", "-a", "-s", "-screen 0 %sx24" % os.environ.get("TEST_SCREEN", "1280x1024")]
         if sys.platform.startswith("linux")
         else []
     )

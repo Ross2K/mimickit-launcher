@@ -1,6 +1,6 @@
 """Every pop-up is centred over the main window and fully on screen, every tooltip stays inside the window, with
 the main window in each screen corner (regression: close dialog not centred, chart hint clipped bottom-left).
-xvfb-run -a -s "-screen 0 1400x1000x24" python tests/placement_test.py"""
+xvfb-run -a -s "-screen 0 1280x1024x24" python tests/placement_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os, sys, tempfile

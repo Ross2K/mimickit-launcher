@@ -85,6 +85,67 @@ def new_popup(parent, title, theme):
     return top
 
 
+MAX_FRAC = 0.8  # big pop-ups: at most this share of the monitor's work area
+
+
+def scroll_popup(parent, title, theme, max_frac=MAX_FRAC):
+    """Like new_popup, for dialogs that can outgrow a small (or highly scaled) screen. Returns (top, body, bar):
+    build the content in body (scrolls when needed) and the buttons in bar (pinned at the bottom, always visible).
+    On the first idle moment the window is sized to its content, capped at max_frac of the monitor, then placed."""
+    top = tk.Toplevel(parent)
+    top.withdraw()
+    top.title(title)
+    top.configure(bg=theme["bg"])
+    bar = ttk.Frame(top, padding=(10, 6, 10, 10))
+    bar.pack(side="bottom", fill="x")
+    ttk.Separator(top).pack(side="bottom", fill="x")
+    vs = ttk.Scrollbar(top, orient="vertical")
+    hs = ttk.Scrollbar(top, orient="horizontal")
+    cv = tk.Canvas(top, bg=theme["bg"], highlightthickness=0, bd=0,
+                   yscrollcommand=vs.set, xscrollcommand=hs.set)
+    vs.configure(command=cv.yview)
+    hs.configure(command=cv.xview)
+    body = ttk.Frame(cv, padding=10)
+    cv.create_window(0, 0, window=body, anchor="nw")
+    cv.pack(side="left", fill="both", expand=True)
+    top._scroll = dict(canvas=cv, body=body, bar=bar, vs=vs, hs=hs)
+
+    def region(_=None):
+        cv.configure(scrollregion=(0, 0, body.winfo_reqwidth(), body.winfo_reqheight()))
+
+    body.bind("<Configure>", region)
+
+    def wheel(e):
+        if cv.winfo_exists() and str(e.widget).startswith(str(top)):
+            d = -1 if (getattr(e, "num", 0) == 4 or getattr(e, "delta", 0) > 0) else 1
+            cv.yview_scroll(d, "units")
+
+    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        top.bind_all(seq, wheel, add="+")
+
+    def fit():
+        if not top.winfo_exists():
+            return
+        top.update_idletasks()
+        _, _, mw, mh = monitor_rect(parent)
+        bw, bh = body.winfo_reqwidth(), body.winfo_reqheight()
+        maxw = int(mw * max_frac)
+        maxh = int(mh * max_frac) - bar.winfo_reqheight() - 2
+        need_v, need_h = bh > maxh, bw > maxw
+        if need_v:
+            vs.pack(side="right", fill="y", before=cv)
+        if need_h:
+            hs.pack(side="bottom", fill="x", before=cv)
+        cw = min(bw, maxw - (vs.winfo_reqwidth() if need_v else 0))
+        ch = min(bh, maxh - (hs.winfo_reqheight() if need_h else 0))
+        cv.configure(width=max(cw, bar.winfo_reqwidth() - (vs.winfo_reqwidth() if need_v else 0)), height=ch)
+        region()
+        place_popup(top, parent)
+
+    top.after_idle(fit)
+    return top, body, bar
+
+
 def tip_position(anchor, w, h, gap=4):
     """Tooltip below the anchor widget (flipped above when there's no room), clamped inside the anchor's window
     (or its monitor if the tooltip is bigger than the window)."""

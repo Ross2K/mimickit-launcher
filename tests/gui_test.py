@@ -105,10 +105,16 @@ def s_train_check():
 
 
 def s_stop():
-    before = len(pgrep())
+    # only count sleep(600) workers in THIS run's tree: pgrep is system-wide, and a leftover worker from another
+    # test or a parallel run on the same machine made this flaky (QA: "2 before, 1 after")
+    import mkl.process as MPR
+
+    tree = set(MPR.proc_tree(app.proc.pid))
+    mine = lambda: [p for p in pgrep() if int(p) in tree]
+    before = len(mine())
     app.stop()
     time.sleep(1.0)
-    after = len(pgrep())
+    after = len(mine())
     if fake:
         check(
             "STOP killed whole process tree",

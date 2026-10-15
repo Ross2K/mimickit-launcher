@@ -4,6 +4,49 @@ from mkl.core import *  # noqa: F401,F403 - shared helpers/constants
 from mkl.core import __all__ as _core_names  # noqa: F401
 
 
+def _stat(pid):
+    """(ppid, pgid, state) of a Linux pid from /proc, or None if it's gone."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            rest = f.read().rsplit(")", 1)[1].split()
+        return int(rest[1]), int(rest[2]), rest[0]
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def proc_tree(root):
+    """root + every descendant (by parent pid) + every member of root's process group (Linux /proc)."""
+    try:
+        pids = [int(p) for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:
+        return [root]
+    info = {p: st for p in pids for st in [_stat(p)] if st}
+    out, todo = {root}, [root]
+    while todo:
+        cur = todo.pop()
+        for p, (pp, _, _) in info.items():
+            if pp == cur and p not in out:
+                out.add(p)
+                todo.append(p)
+    out |= {p for p, (_, pg, _) in info.items() if pg == root}
+    return sorted(out)
+
+
+def kill_and_verify(pids, timeout=3.0):
+    """SIGKILL every pid, then wait until all are gone (zombies count as gone). Returns the survivors."""
+    for p in pids:
+        try:
+            os.kill(p, signal.SIGKILL)
+        except OSError:
+            pass
+    end = time.time() + timeout
+    while True:
+        left = [p for p in pids if (_stat(p) or (0, 0, "Z"))[2] not in ("Z", "X")]
+        if not left or time.time() > end:
+            return left
+        time.sleep(0.05)
+
+
 class ProcessMixin:
     """Configs and runs: scanning args, starting/resuming/stopping detached MimicKit processes, previews, reattach."""
 
@@ -603,10 +646,14 @@ class ProcessMixin:
                 % (" " + what if what else "", r.stdout.strip(), r.stderr.strip())
             )
         else:
+            tree = proc_tree(pid)  # before the kill: children that left the process group are still found
             try:
                 os.killpg(pid, signal.SIGKILL)
             except Exception as e:
                 self._append("[gui] kill failed: %s\n" % e)
+            left = kill_and_verify(tree)
+            if left:
+                self._append("[gui] still running after STOP: pid %s\n" % ", ".join(map(str, left)))
         if what:
             self._append("[gui] %s cancelled\n" % what)
 

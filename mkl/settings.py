@@ -41,10 +41,9 @@ class SettingsMixin:
         cur = TS.current(mk, it["name"])
         env, ag = (cur.get("env") or oenv, cur.get("agent") or oag) if cur else (oenv, oag)
         base = TS.read_values(mk, env, ag)
-        top = new_popup(self.root, "Training settings - " + it["name"], T)
+        # capped at 80% of the screen: the settings scroll, the note + Save/Close stay pinned at the bottom
+        top, f, pinned = scroll_popup(self.root, "Training settings - " + it["name"], T)
         self._tsdlg = top  # tests measure this (like _rdlg)
-        f = ttk.Frame(top, padding=10)
-        f.pack(fill="both", expand=True)
         src = "edited copy saved %s" % cur["saved"] if cur else "original files"
         hdr = ttk.Label(
             f,
@@ -63,13 +62,13 @@ class SettingsMixin:
         self._ts_scale(cols)
         self._ts_stubs(cols)
         note = ttk.Label(
-            f,
+            pinned,
             text="Save writes an edited copy (originals backed up, never changed). It applies on the next Start, Resume, Continue, "
             "Watch or Preview of this config.\nA run that is already going keeps the settings it started with.",
             style="Dim.TLabel",
             justify="left",
         )
-        note.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 4))
+        note.pack(side="top", anchor="w", pady=(0, 4))
 
         def collect():
             changes, bad = {}, []
@@ -142,8 +141,8 @@ class SettingsMixin:
             )
             top.destroy()
 
-        bf = ttk.Frame(f)
-        bf.grid(row=3, column=0, columnspan=2, sticky="w")
+        bf = ttk.Frame(pinned)
+        bf.pack(side="top", anchor="w")
         ttk.Button(bf, text="Save", command=save).pack(side="left", padx=3)
         b = ttk.Button(bf, text="Use originals", command=originals)
         b.pack(side="left", padx=3)
@@ -296,10 +295,8 @@ class SettingsMixin:
     def patch_dialog(self):
         import mimickit_patches as MP
 
-        top = new_popup(self.root, "MimicKit patches", T)
+        top, f, pinned = scroll_popup(self.root, "MimicKit patches", T)  # capped at 80% of the screen
         self._pdlg = top  # tests measure this (like _rdlg)
-        f = ttk.Frame(top, padding=10)
-        f.pack(fill="both", expand=True)
         rows = {}
         ttk.Label(f, text="Folder: " + self.mk(), style="Dim.TLabel").grid(
             row=0, column=0, columnspan=4, sticky="w"
@@ -337,5 +334,6 @@ class SettingsMixin:
             text="Changes apply to runs started afterwards; a running training keeps its old code.",
             style="Dim.TLabel",
         ).grid(row=10, column=0, columnspan=4, sticky="w", pady=(10, 0))
+        ttk.Button(pinned, text="Close", command=top.destroy).pack(side="left", padx=3)
         refresh()
         self._patch_dlg = dict(top=top, refresh=refresh, act=act)

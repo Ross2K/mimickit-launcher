@@ -287,7 +287,7 @@ THEMES = {
 }
 T = dict(THEMES["dark"])  # current colours (updated in place)
 
-from mkl.dialogs import DarkMessageBox, new_popup, place_popup, tip_position
+from mkl.dialogs import DarkMessageBox, new_popup, place_popup, scroll_popup, tip_position
 
 messagebox = DarkMessageBox(T)  # dark popups; same API as tkinter.messagebox
 # dashboard bind address -> what the user picks
