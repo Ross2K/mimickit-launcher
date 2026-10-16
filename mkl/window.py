@@ -620,8 +620,11 @@ class MainWindowMixin:
                 except Exception as e:
                     txt = "GPU: nvidia-smi not available (%s)" % type(e).__name__
                     vr = (None, None)
-                self.root.after(0, lambda v=vr: self._set_vram(*v))
-                self.root.after(0, lambda t=txt: self.l_gpu.configure(text=t))
+                try:
+                    self.root.after(0, lambda v=vr: self._set_vram(*v))
+                    self.root.after(0, lambda t=txt: self.l_gpu.configure(text=t))
+                except (RuntimeError, tk.TclError):
+                    return  # window closed / main loop gone: just end this poll thread
                 time.sleep(5)
 
         threading.Thread(target=loop, daemon=True).start()

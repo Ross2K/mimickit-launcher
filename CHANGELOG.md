@@ -9,7 +9,7 @@ place: `VERSION` in `mkl/core.py`.
 - **Phone Controls panel**: a *Controls* button in the dashboard header opens one collapsible panel (closed by
   default; open/closed and each section remembered on the phone). Sections with counts: *Training* (Stop after next
   save, Stop now, Resume; *Save checkpoint* is shown disabled - MimicKit saves on its own interval),
-  *Next-resume tweaks* (num_envs, shown as pending until the next resume) and *Previews (MP4)* (the former preview card).
+  and *Next-resume tweaks* (num_envs, shown as pending until the next resume). The MP4 preview card stays where it was.
 - **Stop now confirm box** in the dashboard style: *Keep training* is the primary button, *Stop after next save*
   beside it; stopping now needs a 2-second hold that unlocks 3 seconds after the box opens.
 - The status line (phone) shows the pending / in-progress action: *Will stop after next save*, *Stopping...*,
@@ -30,6 +30,7 @@ place: `VERSION` in `mkl/core.py`.
 ### Fixed
 - Phone *Total training* showed "-" once the total passed a day (`1 day, 2:03:04` didn't match); it now shows the
   summed time over all sessions.
+- The GPU poll thread no longer prints a 'main thread is not in main loop' traceback when the window closes.
 - Plateau estimate no longer says *still improving steadily, no plateau in sight* when the last 10 hours gained
   far less than the run's average pace: it says *slowing down* or *plateaued* with the 10-hour gain.
 

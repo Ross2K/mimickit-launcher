@@ -309,7 +309,6 @@ input{background:var(--bg);color:var(--fg);border:1px solid var(--b);border-radi
 <details class="sec" id="s_tweak"><summary>Next-resume tweaks <span class="cnt" id="n_tweak"></span></summary>
 <p><small>Applied the next time training is resumed.</small></p><div class="bgrid"><input id="t_envs" type="number" min="1" max="65536" placeholder="num_envs">
 <button class="sec2" id="a_tweak">Queue for next resume</button></div><small id="tweakmsg"></small></details>
-<details class="sec" id="s_prev"><summary>Previews (MP4) <span class="cnt" id="n_prev"></span></summary><div id="prevslot"></div></details>
 </div><p><small id="ctlmsg"></small></p></div>
 <div class="modal" id="modal"><div class="mbox"><b id="m_title">Stop training now?</b><p><small id="m_text"></small></p>
 <div class="bgrid"><button id="m_keep">Keep training</button><button class="sec2" id="m_alt">Stop after next save</button></div>
@@ -326,7 +325,7 @@ input{background:var(--bg);color:var(--fg);border:1px solid var(--b);border-radi
 <div class="card"><small>Return - drag sideways to pan, pinch to zoom time, double-tap to reset</small><canvas id="c1"></canvas>
 <small>M samples / hour</small><canvas id="c2"></canvas>
 <div id="psw" style="display:none"><small>Avg reward per step (%)</small><canvas id="c3"></canvas></div></div>
-<div class="card" id="prevcard"><div id="pv"><small>No preview yet.</small></div><p></p>
+<div class="card"><div id="pv"><small>No preview yet.</small></div><p></p>
 <button id="render">Render preview</button><p><small id="rmsg"></small></p></div>
 <div class="card"><small>Controls are off unless allowed on the PC (PIN required). Updates every 10 s.</small></div>
 <script>
@@ -418,8 +417,7 @@ function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: of
  const run=S&&S.running;q('a_resume').disabled=!!run;q('a_stopnow').disabled=!run;q('a_stopsave').disabled=!run;
  q('a_stopsave').textContent=S&&S.stop_save?'Cancel stop after save':'Stop after next save';
  q('n_train').textContent='(3 of 4)';const tw=(S&&S.tweaks)||{};const nt=Object.keys(tw).length;q('n_tweak').textContent=nt?'('+nt+' pending)':'(0)';
- q('tweakmsg').textContent=nt?'Pending until next resume: '+Object.entries(tw).map(([k,v])=>k+' = '+v).join(', '):'';q('n_prev').textContent=S&&S.preview?'(1)':'(0)'}
-q('prevslot').appendChild(q('prevcard'));q('prevcard').className='';
+ q('tweakmsg').textContent=nt?'Pending until next resume: '+Object.entries(tw).map(([k,v])=>k+' = '+v).join(', '):'';}
 q('pinok').onclick=async()=>{const [c,j]=await cpost('login',{pin:q('pin').value});q('pin').value='';
  if(c===200){SES=j.session;localStorage.mkSes=SES;q('pinmsg').textContent=''}else q('pinmsg').textContent=j.error||('refused ('+c+')');updCtl()};
 function modal(o){q('m_title').textContent=o.title;q('m_text').textContent=o.text||'';q('m_msg').textContent='';q('m_alt').textContent=o.alt?'Stop after next save':'Cancel';
