@@ -365,11 +365,20 @@ xvfb-run -a python tests/remote_test.py   # phone dashboard (token, range reques
 ## Credits
 
 - [MimicKit](https://github.com/xbpeng/MimicKit) by Xue Bin (Jason) Peng and contributors, Apache-2.0 license.
-  This launcher only calls MimicKit's `run.py`; it contains no MimicKit code. **Unaffiliated with MimicKit.**
+  This launcher only calls MimicKit's `run.py`; it contains no MimicKit code apart from a few one-line snippets used by the optional patches (see [NOTICE](NOTICE)). **Unaffiliated with MimicKit.**
 - [NVIDIA Warp](https://github.com/NVIDIA/warp), [Newton](https://github.com/newton-physics/newton),
   [MuJoCo Warp](https://github.com/google-deepmind/mujoco_warp).
 - Built with an AI assistant (see the disclosure at the top).
 
 ## License
 
-Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later - see [LICENSE](LICENSE).
+Copyright (c) 2026 curelessSky. **Source-available** under the
+[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) - see [LICENSE](LICENSE).
+
+- **Free for non-commercial use:** personal, hobby, research, education, and non-profit use are all fine.
+- **Source is visible** so you can see exactly what this (mostly AI-generated) code does.
+- **Commercial use needs a separate license.** Want to use it commercially? Open a
+  [GitHub issue](https://github.com/curelessSky/mimickit-launcher/issues) titled "Commercial license" to get in touch.
+- This is not an OSI "open source" license.
+- Versions released before this change (up to git tag `last-gpl`) remain available under GPL-3.0-or-later.
+- Third-party notices (MimicKit, Apache-2.0) are in [NOTICE](NOTICE).

@@ -1,5 +1,5 @@
 # MimicKit Launcher - small, optional, reversible patches to a MimicKit install.
-# Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
+# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """Each patch is a list of exact (original, patched) line replacements in one MimicKit file.
 apply(): backs up the untouched file once (<file>.launcher_orig), then replaces - running it twice changes nothing.
 revert(): replaces back - also idempotent. status(): 'applied' / 'not applied' / 'partial' / 'unknown' / 'missing'.

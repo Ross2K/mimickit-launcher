@@ -1,5 +1,5 @@
 # MimicKit Launcher - status panel, health banner, error cards, "looks trained" prompt.
-# Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
+# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """GUI for mkl.status_model: everything here is driven by MimicKit's console output (no extra processes)."""
 
 from mkl.core import *
