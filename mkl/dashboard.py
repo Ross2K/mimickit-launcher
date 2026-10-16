@@ -192,9 +192,18 @@ class DashboardMixin:
                 self._remote_action,
                 log=lambda m: self.q.put("[remote] %s\n" % m),
                 extra_actions=self.plugin_actions,
+                turn_off=self._control_lockdown,
             )
             self._import_phone_sessions()
         return self.ctl
+
+    def _control_lockdown(self, why):
+        """Server thread: too many wrong PINs from all phones - switch phone control off (saved), shown on the PC."""
+        c = self._remote_cfg()
+        c["allow_control"] = False
+        c["lockdown"] = True
+        self.q.put("[remote] phone control turned OFF (%s). Turn it back on in Settings - Phone.\n" % why)
+        self.root.after(0, self._save)
 
     def _handoff_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(CONFIG)), "phone_sessions_handoff.json")
@@ -411,27 +420,34 @@ class DashboardMixin:
         ttk.Checkbutton(
             cf, text="Allow phone control (needs a PIN)", variable=v_ctl
         ).grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(cf, text="PIN (4-12 digits)").grid(row=1, column=0, sticky="w")
+        ttk.Label(cf, text="PIN: 6+ digits").grid(row=1, column=0, sticky="w")
         v_pin = tk.StringVar()
         ttk.Entry(cf, textvariable=v_pin, width=14, show="*").grid(row=1, column=1, sticky="w")
         ctl_msg = ttk.Label(cf, style="Dim.TLabel", wraplength=520, justify="left")
         ctl_msg.grid(row=2, column=0, columnspan=3, sticky="w")
         ctl_msg.configure(
-            text="PIN is set." if c.get("pin_hash") else "No PIN set yet - control stays off until you set one."
+            text=(R.LOCKDOWN_MSG if c.get("lockdown") else
+                  "PIN is set." if c.get("pin_hash") and int(c.get("pin_len") or 0) >= R.MIN_PIN_LAN else
+                  "PIN is too short - set a new one with 6+ digits." if c.get("pin_hash") else
+                  "No PIN set yet - control stays off until you set one.")
         )
 
         def collect_ctl():
             pin = v_pin.get().strip()
             revoke = None
             if pin:
-                if not (pin.isdigit() and 4 <= len(pin) <= 12):
-                    ctl_msg.configure(text="PIN must be 4-12 digits - not changed.")
+                if not (pin.isdigit() and R.MIN_PIN_LAN <= len(pin) <= 12):
+                    ctl_msg.configure(text="PIN must be 6-12 digits - not changed.")
+                    self._append("[remote] PIN not changed: must be 6-12 digits\n")
                 else:
                     c["pin_hash"] = R.hash_pin(pin)
+                    c["pin_len"] = len(pin)
                     v_pin.set("")
                     revoke = "PIN changed"
                     ctl_msg.configure(text="PIN changed - every phone must sign in again.")
             want = bool(v_ctl.get())
+            if want:
+                c.pop("lockdown", None)
             if bool(c.get("allow_control")) and not want:
                 revoke = "control turned off"
             c["allow_control"] = want

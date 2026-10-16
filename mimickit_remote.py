@@ -300,7 +300,7 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 </style></head><body>
 <header><h1 id="title">MimicKit</h1><span><button id="ctlbtn" class="off">Controls: off</button><small><a href="#" id="theme">light</a> · <span id="age"></span></small></span></header>
 <div class="card" id="panel" style="display:none"><b>Controls</b> <small id="ctlnote"></small>
-<div id="ctloff" style="display:none"><p>Turned off on the PC.</p><small>Enable "Allow phone control" in the launcher (Settings &rarr; Phone + notifications) and set a PIN.</small></div>
+<div id="ctloff" style="display:none"><p id="ctlofft">Turned off on the PC.</p><small>Enable "Allow phone control" in the launcher (Settings &rarr; Phone + notifications) and set a PIN.</small></div>
 <div id="ctlon">
 <div id="pinbox" style="display:none"><p><small>Enter the PIN set on the PC (once; you stay signed in for 12 h on this phone).</small></p>
 <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN"><p></p><button id="pinok">Sign in</button><p><small id="pinmsg"></small></p></div>
@@ -417,7 +417,7 @@ async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
  q('age').textContent=new Date().toLocaleTimeString();draw();
  pvList();rProg();
- if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||S.stop_save_msg||'';CTL=!!S.control;updCtl();runsTick();if(window.extraTick)extraTick()}catch(e){q('state').textContent='offline - retrying'}}
+ if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||S.stop_save_msg||'';CTL=!!S.control;q('ctlofft').textContent=S.control_lockdown?'Phone control turned off after too many wrong PINs. Turn it back on from the PC.':'Turned off on the PC.';updCtl();runsTick();if(window.extraTick)extraTick()}catch(e){q('state').textContent='offline - retrying'}}
 // ---- preview card (a0.8.0): play/pause, scrub, loop (no autoplay), clip choice, 0.25/0.5/1x, download, render progress
 let PV=null,pvPinned='',SEEKING=false;const pvRate=()=>+(localStorage.mkPvRate||1);
 const pvSrc=(k,dl)=>'/preview.mp4?t='+encodeURIComponent(T)+'&k='+encodeURIComponent(k)+(dl?'&dl=1':'');
@@ -454,8 +454,13 @@ q('ctlbtn').onclick=()=>{localStorage.mkCtlOpen=panelOpen()?'0':'1';showPanel()}
 for(const d of document.querySelectorAll('details.sec')){d.open=localStorage['mkSec_'+d.id]==='1';d.addEventListener('toggle',()=>localStorage['mkSec_'+d.id]=d.open?'1':'0')}
 async function cpost(what,body){const r=await fetch('/api/control/'+what,{method:'POST',headers:Object.assign({'Content-Type':'application/json','X-Session':SES},H),body:JSON.stringify(body||{})});
  let j={};try{j=await r.json()}catch(e){}if(r.status===401){SES='';localStorage.mkSes='';updCtl()}return [r.status,j]}
-async function act(action,params,msgEl){const [c1,n]=await cpost('nonce',{action});if(c1!==200){(msgEl||q('ctlmsg')).textContent=n.error||('refused ('+c1+')');return}
- const [c,j]=await cpost(action,{nonce:n.nonce,params});(msgEl||q('ctlmsg')).textContent=j.message||j.error||('status '+c);setTimeout(tick,500)}
+let LASTBTN=null;document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(b&&!b.closest('#modal'))LASTBTN=b},true);
+async function act(action,params,msgEl,btn){const m=msgEl||q('ctlmsg');btn=btn||LASTBTN;const [c1,n]=await cpost('nonce',{action});if(c1!==200){m.textContent=n.error||('refused ('+c1+')');return}
+ const lbl=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Working\u2026'}
+ try{let [c,j]=await cpost(action,{nonce:n.nonce,params});
+  for(let i=0;c===202&&i<120;i++){m.textContent='Working\u2026';await new Promise(r=>setTimeout(r,1500));[c,j]=await cpost(action,{nonce:n.nonce,params})}
+  m.textContent=c===202?'Still working on the PC - check again in a minute.':(j.message||j.error||('status '+c))}
+ finally{if(btn){btn.textContent=lbl;btn.disabled=false}}setTimeout(tick,500)}
 function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: off';b.classList.toggle('off',!CTL);
  q('ctloff').style.display=CTL?'none':'';q('ctlon').style.display=CTL?'':'none';q('pinbox').style.display=CTL&&!SES?'':'none';
  for(const id of ['s_train','s_tweak','s_runs','s_patch'])q(id).style.display=SES?'':'none';
@@ -733,6 +738,7 @@ class Dashboard:
     def public_snapshot(self):
         s = self.snapshot()
         s["control"] = bool(self.control and self.control.enabled())
+        s["control_lockdown"] = bool(self.control and (self.control.cfg_get() or {}).get("lockdown"))
         p = s.get("preview")
         if p:
             s["preview"] = {k: p[k] for k in ("name", "key") if k in p}  # never the local path
@@ -908,6 +914,9 @@ SESSION_HOURS = 12
 NONCE_TTL = 120  # s a confirm-box nonce stays valid
 MAX_PIN_FAILS = 5
 LOCKOUT_S = 300
+GLOBAL_FAILS_PER_HOUR = 20  # wrong PINs from ALL phones within an hour -> phone control is turned OFF on the PC
+MIN_PIN_LAN = 6  # dashboard reachable from the network: PIN must have at least this many digits
+LOCKDOWN_MSG = "Phone control turned off after too many wrong PINs. Turn it back on from the PC."
 ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch")
 TWEAK_RULES = {"num_envs": (int, 1, 65536)}  # name -> (type, min, max); applied on the next resume
 
@@ -955,8 +964,12 @@ class Control:
     a0.8.0: wrong-PIN lockout is per phone (client address), each nonce is bound to the one action it was asked for,
     extra_actions() adds overlay actions (e.g. updates) behind the same PIN + session + nonce gate."""
 
-    def __init__(self, cfg_get, on_action, log=None, now=time.time, extra_actions=None):
+    ACT_WAIT_S = 3.0  # wait this long for an action's answer, then reply 202 'Working...' (phone re-asks with the nonce)
+
+    def __init__(self, cfg_get, on_action, log=None, now=time.time, extra_actions=None, turn_off=None):
         self.cfg_get, self.on_action, self.log, self.now = cfg_get, on_action, log or (lambda m: None), now
+        self.turn_off = turn_off  # turn_off(reason): switch 'Allow phone control' off on the PC (global ceiling)
+        self.fail_times = []  # times of wrong PINs from any phone (last hour)
         self.extra_actions = extra_actions or (lambda: {})
         self._lock = threading.Lock()
         self.sessions = {}  # sha256(session token) -> expiry (the raw token lives only on the phone)
@@ -979,8 +992,19 @@ class Control:
             self.nonces.clear()
         self.log("control: all phone sessions revoked%s (%d)" % (" - " + why if why else "", n))
 
+    OFF_MSG = "Turned off on the PC. Enable 'Allow phone control' in the launcher's Phone settings."
+
     def _off(self):
-        return 403, {"error": "Turned off on the PC. Enable 'Allow phone control' in the launcher's Phone settings."}
+        c = self.cfg_get() or {}
+        return 403, {"error": LOCKDOWN_MSG if c.get("lockdown") else self.OFF_MSG}
+
+    def _prune(self, t):
+        """Drop finished lockouts, idle fail counters and wrong-PIN times older than an hour (no unbounded growth)."""
+        for k in [k for k, v in self.lock_until.items() if v <= t]:
+            self.lock_until.pop(k, None)
+        self.fail_times = [x for x in self.fail_times if x > t - 3600]
+        if len(self.fails) > 200:
+            self.fails = dict(list(self.fails.items())[-100:])
 
     def login(self, pin, client="?"):
         if not self.enabled():
@@ -993,7 +1017,26 @@ class Control:
                 left = int(until - t) + 1
                 self.log("control: refused sign-in from %s - locked for %d s" % (client, left))
                 return 429, {"error": "Too many wrong PINs. Locked for %d more seconds." % left, "locked_s": left}
-            if not check_pin(pin, (self.cfg_get() or {}).get("pin_hash")):
+            self._prune(t)
+            c = self.cfg_get() or {}
+            if c.get("host") == "0.0.0.0" and int(c.get("pin_len") or 0) < MIN_PIN_LAN:
+                self.log("control: refused sign-in from %s - PIN shorter than %d digits while reachable on the network"
+                         % (client, MIN_PIN_LAN))
+                return 403, {"error": "The PC needs a new PIN with at least %d digits first (Settings, Phone)." % MIN_PIN_LAN}
+            if not check_pin(pin, c.get("pin_hash")):
+                self.fail_times.append(t)
+                if len(self.fail_times) >= GLOBAL_FAILS_PER_HOUR:
+                    self.fail_times = []
+                    self.sessions.clear()
+                    self.nonces.clear()
+                    self.log("control: %d wrong PINs within an hour (all phones) - phone control turned OFF; "
+                             "turn it back on from the PC" % GLOBAL_FAILS_PER_HOUR)
+                    if self.turn_off:
+                        try:
+                            self.turn_off("too many wrong PINs")
+                        except Exception as e:
+                            log_exc("control: turn off", e)
+                    return 403, {"error": LOCKDOWN_MSG, "lockdown": True}
                 n = self.fails[client] = self.fails.get(client, 0) + 1
                 if n >= MAX_PIN_FAILS:
                     self.fails[client] = 0
@@ -1077,17 +1120,32 @@ class Control:
                     self.log("control: refused tweaks - %s" % why)
                     self.used[nonce] = (400, {"error": why})
                     return 400, {"error": why}
+            handler = extra[action] if action in extra else None
+            self.used[nonce] = (202, {"message": "Working...", "pending": True})
+            if len(self.used) > 500:
+                self.used = dict(list(self.used.items())[-200:])
+        # the lock is released: a slow handler (GUI queue, file I/O) can't block other phones / sign-ins
+        res = {}
+
+        def run():
             try:
-                if action in extra:
-                    code, msg = extra[action](params if isinstance(params, dict) else {})
+                if handler:
+                    code, msg = handler(params if isinstance(params, dict) else {})
                 else:
                     code, msg = self.on_action(action, params or {})
             except Exception as e:
                 log_exc("control action")
                 code, msg = 500, "The PC couldn't do that (%s)." % e
             body = {"message": msg} if code < 400 else {"error": msg}
-            self.used[nonce] = (code, body)
-            if len(self.used) > 500:
-                self.used = dict(list(self.used.items())[-200:])
-        self.log("control: %s -> %d %s" % (action, code, msg))
-        return code, body
+            with self._lock:
+                self.used[nonce] = (code, body)
+            res["r"] = (code, body)
+            self.log("control: %s -> %d %s" % (action, code, msg))
+
+        t = threading.Thread(target=run, daemon=True, name="control-" + action)
+        t.start()
+        t.join(self.ACT_WAIT_S)
+        if "r" in res:
+            return res["r"]
+        self.log("control: %s still working after %.0f s - phone told 202, it asks again" % (action, self.ACT_WAIT_S))
+        return 202, {"message": "Working...", "pending": True}
