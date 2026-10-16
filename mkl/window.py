@@ -260,7 +260,12 @@ class MainWindowMixin:
             if not ok:
                 return h
             c = max(ok)
-            return c + sh if h - (c + sh) < int(80 * max(1.0, self.root.winfo_fpixels("1i") / 96.0)) else h
+            # a0.8.9 (U3): lose at most one row height (the gap to the next cut), else keep h as it is
+            allc = cuts()
+            nxt = [x for x in allc if x > c]
+            prv = [x for x in allc if x < c]
+            row = (min(nxt) - c) if nxt else (c - max(prv)) if prv else int(36 * max(1.0, self.root.winfo_fpixels("1i") / 96.0))
+            return c + sh if h - (c + sh) <= row else h
 
         self._top_cuts = cuts
 
@@ -369,6 +374,17 @@ class MainWindowMixin:
         # not on every resize
         inner.bind("<Map>", hook_boxes, add="+")
         self.root.bind("<<FlowRebuilt>>", hook_boxes, add="+")
+
+        def on_box_map(e):
+            """a0.8.9 (U5): a box created or shown later outside flow() (grid/pack after start) hooks itself."""
+            try:
+                if mine(e.widget) and e.widget not in hooked:
+                    hook_boxes()
+            except (tk.TclError, TypeError):
+                pass
+
+        for cls in own:
+            self.root.bind_class(cls, "<Map>", on_box_map, add="+")
         self.root.after_idle(hook_boxes)
 
         def inside():
@@ -783,6 +799,21 @@ class MainWindowMixin:
         self._save()
         self._progress_tick(force=True)
 
+    def _theme_popdowns(self, w=None):
+        """a0.8.9 (UX4): drop-down lists already created keep their old colours (option_add only reaches new ones)."""
+        stack = [w or self.root]
+        while stack:
+            x = stack.pop()
+            try:
+                stack.extend(x.winfo_children())
+                if x.winfo_class() != "TCombobox":
+                    continue
+                pd = x.tk.call("ttk::combobox::PopdownWindow", x)
+                x.tk.call(str(pd) + ".f.l", "configure", "-background", T["list_bg"], "-foreground", T["fg"],
+                          "-selectbackground", T["sel"], "-selectforeground", T["fg"])
+            except tk.TclError:
+                continue
+
     def apply_theme(self):
         T.clear()
         T.update(THEMES["light" if self.v_light.get() else "dark"])
@@ -821,8 +852,8 @@ class MainWindowMixin:
         )
         st.map(
             "TButton",
-            background=[("pressed", T["sel"]), ("active", T["btn_act"])],
-            foreground=[("disabled", T["dim"])],
+            background=[("disabled", T["dis_bg"]), ("pressed", T["sel"]), ("active", T["btn_act"])],
+            foreground=[("disabled", T["dis_fg"])],  # a0.8.9 (UX2): not the same grey as secondary text
         )
         st.configure(
             "Stop.TButton", background=T["stop"], foreground=T["stop_fg"], bordercolor=T["stop"]
@@ -848,41 +879,53 @@ class MainWindowMixin:
                 background=T["btn"],
                 arrowcolor=T["fg"],
                 insertcolor=T["fg"],
+                bordercolor=T["in_border"],  # a0.8.9 (U4): inputs ~#555, box edges keep T["border"]
+                lightcolor=T["in_border"],
+                darkcolor=T["in_border"],
+            )
+            st.map(
+                w,
+                bordercolor=[("focus", T["focus"])],
+                lightcolor=[("focus", T["focus"])],
+                foreground=[("disabled", T["dis_fg"])],
+                fieldbackground=[("disabled", T["dis_bg"])],
             )
         st.map(
             "TCombobox",
-            fieldbackground=[("readonly", T["field"])],
-            foreground=[("readonly", T["fg"])],
+            fieldbackground=[("disabled", T["dis_bg"]), ("readonly", T["field"])],
+            foreground=[("disabled", T["dis_fg"]), ("readonly", T["fg"])],
             selectbackground=[("readonly", T["field"])],
             selectforeground=[("readonly", T["fg"])],
         )
         st.configure(
             "TScrollbar",
-            background=T["btn"],
-            troughcolor=T["panel"],
+            background=T["sb_thumb"],  # a0.8.9 (UX3): #6a6a6a thumb on a #1a1a1a trough
+            troughcolor=T["sb_trough"],
             arrowcolor=T["fg"],
             bordercolor=T["border"],
         )
         dark = not self.v_light.get()
         st.configure(  # a0.8.6: the top-area scrollbar stands out in dark mode (users missed that it scrolls)
             "Top.Vertical.TScrollbar",
-            background="#9a9a9a" if dark else T["btn"],
-            troughcolor="#3a3a3a" if dark else T["panel"],
+            background=T["sb_thumb"],
+            troughcolor=T["sb_trough"],
             arrowcolor="#ffffff" if dark else T["fg"],
             bordercolor="#5a5a5a" if dark else T["border"],
         )
-        st.map("Top.Vertical.TScrollbar", background=[("active", "#c8c8c8" if dark else T["btn_act"])])
+        st.map("Top.Vertical.TScrollbar", background=[("active", "#8a8a8a" if dark else T["btn_act"])])
+        st.map("TScrollbar", background=[("active", "#8a8a8a" if dark else T["btn_act"])])
         if hasattr(self, "_top_more"):
             self._top_more.configure(bg=T["sel"], fg=T["fg"])
         st.configure("TPanedwindow", background=T["bg"])
         st.configure("Sash", background=T["border"])
         # classic tk bits: combobox drop-down list, Text widgets
         self.root.configure(bg=T["bg"])
-        self.root.option_add("*TCombobox*Listbox.background", T["field"])
+        self.root.option_add("*TCombobox*Listbox.background", T["list_bg"])  # a0.8.9 (UX4): black lists
         self.root.option_add("*TCombobox*Listbox.foreground", T["fg"])
         self.root.option_add("*TCombobox*Listbox.selectBackground", T["sel"])
         self.root.option_add("*TCombobox*Listbox.selectForeground", T["fg"])
-        self.root.option_add("*Listbox.background", T["field"])
+        self.root.option_add("*Listbox.background", T["list_bg"])
+        self._theme_popdowns()
         self.root.option_add("*Listbox.foreground", T["fg"])
         if not hasattr(self, "t_cmd"):
             return  # early (before the window is built): only the ttk styles, e.g. for a startup popup

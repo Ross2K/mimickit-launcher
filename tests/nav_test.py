@@ -198,7 +198,7 @@ def steps():
         if to_hex(app.fig.get_facecolor()) != to_hex(T["panel"]):
             bad.append("figure bg")
         for ax in (a1, a2):
-            if to_hex(ax.get_facecolor()) != to_hex(T["field"]):
+            if to_hex(ax.get_facecolor()) != to_hex(T.get("plot", T["field"])):
                 bad.append("axes bg")
             if any(
                 to_hex(t.get_color()) != to_hex(T["fg"])

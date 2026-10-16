@@ -82,7 +82,7 @@ except subprocess.TimeoutExpired:
     sim.kill()
 check("T1 orphaned fake sim ends itself once the owner test is gone", rc is not None, rc)
 check("T1 ...and removes its sim pid file", not os.path.isfile(os.path.join(d, "sim.%d.pid" % sim.pid)))
-check("T1 the folder is swept after that", d in FM.sweep())
+check("T1 the folder is swept after that", d in FM.sweep() and not os.path.isdir(d))  # a0.8.9 (U2)
 sleeper.kill()
 
 # ---- T2 + whole rows + OLED --------------------------------------------------------------------------------------

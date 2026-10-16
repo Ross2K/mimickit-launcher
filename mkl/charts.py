@@ -439,7 +439,7 @@ class ChartsMixin:
         self._decimate()
 
     def _style_ax(self, ax):
-        ax.set_facecolor(T["field"])
+        ax.set_facecolor(T.get("plot", T["field"]))  # a0.8.9: plots stay black when fields went #0d0d0d
         ax.tick_params(colors=T["fg"], labelcolor=T["fg"])
         for sp in ax.spines.values():
             sp.set_color(T["border"])

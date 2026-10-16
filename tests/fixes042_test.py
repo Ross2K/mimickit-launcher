@@ -227,8 +227,14 @@ check(
     app.dash and app.dash.host,
 )
 v["host"].set(G.BIND_LABEL["0.0.0.0"])
-v["apply"]()
-root.update()
+for _try in range(5):  # a0.8.9 (U1): the re-bind can hit a taken port too -> fresh port, retry
+    PORT = free_port()
+    v["port"].set(str(PORT))
+    v["apply"]()
+    root.update()
+    if app.dash is not None:
+        break
+    time.sleep(0.2)
 check(
     "the phone choice binds all interfaces",
     app.dash is not None and app.dash.host == "0.0.0.0" and app.s["remote"]["host"] == "0.0.0.0",

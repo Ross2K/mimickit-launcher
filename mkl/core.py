@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.8.8"
+VERSION = "a0.8.9"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -238,7 +238,7 @@ THEMES = {
     "dark": dict(
         bg="#000000",
         panel="#0d0d0d",
-        field="#000000",
+        field="#0d0d0d",  # a0.8.9: input fields (U4)
         fg="#d0d0d0",
         dim="#8a8a8a",
         accent="#5b8db8",
@@ -260,6 +260,15 @@ THEMES = {
         line3="#7fb38a",
         warn="#d8b35e",
         err="#e07070",
+        # a0.8.9 (U4/UX1-3): input borders + focus ring, scrollbars, disabled controls, drop-down lists
+        in_border="#555555",
+        focus="#555555",
+        sb_thumb="#6a6a6a",
+        sb_trough="#1a1a1a",
+        dis_fg="#5a5a5a",
+        dis_bg="#121212",
+        list_bg="#000000",
+        plot="#000000",
     ),
     "light": dict(
         bg="#ececec",
@@ -286,6 +295,14 @@ THEMES = {
         line3="tab:green",
         warn="#9a6200",
         err="#b02a2a",
+        in_border="#8a8a8a",
+        focus="#2f6ea3",
+        sb_thumb="#c4c4c4",
+        sb_trough="#ececec",
+        dis_fg="#a0a0a0",
+        dis_bg="#e4e4e4",
+        list_bg="#ffffff",
+        plot="#ffffff",
     ),
 }
 T = dict(THEMES["dark"])  # current colours (updated in place)

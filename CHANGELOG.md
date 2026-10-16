@@ -3,6 +3,19 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.9
+
+Dark-mode polish + review fixes (GUI only).
+
+- Input boxes stand out: #0d0d0d fields with a #555 border and focus ring (box edges stay #333).
+- Scrollbars: #6a6a6a thumb on a #1a1a1a trough.
+- Disabled buttons / boxes: #5a5a5a text on #121212 - no longer the same grey as hint text.
+- Drop-down lists are black (also ones opened before a theme switch); the Patches dialog is black.
+- The whole-row cut of the top area never hides more than one row.
+- Drop-down / number boxes shown or added later anywhere in the top area get the "wheel only when focused" rule.
+- Tests: fixes042 also retries the 0.0.0.0 re-bind with a fresh port; qa088 checks the swept folder is gone;
+  new qa089_test.
+
 ## a0.8.8
 
 True-black dark mode + safer tests (GUI only).
