@@ -250,6 +250,10 @@ class ProcessMixin:
                 "No %s config selected (MimicKit's args folder may be empty)." % kind,
             )
             return False
+        if kind in ("train", "resume") and self._envs_or_0() < 1:
+            self._append("[gui] refused: parallel sims (num_envs) must be a whole number, e.g. 64\n")
+            messagebox.showinfo("Parallel sims", "Parallel sims must be a whole number, e.g. 64.")
+            return False
         if it.get("missing"):
             self._append("[gui] refused: %s - %s\n" % (it["name"], it["missing"]))
             messagebox.showinfo("Not installed yet", "%s\n\n%s" % (it["name"], it["missing"]))
@@ -401,7 +405,7 @@ class ProcessMixin:
             + ["--arg_file", it["file"]]
             + it.get("args", [])
             + self.engine_args()
-            + ["--num_envs", str(self.v_envs.get()), "--visualize", "false", "--out_dir", out_rel]
+            + ["--num_envs", str(self._envs_or_0()), "--visualize", "false", "--out_dir", out_rel]
             + self.extra_args(),
             kind="train",
             out=out,
@@ -440,7 +444,7 @@ class ProcessMixin:
             + self.engine_args()
             + [
                 "--num_envs",
-                str(self.v_envs.get()),
+                str(self._envs_or_0()),
                 "--visualize",
                 "false",
                 "--model_file",
@@ -586,7 +590,7 @@ class ProcessMixin:
             + self.engine_args()
             + [
                 "--num_envs",
-                str(self.v_envs.get()),
+                str(self._envs_or_0()),
                 "--visualize",
                 "false",
                 "--model_file",

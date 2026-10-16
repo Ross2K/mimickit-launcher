@@ -707,7 +707,7 @@ class Dashboard:
         """-> (code, json text). Every refusal carries a plain-language 'error'."""
         c = self.control
         if c is None or not c.enabled():
-            code, body = 403, {"error": "Turned off on the PC. Enable 'Allow phone control' in the launcher's Phone settings."}
+            code, body = c._off() if c is not None else (403, {"error": Control.OFF_MSG})
             if c is not None:
                 c.log("control: refused %s - control is off" % what)
         elif what == "login":

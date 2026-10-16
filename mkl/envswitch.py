@@ -50,7 +50,13 @@ class EnvSwitchMixin:
         if getattr(self, "stop_save", None):
             self._append("[gui] 'Stop after next save' is armed - cancel it first\n")
             return
-        n = int(self.v_envs.get())
+        try:
+            n = int(str(self.v_envs.get()).strip())
+        except (ValueError, TypeError):
+            n = 0
+        if n < 1:
+            self._append("[gui] live num_envs change refused: parallel sims must be a whole number, e.g. 64\n")
+            return
         self.env_switch = dict(n=n, watch=CheckpointWatch(os.path.join(self.run_dir, "model.pt")), phase="wait")
         self._envswitch_status("Waiting for next checkpoint... (then restarts with %d envs)" % n)
         self._append("[gui] num_envs -> %d after the next model.pt save\n" % n)

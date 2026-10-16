@@ -121,6 +121,13 @@ class MainWindowMixin:
         Tip(sp, HELP["envs"])
         sw = ttk.Frame(job)
         sw.grid(row=2, column=1, sticky="e")
+        self.l_envs_hint = ttk.Label(sw, text="", style="Err.TLabel")
+        self.l_envs_hint.pack(side="left", padx=(0, 6))
+
+        def envs_hint(*_):
+            self.l_envs_hint.configure(text="" if self._envs_or_0() >= 1 else "Whole number, e.g. 64")
+
+        self.v_envs.trace_add("write", envs_hint)
         self.b_envswitch = ttk.Button(sw, text="Apply while training", command=self.change_envs_live)
         self.b_envswitch.pack(side="left")
         Tip(self.b_envswitch, HELP["envs_live"])

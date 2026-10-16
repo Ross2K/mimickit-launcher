@@ -6,6 +6,7 @@ nothing starts while something runs, a used output folder needs an explicit 'ove
 MimicKit files (all of them touch the sim) are refused while training runs. Every refusal is logged."""
 
 import hashlib, os, re, time
+import tkinter
 
 import mimickit_patches as MP
 from mkl import core
@@ -137,7 +138,7 @@ class RunsMixin:
             helps={i["name"]: (i.get("help") or "")[:200] for i in getattr(self, "train_items", [])},
             outs={i["name"]: i.get("out") or "" for i in getattr(self, "train_items", [])},
             config=it["name"] if it else "",
-            num_envs=int(self.v_envs.get() or 0) if hasattr(self, "v_envs") else 0,
+            num_envs=self._envs_or_0(),
             out=self.v_out.get().strip() if hasattr(self, "v_out") else "",
             runs=[{k: v for k, v in r.items() if k != "path"} for r in runs],
             patches=self._phone_patches(),
@@ -147,9 +148,23 @@ class RunsMixin:
             missing={i["name"]: i["missing"] for i in getattr(self, "train_items", []) if i.get("missing")},
         )
 
+    def _envs_or_0(self):
+        """The parallel-sims field as a number; text like '64x' gives 0 (shown on the PC as a hint, never a crash)."""
+        try:
+            return max(0, int(str(self.v_envs.get()).strip() or 0)) if hasattr(self, "v_envs") else 0
+        except (ValueError, TypeError, tkinter.TclError):
+            return 0
+
     def _runs_choices(self):
         snap = getattr(self, "snap", None) or {}
-        ui = snap.get("runs_ui") or {}
+        ui = snap.get("runs_ui")
+        if not ui:  # before the first snapshot (phone tapped right after start): build the lists now
+            tmp = {}
+            try:
+                self._runs_snapshot(tmp)
+            except Exception as e:
+                core.log_exc("runs: choices before the first snapshot", e)
+            ui = tmp.get("runs_ui") or {}
         return dict(configs=list(ui.get("configs") or []), runs=dict(getattr(self, "_runs_paths", {}) or {}),
                     patches={p["name"]: p for p in ui.get("patches") or []})
 
@@ -224,10 +239,10 @@ class RunsMixin:
 
     def _patch_refusal(self, need_mk=True):
         """Same rule on the PC and the phone: MimicKit files are not changed while training runs."""
-        if self._training_running():
+        if self._training_running() or (getattr(self, "proc", None) is not None and self.proc.poll() is None):
             return ("Training is running - patches change MimicKit's files, so stop it first "
                     "(or use Stop after next save), then apply or revert.")
-        if need_mk and not self.mk() or need_mk and not os.path.isfile(os.path.join(self.mk(), "mimickit", "run.py")):
+        if need_mk and (not self.mk() or not os.path.isfile(os.path.join(self.mk(), "mimickit", "run.py"))):
             return "MimicKit folder not set (no mimickit/run.py)."
         return None
 
