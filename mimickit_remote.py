@@ -312,6 +312,15 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <details class="sec" id="s_tweak"><summary>Next-resume tweaks <span class="cnt" id="n_tweak"></span></summary>
 <p><small>Applied the next time training is resumed.</small></p><div class="bgrid"><input id="t_envs" type="number" min="1" max="65536" placeholder="num_envs">
 <button class="sec2" id="a_tweak">Queue for next resume</button></div><small id="tweakmsg"></small></details>
+<details class="sec" id="s_runs"><summary>Runs <span class="cnt" id="n_runs"></span></summary><small id="runbusy"></small>
+<div class="row"><span class="k">Config</span><select id="r_cfg"></select></div><small id="r_help"></small>
+<div class="row"><span class="k">num_envs</span><input id="r_envs" type="number" min="1" max="65536" style="width:45%"></div>
+<div class="row"><span class="k">Output folder</span><input id="r_out" autocomplete="off" spellcheck="false" style="width:60%"></div>
+<div class="row"><span class="k">Overwrite</span><label><input type="checkbox" id="r_ovw"> replace an earlier run there</label></div>
+<div class="bgrid"><button id="a_start">Start new training</button></div>
+<div class="row"><span class="k">Continue from</span><select id="r_src"></select></div><small id="r_srcinfo"></small>
+<div class="bgrid"><button class="sec2" id="a_cont">Continue from run</button></div><small id="runmsg"></small></details>
+<details class="sec" id="s_patch"><summary>MimicKit patches <span class="cnt" id="n_patch"></span></summary><div id="plist"></div><small id="patchmsg"></small></details>
 </div><p><small id="ctlmsg"></small></p></div>
 <div class="modal" id="modal"><div class="mbox"><b id="m_title">Stop training now?</b><p><small id="m_text"></small></p>
 <div class="bgrid"><button id="m_keep">Keep training</button><button class="sec2" id="m_alt">Stop after next save</button></div>
@@ -407,7 +416,7 @@ async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
  q('age').textContent=new Date().toLocaleTimeString();draw();
  pvList();rProg();
- if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||S.stop_save_msg||'';CTL=!!S.control;updCtl();if(window.extraTick)extraTick()}catch(e){q('state').textContent='offline - retrying'}}
+ if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||S.stop_save_msg||'';CTL=!!S.control;updCtl();runsTick();if(window.extraTick)extraTick()}catch(e){q('state').textContent='offline - retrying'}}
 // ---- preview card (a0.8.0): play/pause, scrub, loop (no autoplay), clip choice, 0.25/0.5/1x, download, render progress
 let PV=null,pvPinned='',SEEKING=false;const pvRate=()=>+(localStorage.mkPvRate||1);
 const pvSrc=(k,dl)=>'/preview.mp4?t='+encodeURIComponent(T)+'&k='+encodeURIComponent(k)+(dl?'&dl=1':'');
@@ -447,7 +456,7 @@ async function act(action,params,msgEl){const [c1,n]=await cpost('nonce',{action
  const [c,j]=await cpost(action,{nonce:n.nonce,params});(msgEl||q('ctlmsg')).textContent=j.message||j.error||('status '+c);setTimeout(tick,500)}
 function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: off';b.classList.toggle('off',!CTL);
  q('ctloff').style.display=CTL?'none':'';q('ctlon').style.display=CTL?'':'none';q('pinbox').style.display=CTL&&!SES?'':'none';
- for(const id of ['s_train','s_tweak'])q(id).style.display=SES?'':'none';
+ for(const id of ['s_train','s_tweak','s_runs','s_patch'])q(id).style.display=SES?'':'none';
  const run=S&&S.running;q('a_resume').disabled=!!run;q('a_stopnow').disabled=!run;q('a_stopsave').disabled=!run;
  q('a_stopsave').textContent=S&&S.stop_save?'Cancel stop after save':'Stop after next save';
  q('n_train').textContent='(3 of 4)';const tw=(S&&S.tweaks)||{};const nt=Object.keys(tw).length;q('n_tweak').textContent=nt?'('+nt+' pending)':'(0)';
@@ -455,19 +464,35 @@ function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: of
 q('pinok').onclick=async()=>{const [c,j]=await cpost('login',{pin:q('pin').value});q('pin').value='';
  if(c===200){SES=j.session;localStorage.mkSes=SES;q('pinmsg').textContent=''}else q('pinmsg').textContent=j.error||('refused ('+c+')');updCtl()};
 function modal(o){q('m_title').textContent=o.title;q('m_text').textContent=o.text||'';q('m_msg').textContent='';q('m_alt').textContent=o.alt?'Stop after next save':'Cancel';
- q('m_hold').style.display=o.hold?'':'none';q('m_keep').textContent=o.keep||'Keep training';q('modal').classList.add('on');MODAL=o;
- if(o.hold){const h=q('m_hold');h.disabled=true;q('m_holdt').textContent='Hold to stop now (unlocks in 3 s)';clearTimeout(MODAL_T);MODAL_T=setTimeout(()=>{h.disabled=false;q('m_holdt').textContent='Hold 2 s to stop now'},3000)}}
-let MODAL=null,MODAL_T=0,HOLD=0,HOLD_T0=0;const closeModal=()=>{q('modal').classList.remove('on');clearTimeout(MODAL_T);MODAL=null};
+ q('m_hold').style.display=o.hold?'':'none';HOLDTXT=o.holdText||'stop now';q('m_alt').style.display=(o.hold&&!o.alt)?'none':'';q('m_keep').textContent=o.keep||'Keep training';q('modal').classList.add('on');MODAL=o;
+ if(o.hold){const h=q('m_hold');h.disabled=true;q('m_holdt').textContent='Hold to stop now (unlocks in 3 s)';clearTimeout(MODAL_T);MODAL_T=setTimeout(()=>{h.disabled=false;q('m_holdt').textContent='Hold 2 s to '+HOLDTXT},3000);q('m_holdt').textContent='Hold to '+HOLDTXT+' (unlocks in 3 s)'}}
+let HOLDTXT='stop now',MODAL=null,MODAL_T=0,HOLD=0,HOLD_T0=0;const closeModal=()=>{q('modal').classList.remove('on');clearTimeout(MODAL_T);MODAL=null};
 q('m_keep').onclick=()=>{if(MODAL&&MODAL.ok&&!MODAL.hold){const o=MODAL;closeModal();o.ok()}else closeModal()};
 q('m_alt').onclick=()=>{const a=MODAL&&MODAL.alt;closeModal();if(a)act('stop_after_save')};
 function holdEnd(){cancelAnimationFrame(HOLD);HOLD=0;q('m_bar').style.width='0'}
-function holdStep(){const p=Math.min(1,(Date.now()-HOLD_T0)/2000);q('m_bar').style.width=(p*100)+'%';if(p>=1){holdEnd();closeModal();act('stop_now')}else HOLD=requestAnimationFrame(holdStep)}
+function holdStep(){const p=Math.min(1,(Date.now()-HOLD_T0)/2000);q('m_bar').style.width=(p*100)+'%';if(p>=1){holdEnd();const f=MODAL&&MODAL.onhold;closeModal();if(f)f();else act('stop_now')}else HOLD=requestAnimationFrame(holdStep)}
 q('m_hold').addEventListener('pointerdown',e=>{if(q('m_hold').disabled)return;e.preventDefault();HOLD_T0=Date.now();HOLD=requestAnimationFrame(holdStep)});
 for(const ev of ['pointerup','pointerleave','pointercancel'])q('m_hold').addEventListener(ev,holdEnd);
 q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save (model.pt) is lost. Stop after next save keeps it.',alt:true,hold:true});
 q('a_stopsave').onclick=()=>modal({title:S&&S.stop_save?'Cancel the stop after next save?':'Stop after the next save?',keep:'Confirm',ok:()=>act(S&&S.stop_save?'cancel_stop':'stop_after_save')});
 q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
 q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);modal({title:'Queue num_envs = '+v+' for the next resume?',keep:'Confirm',ok:()=>act('tweaks',{num_envs:Number.isInteger(n)?n:v},q('tweakmsg'))})};
+// ---- Runs + MimicKit patches (a0.8.0): names/keys only come from the PC's lists; the PC checks everything again
+let RU_SIG='',RU_CFG='';const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function opts(sel,items,cur){const v=sel.value;sel.innerHTML=items.map(([k,t])=>'<option value="'+esc(k)+'">'+esc(t)+'</option>').join('');sel.value=(v&&items.some(i=>i[0]===v))?v:(cur||'')}
+function runsTick(){const R=S&&S.runs_ui;if(!R)return;const sig=JSON.stringify([R.configs,R.runs.map(r=>r.key)]);
+ if(sig!==RU_SIG){RU_SIG=sig;opts(q('r_cfg'),R.configs.map(c=>[c,c]),R.config);opts(q('r_src'),R.runs.map(r=>[r.key,r.name+' \u00b7 '+r.saved]),'')}
+ const c=q('r_cfg').value;if(c!==RU_CFG){RU_CFG=c;if(document.activeElement!==q('r_out'))q('r_out').value=(c===R.config?R.out:(R.outs[c]||R.out))||'';if(!q('r_envs').value)q('r_envs').value=R.num_envs||''}
+ q('r_help').textContent=(R.helps&&R.helps[c])||'';const r=R.runs.find(x=>x.key===q('r_src').value);q('r_srcinfo').textContent=r?('saved '+r.saved+' \u00b7 '+r.total+' trained, '+r.sessions+' session(s)'):'No earlier runs with a model.pt yet.';
+ q('runbusy').textContent=R.busy?('Running on the PC ('+(R.busy_kind||'run')+') - starting is off until it stops.'):'';q('a_start').disabled=!!R.busy;q('a_cont').disabled=!!R.busy||!r;
+ q('n_runs').textContent='('+R.runs.length+' earlier)';if(R.msg)q('runmsg').textContent=R.msg;
+ const P=R.patches||[];q('n_patch').textContent='('+P.filter(p=>p.status==='applied').length+' of '+P.length+' applied)';
+ const ps=JSON.stringify(P)+!!S.running;if(ps!==q('plist').dataset.sig){q('plist').dataset.sig=ps;q('plist').innerHTML=P.map(p=>'<div class="row"><span class="k">'+esc(p.title)+'</span><span class="v">'+esc(p.status)+'</span></div><div class="bgrid"><button class="sec2" data-p="'+esc(p.name)+'" data-op="apply"'+(S.running||p.status==='applied'?' disabled':'')+'>Apply</button><button class="sec2" data-p="'+esc(p.name)+'" data-op="revert"'+(S.running||!p.can_revert||p.status==='not applied'?' disabled':'')+'>Revert</button></div>').join('')+(S.running?'<small>Training is running: patches change MimicKit files, so they are off until it stops.</small>':'');
+  for(const b of q('plist').querySelectorAll('button'))b.onclick=()=>{const p=P.find(x=>x.name===b.dataset.p),op=b.dataset.op;modal({title:(op==='apply'?'Apply':'Revert')+' "'+p.title+'"?',text:p.why+' Runs started afterwards use it.',keep:'Cancel',hold:true,holdText:op,onhold:()=>act('patch',{name:p.name,op},q('patchmsg'))})}}}
+q('a_start').onclick=()=>{const n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim(),w=q('r_ovw').checked;
+ modal({title:'Start a new training run?',text:c+' \u00b7 num_envs '+n+' \u2192 '+o+(w?' (REPLACES an earlier run there)':''),keep:'Cancel',hold:true,holdText:'start',onhold:()=>act('start_train',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,overwrite:w},q('runmsg'))})};
+q('a_cont').onclick=()=>{const R=S.runs_ui,r=R.runs.find(x=>x.key===q('r_src').value),n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim();if(!r)return;
+ modal({title:'Continue from '+r.name+'?',text:'New run of '+c+' into '+o+' (a _resumeN folder if it is used), from its newest model.pt. Carries '+r.total+' of training.',keep:'Cancel',hold:true,holdText:'continue',onhold:()=>act('continue_run',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,src:r.key},q('runmsg'))})};
 /*EXTRA_JS*/
 showPanel();
 tick();setInterval(tick,10000);window.addEventListener('resize',draw);
@@ -872,7 +897,7 @@ SESSION_HOURS = 12
 NONCE_TTL = 120  # s a confirm-box nonce stays valid
 MAX_PIN_FAILS = 5
 LOCKOUT_S = 300
-ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks")
+ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch")
 TWEAK_RULES = {"num_envs": (int, 1, 65536)}  # name -> (type, min, max); applied on the next resume
 
 

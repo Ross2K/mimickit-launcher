@@ -18,10 +18,11 @@ from mkl.envswitch import EnvSwitchMixin
 from mkl.stopsave import StopAfterSaveMixin
 from mkl.actions import ActionsMixin
 from mkl.plugins import PluginsMixin
+from mkl.runs import RunsMixin
 from mkl import icon
 
 
-class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin):
+class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin):
     def __init__(self, root):
         self.root = root
         # Tk callback errors used to go to stderr - invisible under pythonw.exe. Now: launcher_errors.log + log panel

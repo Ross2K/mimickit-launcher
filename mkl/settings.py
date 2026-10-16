@@ -199,6 +199,11 @@ class SettingsMixin:
                 pl.grid(row=len(fields), column=0, columnspan=2, sticky="w", pady=(4, 0))
 
                 def ap(lbl=pl):
+                    why = self._patch_refusal()
+                    if why:
+                        self._append("[patch] %s refused: %s\n" % (TS.PATCH_NAME, why))
+                        lbl.configure(text="Clip start share patch: refused - training is running" if self._training_running() else why)
+                        return
                     try:
                         msg = MP.apply(mk, TS.PATCH_NAME)
                     except Exception as e:
@@ -317,11 +322,17 @@ class SettingsMixin:
                 lab.configure(text=MP.status(self.mk(), name))
 
         def act(fn, name):
+            why = self._patch_refusal()  # same rule as the phone: no MimicKit file changes while training runs
+            if why:
+                self._append("[patch] %s refused: %s\n" % (name, why))
+                messagebox.showwarning("Patch refused", why)
+                return
             try:
                 msg = fn(self.mk(), name)
             except Exception as e:
                 msg = "failed: %s" % e
             self._append("[patch] %s: %s\n" % (name, msg))
+            self._patch_cache = None
             refresh()
             self._progress_tick(force=True)
 

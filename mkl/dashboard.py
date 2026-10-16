@@ -66,6 +66,10 @@ class DashboardMixin:
             p = prev[0]["path"]
             snap["preview"] = dict(path=p, name=os.path.basename(p), key=prev[0]["key"])
             snap["previews"] = prev
+        try:
+            self._runs_snapshot(snap)
+        except Exception as e:
+            log_exc("phone runs list", e)
         self._plugin_call("snapshot", snap)
         self.snap = snap
         if self.dash:
@@ -233,6 +237,8 @@ class DashboardMixin:
     def _remote_action(self, action, params):
         """Server thread: decide with thread-safe reads, queue GUI work. Idempotent: a repeat is a no-op."""
         running = self._training_running()
+        if action in ("start_train", "continue_run", "patch"):
+            return self._remote_runs_action(action, params)
         if action == "resume":
             if running or (self.proc and self.proc.poll() is None):
                 return 409, "Training is already running - resume refused."

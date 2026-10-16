@@ -362,12 +362,16 @@ class ProcessMixin:
             out=None,
         )
 
-    def train(self):
+    def train(self, overwrite=None):
+        """overwrite: None = ask (PC), True/False = decided on the phone (False refuses a used folder)."""
         if not self._check("train"):
-            return
+            return False
         out_rel = self.v_out.get().strip()
         out = self.outdir_abs(out_rel)
-        if os.path.isdir(out) and os.listdir(out):
+        if os.path.isdir(out) and os.listdir(out) and overwrite is False:
+            self._append("[gui] refused start: %s already has files and overwrite was not allowed\n" % out_rel)
+            return False
+        if os.path.isdir(out) and os.listdir(out) and overwrite is None:
             if not messagebox.askyesno(
                 "Folder already used",
                 "The folder\n%s\nalready has files (an earlier run).\n\nStarting again OVERWRITES its model.pt and log.txt.\n"
@@ -375,7 +379,7 @@ class ProcessMixin:
                 % out,
                 icon="warning",
             ):
-                return
+                return False
         it = self._item("train")
         self.tt_next = dict(base=0.0, sessions=1, parent=None)
         self._run(
@@ -388,6 +392,7 @@ class ProcessMixin:
             kind="train",
             out=out,
         )
+        return True
 
     def resume(self):
         if not self._check("train"):
@@ -496,6 +501,21 @@ class ProcessMixin:
         )
         if not src:
             return
+        plan, err = self._continue_plan(src)
+        if err:
+            messagebox.showerror(*err)
+            return
+        it = self._item("train")
+        if not messagebox.askyesno(
+            "Continue from another run",
+            "Continue training\n  config: %s\nfrom\n  %s\ninto\n  %s\n\nCarries %s of training (%d sessions) and the chart history."
+            % (it["name"], plan["model"], plan["new_abs"], hms(plan["tot"]), plan["ses"]),
+        ):
+            return
+        self._continue_start(plan)
+
+    def _continue_plan(self, src):
+        """-> (plan, None) or (None, (title, plain-language reason)). No dialogs (the phone uses it too)."""
         src = os.path.abspath(src)
         models = [
             os.path.join(d, "model.pt")
@@ -503,10 +523,7 @@ class ProcessMixin:
             if os.path.exists(os.path.join(d, "model.pt"))
         ]
         if not models:
-            messagebox.showerror(
-                "No model there", "No model.pt in %s or its _resumeN folders." % src
-            )
-            return
+            return None, ("No model there", "No model.pt in %s or its _resumeN folders." % src)
         model = max(models, key=os.path.getmtime)
         src_dir = os.path.dirname(model)
         out_rel = self.v_out.get().strip().rstrip("/\\")
@@ -519,16 +536,13 @@ class ProcessMixin:
         if os.path.normcase(os.path.abspath(new_abs)) in [
             os.path.normcase(os.path.abspath(c)) for c in run_chain(src_dir)
         ]:
-            messagebox.showerror("Same folder", "The new run folder is part of the source run.")
-            return
+            return None, ("Same folder", "The new run folder is part of the source run.")
         tot, ses = chain_total(run_chain(src_dir))
+        return dict(model=model, src_dir=src_dir, new_rel=new_rel, new_abs=new_abs, tot=tot, ses=ses), None
+
+    def _continue_start(self, plan):
+        model, src_dir, new_rel, new_abs, tot, ses = (plan[k] for k in ("model", "src_dir", "new_rel", "new_abs", "tot", "ses"))
         it = self._item("train")
-        if not messagebox.askyesno(
-            "Continue from another run",
-            "Continue training\n  config: %s\nfrom\n  %s\ninto\n  %s\n\nCarries %s of training (%d sessions) and the chart history."
-            % (it["name"], model, new_abs, hms(tot), ses),
-        ):
-            return
         os.makedirs(new_abs, exist_ok=True)
         start = os.path.join(new_abs, "start_model.pt")
         shutil.copy2(model, start)
