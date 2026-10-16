@@ -84,5 +84,9 @@ class EnvSwitchMixin:
     def _envswitch_status(self, text):
         if hasattr(self, "l_envswitch"):
             self.l_envswitch.configure(text=text)
+            if text:
+                self.l_envswitch.grid()
+            else:
+                self.l_envswitch.grid_remove()
         if hasattr(self, "b_envswitch"):
             self.b_envswitch.configure(text="Cancel env change" if self.env_switch else "Apply while training")

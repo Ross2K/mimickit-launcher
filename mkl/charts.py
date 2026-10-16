@@ -1,5 +1,7 @@
 # MimicKit Launcher - training progress
 # Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
+import numpy as np
+
 from mkl.core import *  # noqa: F401,F403 - shared helpers/constants
 from mkl.core import __all__ as _core_names  # noqa: F401
 
@@ -120,6 +122,45 @@ class ChartsMixin:
             ln._mk_full = f
         return f
 
+    @staticmethod
+    def _full_np(ln):
+        """The full data as float numpy arrays (cached next to _mk_full)."""
+        a = getattr(ln, "_mk_np", None)
+        f = ChartsMixin._full(ln)
+        if a is None or a[2] is not f:
+            a = (np.asarray(f[0], dtype=float), np.asarray(f[1], dtype=float), f)
+            ln._mk_np = a
+        return a[0], a[1]
+
+    @staticmethod
+    def np_decimate(xa, ya, x0, x1, ncols):
+        """minmax_decimate() in numpy (a0.8.0: chart scrolling on long runs). Binary search for the visible window,
+        then per pixel column the lowest and highest point in time order (spikes stay), NaN gaps kept as breaks."""
+        n = len(xa)
+        if n == 0:
+            return xa, ya
+        if x1 < x0:
+            x0, x1 = x1, x0
+        lo = max(0, int(np.searchsorted(xa, x0, "left")) - 1)
+        hi = min(n, int(np.searchsorted(xa, x1, "right")) + 1)
+        ncols = max(1, int(ncols))
+        if hi - lo <= 2 * ncols:
+            return xa[lo:hi], ya[lo:hi]
+        xs, ys = xa[lo:hi], ya[lo:hi]
+        col = np.trunc((xs - x0) / ((x1 - x0) or 1.0) * ncols).astype(np.int64)
+        nan = np.isnan(ys)
+        last = np.r_[col[1:] != col[:-1], True]
+        first = np.r_[True, col[1:] != col[:-1]]
+        o_min = np.lexsort((np.where(nan, np.inf, ys), col))
+        o_max = np.lexsort((np.where(nan, -np.inf, ys), col))
+        seg_first = np.flatnonzero(first)
+        seg_last = np.flatnonzero(last)
+        ni = np.flatnonzero(nan)  # one break (the column's last NaN) per column, like minmax_decimate
+        ni = ni[np.r_[col[ni][1:] != col[ni][:-1], True]] if len(ni) else ni
+        mins, maxs = o_min[seg_first], o_max[seg_last]
+        keep = np.unique(np.concatenate([mins[~nan[mins]], maxs[~nan[maxs]], ni]))
+        return xs[keep], ys[keep]
+
     def _decimate(self):
         """One smooth polyline per series, no point markers (like the phone page): only the visible time window, about one
         min/max pair per pixel column (spikes stay). The same Line2D is reused; hover reads the full data."""
@@ -130,7 +171,8 @@ class ChartsMixin:
                 if ln.get_gid() == "hover":
                     continue
                 xs, ys = self._full(ln)
-                dx, dy = R.minmax_decimate(xs, ys, x0, x1, w)
+                xa, ya = self._full_np(ln)
+                dx, dy = self.np_decimate(xa, ya, x0, x1, w)
                 ln.set_data(dx, dy)
                 ln.set_marker("o" if len(xs) == 1 else "None")  # a lone point needs a dot to be seen
                 ln.set_markersize(4)
@@ -170,15 +212,33 @@ class ChartsMixin:
                     return True
         return False
 
+    SCROLL_SETTLE_MS = 150  # wheel zoom: redraw once the wheel has been still this long
+
     def _on_scroll(self, ev):
+        """Wheel = zoom time at the cursor. a0.8.0: each tick only moves the limits (cheap); the decimate + redraw
+        runs once, SCROLL_SETTLE_MS after the last tick (it used to redraw on every tick)."""
         ax = ev.inaxes
         if ax is None or ev.xdata is None:
             return
         f = 1 / 1.25 if ev.button == "up" or getattr(ev, "step", 0) > 0 else 1.25
-        x0, x1 = ax.get_xlim()
-        self._set_x(
-            (ev.xdata - (ev.xdata - x0) * f, ev.xdata + (x1 - ev.xdata) * f)
-        )  # x only; y untouched
+        x0, x1 = getattr(self, "_scroll_xl", None) or ax.get_xlim()
+        xl = (ev.xdata - (ev.xdata - x0) * f, ev.xdata + (x1 - ev.xdata) * f)  # x only; y untouched
+        self._scroll_xl = xl
+        self.xview = (float(xl[0]), float(xl[1]))
+        for a in self._axes():
+            a.set_xlim(self.xview)
+        if getattr(self, "_scroll_after", None):
+            try:
+                self.root.after_cancel(self._scroll_after)
+            except Exception:
+                pass
+        self._scroll_after = self.root.after(self.SCROLL_SETTLE_MS, self._scroll_settled)
+
+    def _scroll_settled(self):
+        self._scroll_after = None
+        self._scroll_xl = None
+        if self.xview:
+            self._set_x(self.xview)
         self.canvas.draw_idle()
 
     def _on_click(self, ev):
@@ -611,11 +671,16 @@ class ChartsMixin:
             cur_range = (lo - pad, hi + pad)
         if any(ax.get_lines() for ax in self._axes()):
             self._apply_view(cur_range)
-        self.ax1.set_ylabel("Return")
-        self.ax2.set_ylabel("M samples / hour")
+        # short labels in a smaller font: 'M samples / hour' and 'Reward / step (%)' ran into each other (a0.6.1 item)
+        self.ax1.set_ylabel("Return", fontsize=8)
+        self.ax2.set_ylabel("M samples/h", fontsize=8)
         lines.append(self._per_step_line(log, d))
+        try:
+            self.fig.align_ylabels(list(self._axes()))
+        except Exception:
+            pass
         if ax3 is not None:
-            ax3.set_ylabel("Reward / step (%)")
+            ax3.set_ylabel("Reward/step %", fontsize=8)
             if not ax3.get_lines():
                 ax3.text(
                     0.5,

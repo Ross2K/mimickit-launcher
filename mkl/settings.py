@@ -61,6 +61,15 @@ class SettingsMixin:
         self._ts_clips(cols, env, mk)
         self._ts_scale(cols)
         self._ts_stubs(cols)
+        # a0.6.1 item: never cut the right-hand column / help text sideways. If both columns don't fit in 80% of the
+        # screen, stack them, so the dialog only ever scrolls up and down.
+        f.update_idletasks()
+        if f.winfo_reqwidth() > int(top.winfo_screenwidth() * 0.8) - 40:
+            cols[0].grid_configure(padx=0)
+            cols[1].grid(row=2, column=0, sticky="nw")
+            self._ts_stacked = True
+        else:
+            self._ts_stacked = False
         note = ttk.Label(
             pinned,
             text="Save writes an edited copy (originals backed up, never changed). It applies on the next Start, Resume, Continue, "

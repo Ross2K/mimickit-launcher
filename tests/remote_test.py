@@ -167,21 +167,28 @@ st, j = cpost(P3, "login", {"pin": "2468"})
 ses = j.get("session", "")
 check("correct PIN -> 12 h session", st == 200 and ses and j.get("hours") == 12)
 check("session but no nonce: refused", cpost(P3, "stop_now", {}, ses)[0] == 403 and not acts)
-n1 = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+n1 = cpost(P3, "nonce", {"action": "stop_now"}, ses)[1]["nonce"]
 r1 = cpost(P3, "stop_now", {"nonce": n1}, ses)
 r2 = cpost(P3, "stop_now", {"nonce": n1}, ses)
 check("double tap with the same nonce is idempotent (one action)",
       r1[0] == 202 and r2[0] == 202 and r2[1].get("repeat") and len(acts) == 1, str((r1, r2, acts)))
-n2 = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+n2 = cpost(P3, "nonce", {"action": "stop_now"}, ses)[1]["nonce"]
 clock[0] += R.NONCE_TTL + 1
 check("stale nonce refused", cpost(P3, "stop_now", {"nonce": n2}, ses)[0] == 403 and len(acts) == 1)
 for bad in ({"num_envs": "4096"}, {"num_envs": 0}, {"num_envs": 10**7}, {"num_envs": True}, {"rm": 1}):
-    n = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+    n = cpost(P3, "nonce", {"action": "tweaks"}, ses)[1]["nonce"]
     st, j = cpost(P3, "tweaks", {"nonce": n, "params": bad}, ses)
     check("tweak %r refused (type/range) with a reason" % (bad,), st == 400 and j.get("error"), str(j))
-n = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+n = cpost(P3, "nonce", {"action": "tweaks"}, ses)[1]["nonce"]
 check("valid tweak accepted", cpost(P3, "tweaks", {"nonce": n, "params": {"num_envs": 4096}}, ses)[0] == 202
       and acts[-1] == ("tweaks", {"num_envs": 4096}))
+# a0.8.0: each nonce is bound to the action it was asked for
+nb = cpost(P3, "nonce", {"action": "stop_after_save"}, ses)[1]["nonce"]
+k0 = len(acts)
+st, j = cpost(P3, "stop_now", {"nonce": nb}, ses)
+check("nonce for 'stop after save' can't be spent on 'stop now'", st == 403 and len(acts) == k0 and j.get("error"), str(j))
+check("...and the refusal is logged", any("confirmation was for 'stop_after_save'" in m for m in clog))
+check("nonce for an unknown action refused", cpost(P3, "nonce", {"action": "rm_rf"}, ses)[0] == 400)
 ctl.revoke_all("PIN changed")
 check("revocation: old session refused", cpost(P3, "nonce", {}, ses)[0] == 401)
 codes = [cpost(P3, "login", {"pin": "0000"})[0] for _ in range(5)]
@@ -192,6 +199,19 @@ clock[0] += R.LOCKOUT_S + 1
 st, j = cpost(P3, "login", {"pin": "2468"})
 ses2 = j.get("session", "")
 check("lockout ends", st == 200)
+# a0.8.0: lockout is per phone (client address) - a locked phone doesn't lock the others
+for _ in range(5):
+    ctl.login("0000", "100.64.0.9")
+check("phone A locked after 5 wrong PINs", ctl.login("2468", "100.64.0.9")[0] == 429)
+check("phone B can still sign in", ctl.login("2468", "100.64.0.7")[0] == 200)
+check("lockout logged with the phone's address", any("100.64.0.9" in m and "locked" in m for m in clog))
+# overlay actions (updates) go through the same gate
+xcalls = []
+ctl.extra_actions = lambda: {"update_check": lambda p: (xcalls.append(p) or (202, "checking"))}
+nx = cpost(P3, "nonce", {"action": "update_check"}, ses2)[1].get("nonce")
+check("overlay action needs session + nonce and runs", cpost(P3, "update_check", {"nonce": nx}, ses2)[0] == 202 and xcalls == [{}])
+check("overlay action without nonce refused", cpost(P3, "update_check", {}, ses2)[0] == 403 and len(xcalls) == 1)
+ctl.extra_actions = lambda: {}
 ccfg["allow_control"] = False
 check("turned off: valid session refused", cpost(P3, "nonce", {}, ses2)[0] == 403)
 check("every decision logged", any("refused" in m for m in clog) and any("stop_now ->" in m for m in clog))

@@ -191,4 +191,26 @@ setTimeout(run,500);</script>"""
     check(
         "phone readout = the real spike point", o.get("hov") == [xs[7777], 9.0], str(o.get("hov"))
     )
+
+# a0.8.0: the desktop charts use a numpy version - must give exactly the same points
+try:
+    from mkl.charts import np_decimate as _npd
+except ImportError:
+    from mkl import charts as _C
+    _npd = getattr(_C, "np_decimate", None) or _C.ChartsMixin.np_decimate
+import numpy as _np
+
+bad = 0
+for case in range(300):
+    n = random.randint(0, 3000)
+    xs2 = sorted(random.uniform(0, 100) for _ in range(n))
+    ys2 = [float("nan") if random.random() < 0.02 else random.gauss(0, 1) for _ in range(n)]
+    x0 = random.uniform(-10, 90)
+    x1 = x0 + random.uniform(0.1, 60)
+    cols = random.randint(1, 900)
+    a = R.minmax_decimate(xs2, ys2, x0, x1, cols)
+    bx, by = _npd(_np.array(xs2, float), _np.array(ys2, float), x0, x1, cols)
+    same = list(a[0]) == list(bx) and all((u == v) or (u != u and v != v) for u, v in zip(a[1], by)) and len(a[1]) == len(by)
+    bad += not same
+check("numpy decimation == reference on 300 random cases", bad == 0, "%d differ" % bad)
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

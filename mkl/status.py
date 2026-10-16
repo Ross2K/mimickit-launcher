@@ -301,6 +301,9 @@ class StatusMixin:
         m = self.sm
         running = bool(self.proc and self.proc.poll() is None)
         lvl, text = SM.health(m, running, looks_trained=self._looks_now)
+        pend = self._pending_text() if hasattr(self, "_pending_text") else ""
+        if pend and running:  # e.g. 'Training normally. Will stop after the next save.' (UX a0.6.1 item)
+            text = "%s. %s." % (text.rstrip(". "), pend.rstrip(". "))
         if (lvl, text) != (self.ban_level, self.ban_lab.cget("text")):
             self._paint_banner(lvl, text)
         detail = SM.banner_detail(m, running)

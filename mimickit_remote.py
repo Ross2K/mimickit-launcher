@@ -36,11 +36,10 @@ def minmax_decimate(xs, ys, x0, x1, ncols):
         return [], []
     if x1 < x0:
         x0, x1 = x1, x0
-    lo, hi = 0, n
-    while lo < n and xs[lo] < x0:
-        lo += 1  # data is sorted by time
-    while hi > lo and xs[hi - 1] > x1:
-        hi -= 1
+    import bisect
+
+    lo = bisect.bisect_left(xs, x0)  # data is sorted by time
+    hi = max(lo, bisect.bisect_right(xs, x1))
     lo = max(0, lo - 1)
     hi = min(n, hi + 1)
     ncols = max(1, int(ncols))
@@ -293,7 +292,11 @@ button.sec2{background:var(--b);color:var(--fg)}button.danger{background:#b23b3b
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:9}
 .modal.on{display:flex}.mbox{background:var(--panel);border:1px solid var(--b);border-radius:12px;padding:14px;width:min(92vw,380px)}
 .hold{position:relative;overflow:hidden}.hold>i{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.25)}
-input{background:var(--bg);color:var(--fg);border:1px solid var(--b);border-radius:8px;padding:8px;font-size:15px;width:100%}
+input,select{background:var(--bg);color:var(--fg);border:1px solid var(--b);border-radius:8px;padding:8px;font-size:15px;width:100%}
+input[type=checkbox]{width:auto;vertical-align:middle}input[type=range]{padding:0;border:0;background:none;accent-color:var(--acc)}
+.pvrow{display:flex;align-items:center;gap:8px;margin-top:6px}.pvrow button{width:auto;min-width:64px;padding:6px 10px}.pvrow small{white-space:nowrap}
+.seg{display:inline-flex;gap:4px}.seg button{width:auto;padding:4px 10px;font-size:13px;background:var(--b);color:var(--fg)}.seg button.on{background:var(--acc);color:#fff}
+select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 </style></head><body>
 <header><h1 id="title">MimicKit</h1><span><button id="ctlbtn" class="off">Controls: off</button><small><a href="#" id="theme">light</a> · <span id="age"></span></small></span></header>
 <div class="card" id="panel" style="display:none"><b>Controls</b> <small id="ctlnote"></small>
@@ -325,8 +328,15 @@ input{background:var(--bg);color:var(--fg);border:1px solid var(--b);border-radi
 <div class="card"><small>Return - drag sideways to pan, pinch to zoom time, double-tap to reset</small><canvas id="c1"></canvas>
 <small>M samples / hour</small><canvas id="c2"></canvas>
 <div id="psw" style="display:none"><small>Avg reward per step (%)</small><canvas id="c3"></canvas></div></div>
-<div class="card"><div id="pv"><small>No preview yet.</small></div><p></p>
-<button id="render">Render preview</button><p><small id="rmsg"></small></p></div>
+<div class="card"><div id="pv"><small>No preview yet.</small></div>
+<div id="pvc" style="display:none"><div class="pvrow"><button class="sec2" id="pv_play">Play</button><input type="range" id="pv_seek" min="0" max="1000" value="0" step="1"><small id="pv_time">0:00 / 0:00</small></div>
+<details class="sec" id="s_pv"><summary>Preview options <span class="cnt" id="n_pv"></span></summary>
+<div class="row"><span class="k">Clip</span><select id="pv_sel"></select></div>
+<div class="row"><span class="k">Speed</span><span class="seg" id="pv_rate"><button data-r="0.25">0.25&times;</button><button data-r="0.5">0.5&times;</button><button data-r="1">1&times;</button></span></div>
+<div class="row"><span class="k">Loop</span><label><input type="checkbox" id="pv_loop"> play again from the start</label></div>
+<div class="row"><span class="k">File</span><a id="pv_dl" href="#">Download MP4</a></div></details></div><p></p>
+<button id="render">Render new preview</button><div id="rprog" style="display:none;margin-top:6px"><div class="bar"><div id="rbar" style="background:var(--acc)"></div></div><small id="rstage"></small></div><p><small id="rmsg"></small></p></div>
+<!--EXTRA_HTML-->
 <div class="card"><small>Controls are off unless allowed on the PC (PIN required). Updates every 10 s.</small></div>
 <script>
 const T=new URLSearchParams(location.search).get('t')||'';const H={'X-Token':T};let S=null,view=null,pvKey='',hov=null;
@@ -396,10 +406,34 @@ async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no
  for(const k of ['session_time','total_time','samples','rate','estimate','per_step','vram'])q(k).textContent=S[k]||'-';
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
  q('age').textContent=new Date().toLocaleTimeString();draw();
- const p=S.preview;if(p&&p.key!==pvKey){pvKey=p.key;q('pv').innerHTML='<small>'+p.name+'</small><video controls playsinline preload="metadata" src="/preview.mp4?t='+encodeURIComponent(T)+'&k='+encodeURIComponent(p.key)+'"></video>'}
- if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||'';CTL=!!S.control;updCtl()}catch(e){q('state').textContent='offline - retrying'}}
+ pvList();rProg();
+ if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||S.stop_save_msg||'';CTL=!!S.control;updCtl();if(window.extraTick)extraTick()}catch(e){q('state').textContent='offline - retrying'}}
+// ---- preview card (a0.8.0): play/pause, scrub, loop (no autoplay), clip choice, 0.25/0.5/1x, download, render progress
+let PV=null,pvPinned='',SEEKING=false;const pvRate=()=>+(localStorage.mkPvRate||1);
+const pvSrc=(k,dl)=>'/preview.mp4?t='+encodeURIComponent(T)+'&k='+encodeURIComponent(k)+(dl?'&dl=1':'');
+const fmt=t=>{t=Math.max(0,t||0);return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0')};
+function pvUpd(){if(!PV)return;const d=PV.duration||0;q('pv_play').textContent=PV.paused?'Play':'Pause';if(!SEEKING)q('pv_seek').value=d?Math.round(PV.currentTime/d*1000):0;q('pv_time').textContent=fmt(PV.currentTime)+' / '+fmt(d)}
+function pvLoad(p){pvKey=p.key;const box=q('pv');box.textContent='';const lab=document.createElement('small');lab.textContent=p.name+(p.run?' \u00b7 '+p.run:'');
+ const v=document.createElement('video');v.setAttribute('playsinline','');v.preload='metadata';v.src=pvSrc(p.key);v.loop=localStorage.mkPvLoop==='1';box.append(lab,v);PV=v;
+ for(const ev of ['timeupdate','play','pause','ended','loadedmetadata'])v.addEventListener(ev,()=>{if(ev==='loadedmetadata')v.playbackRate=pvRate();pvUpd()});
+ v.onclick=()=>q('pv_play').click();q('pvc').style.display='';q('pv_dl').href=pvSrc(p.key,1);q('pv_dl').setAttribute('download',p.name);pvUpd()}
+function pvList(){const L=(S&&S.previews)||[];const sel=q('pv_sel');q('n_pv').textContent=L.length?'('+L.length+' clips)':'';
+ const keys=L.map(p=>p.key).join('|');if(sel.dataset.keys!==keys){sel.dataset.keys=keys;sel.textContent='';for(const p of L){const o=document.createElement('option');o.value=p.key;o.textContent=p.when+' \u00b7 '+p.run+' \u00b7 '+p.name.replace('preview_','').replace('.mp4','');sel.append(o)}}
+ if(!L.length)return;const want=(pvPinned&&L.find(p=>p.key===pvPinned))||L[0];if(want.key!==pvKey&&!(PV&&!PV.paused))pvLoad(want);sel.value=pvKey}
+q('pv_sel').onchange=()=>{const L=(S&&S.previews)||[];const p=L.find(x=>x.key===q('pv_sel').value);if(p){pvPinned=p.key;pvLoad(p)}};
+q('pv_play').onclick=()=>{if(!PV)return;if(PV.paused){PV.playbackRate=pvRate();PV.play()}else PV.pause()};
+q('pv_seek').addEventListener('input',()=>{SEEKING=true;if(PV&&PV.duration){PV.currentTime=q('pv_seek').value/1000*PV.duration;pvUpd()}});
+q('pv_seek').addEventListener('change',()=>{SEEKING=false});
+q('pv_loop').checked=localStorage.mkPvLoop==='1';q('pv_loop').onchange=()=>{localStorage.mkPvLoop=q('pv_loop').checked?'1':'0';if(PV)PV.loop=q('pv_loop').checked};
+function rateBtns(){for(const b of q('pv_rate').children)b.classList.toggle('on',+b.dataset.r===pvRate())}
+for(const b of q('pv_rate').children)b.onclick=()=>{localStorage.mkPvRate=b.dataset.r;if(PV)PV.playbackRate=pvRate();rateBtns()};rateBtns();
+function rProg(){const r=(S&&S.render)||{};const on=r.active||(r.stage&&r.elapsed!==undefined&&Date.now()/1000-(S.updated||0)<600&&r.stage!=='Done');
+ q('rprog').style.display=(r.active||r.stage)?'':'none';q('rbar').style.width=(r.pct||0)+'%';
+ q('rstage').textContent=r.stage?(r.stage+(r.active?' \u00b7 '+fmt(r.elapsed||0)+' so far':'')+(r.origin?' \u00b7 started on the '+(r.origin==='phone'?'phone':'PC'):'')):'';
+ if(r.active&&!window.RFAST){window.RFAST=setTimeout(()=>{window.RFAST=0;tick()},2500)}
+ q('render').disabled=!!r.active;q('render').textContent=r.active?'Rendering... ('+(r.pct||0)+'%)':'Render new preview'}
 q('render').onclick=async()=>{q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:H});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
- setTimeout(()=>q('render').disabled=false,3000)};
+ setTimeout(tick,1500)};
 
 // ---- Controls panel (a0.7.0). Session token lives in localStorage, never in the URL; every action needs a fresh nonce.
 let SES=localStorage.mkSes||'',CTL=false;
@@ -409,7 +443,7 @@ q('ctlbtn').onclick=()=>{localStorage.mkCtlOpen=panelOpen()?'0':'1';showPanel()}
 for(const d of document.querySelectorAll('details.sec')){d.open=localStorage['mkSec_'+d.id]==='1';d.addEventListener('toggle',()=>localStorage['mkSec_'+d.id]=d.open?'1':'0')}
 async function cpost(what,body){const r=await fetch('/api/control/'+what,{method:'POST',headers:Object.assign({'Content-Type':'application/json','X-Session':SES},H),body:JSON.stringify(body||{})});
  let j={};try{j=await r.json()}catch(e){}if(r.status===401){SES='';localStorage.mkSes='';updCtl()}return [r.status,j]}
-async function act(action,params,msgEl){const [c1,n]=await cpost('nonce');if(c1!==200){(msgEl||q('ctlmsg')).textContent=n.error||('refused ('+c1+')');return}
+async function act(action,params,msgEl){const [c1,n]=await cpost('nonce',{action});if(c1!==200){(msgEl||q('ctlmsg')).textContent=n.error||('refused ('+c1+')');return}
  const [c,j]=await cpost(action,{nonce:n.nonce,params});(msgEl||q('ctlmsg')).textContent=j.message||j.error||('status '+c);setTimeout(tick,500)}
 function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: off';b.classList.toggle('off',!CTL);
  q('ctloff').style.display=CTL?'none':'';q('ctlon').style.display=CTL?'':'none';q('pinbox').style.display=CTL&&!SES?'':'none';
@@ -434,6 +468,7 @@ q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything sinc
 q('a_stopsave').onclick=()=>modal({title:S&&S.stop_save?'Cancel the stop after next save?':'Stop after the next save?',keep:'Confirm',ok:()=>act(S&&S.stop_save?'cancel_stop':'stop_after_save')});
 q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
 q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);modal({title:'Queue num_envs = '+v+' for the next resume?',keep:'Confirm',ok:()=>act('tweaks',{num_envs:Number.isInteger(n)?n:v},q('tweakmsg'))})};
+/*EXTRA_JS*/
 showPanel();
 tick();setInterval(tick,10000);window.addEventListener('resize',draw);
 </script></body></html>"""
@@ -449,7 +484,9 @@ class Dashboard:
         log=None,
         min_interval=RENDER_MIN_INTERVAL,
         control=None,
+        page_extra=None,
     ):
+        self.page_extra = page_extra  # () -> (html, js) added by overlay plugins
         self.token, self.host, self.port = token, host, int(port)
         self.control = control  # Control or None (= no control endpoints answer anything but 'off')
         self.on_render = on_render
@@ -519,7 +556,7 @@ class Dashboard:
                     if path == "/":
                         return self._send(
                             200,
-                            PAGE,
+                            dash.page(),
                             "text/html; charset=utf-8",
                             {
                                 "Set-Cookie": "mkt=%s; HttpOnly; SameSite=Strict; Path=/"
@@ -531,7 +568,9 @@ class Dashboard:
                     if path == "/chart.png":
                         return self._send(200, chart_png(dash.snapshot()), "image/png")
                     if path == "/preview.mp4":
-                        return self._file((dash.snapshot().get("preview") or {}).get("path"))
+                        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                        p = dash.preview_path((qs.get("k") or [""])[0])
+                        return self._file(p, download=(qs.get("dl") or [""])[0] == "1")
                     return self._send(404, '{"error": "not found"}')
                 except (BrokenPipeError, ConnectionResetError):
                     pass
@@ -554,13 +593,14 @@ class Dashboard:
                         data = data if isinstance(data, dict) else {}
                     except ValueError:
                         data = {}
-                    return self._send(*dash.control_request(path[13:], data, self.headers.get("X-Session", "")))
+                    return self._send(*dash.control_request(path[13:], data, self.headers.get("X-Session", ""),
+                                                             self.client_address[0]))
                 if path != "/api/render":
                     return self._send(404, '{"error": "not found"}')
                 code, msg = dash.request_render()
                 return self._send(code, json.dumps({"message": msg}))
 
-            def _file(self, p):
+            def _file(self, p, download=False):
                 if not p or not os.path.isfile(p):
                     return self._send(404, '{"error": "no preview yet"}')
                 size = os.path.getsize(p)
@@ -583,6 +623,9 @@ class Dashboard:
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Length", str(end - start + 1))
                 self.send_header("Cache-Control", "no-store")
+                if download:
+                    self.send_header("Content-Disposition", 'attachment; filename="%s"'
+                                     % re.sub(r'[^A-Za-z0-9._-]', "_", os.path.basename(p)))
                 if rng and m:
                     self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
                 self.end_headers()
@@ -620,7 +663,7 @@ class Dashboard:
             self.httpd = None
             threading.Thread(target=lambda: (h.shutdown(), h.server_close()), daemon=True).start()
 
-    def control_request(self, what, data, session):
+    def control_request(self, what, data, session, client="?"):
         """-> (code, json text). Every refusal carries a plain-language 'error'."""
         c = self.control
         if c is None or not c.enabled():
@@ -628,12 +671,29 @@ class Dashboard:
             if c is not None:
                 c.log("control: refused %s - control is off" % what)
         elif what == "login":
-            code, body = c.login(str(data.get("pin", "")))
+            code, body = c.login(str(data.get("pin", "")), client)
         elif what == "nonce":
-            code, body = c.new_nonce(session)
+            code, body = c.new_nonce(session, str(data.get("action", "")))
         else:
             code, body = c.act(session, data.get("nonce"), what, data.get("params"))
         return code, json.dumps(body)
+
+    def page(self):
+        html, js = "", ""
+        if self.page_extra:
+            try:
+                html, js = self.page_extra()
+            except Exception as e:
+                log_exc("dashboard: page extra", e)
+        return PAGE.replace("<!--EXTRA_HTML-->", html).replace("/*EXTRA_JS*/", js)
+
+    def preview_path(self, key):
+        """Local path of the preview with this key (from the PC's own list), else the newest one. Never a phone path."""
+        s = self.snapshot()
+        for p in s.get("previews") or []:
+            if key and p.get("key") == key:
+                return p.get("path")
+        return (s.get("preview") or {}).get("path")
 
     def public_snapshot(self):
         s = self.snapshot()
@@ -641,6 +701,8 @@ class Dashboard:
         p = s.get("preview")
         if p:
             s["preview"] = {k: p[k] for k in ("name", "key") if k in p}  # never the local path
+        if s.get("previews"):
+            s["previews"] = [{k: v for k, v in x.items() if k != "path"} for x in s["previews"]]
         return s
 
     def request_render(self):
@@ -814,6 +876,12 @@ ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks")
 TWEAK_RULES = {"num_envs": (int, 1, 65536)}  # name -> (type, min, max); applied on the next resume
 
 
+def _sk(token):
+    import hashlib
+
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def hash_pin(pin, salt=None):
     salt = salt or secrets.token_hex(8)
     import hashlib
@@ -847,15 +915,22 @@ def validate_tweaks(p):
 class Control:
     """PC-side gate for every phone control request. Thread-safe; never touches Tk.
     cfg_get() -> dict with allow_control (bool) and pin_hash; on_action(name, params) -> (http code, message)
-    runs in the server thread and must only queue GUI work. Every decision is logged via log()."""
+    runs in the server thread and must only queue GUI work. Every decision is logged via log().
+    a0.8.0: wrong-PIN lockout is per phone (client address), each nonce is bound to the one action it was asked for,
+    extra_actions() adds overlay actions (e.g. updates) behind the same PIN + session + nonce gate."""
 
-    def __init__(self, cfg_get, on_action, log=None, now=time.time):
+    def __init__(self, cfg_get, on_action, log=None, now=time.time, extra_actions=None):
         self.cfg_get, self.on_action, self.log, self.now = cfg_get, on_action, log or (lambda m: None), now
+        self.extra_actions = extra_actions or (lambda: {})
         self._lock = threading.Lock()
-        self.sessions = {}  # token -> expiry
-        self.nonces = {}  # nonce -> (session, expiry)
+        self.sessions = {}  # sha256(session token) -> expiry (the raw token lives only on the phone)
+        self.nonces = {}  # nonce -> (session, expiry, action)
         self.used = {}  # nonce -> (code, body) : a repeated tap returns the first answer
-        self.fails, self.lock_until = 0, 0.0
+        self.fails = {}  # client -> wrong PINs in a row
+        self.lock_until = {}  # client -> time the lockout ends
+
+    def actions(self):
+        return tuple(ACTIONS) + tuple(self.extra_actions() or ())
 
     def enabled(self):
         c = self.cfg_get() or {}
@@ -871,47 +946,70 @@ class Control:
     def _off(self):
         return 403, {"error": "Turned off on the PC. Enable 'Allow phone control' in the launcher's Phone settings."}
 
-    def login(self, pin):
+    def login(self, pin, client="?"):
         if not self.enabled():
+            self.log("control: refused sign-in from %s - control is off" % client)
             return self._off()
         with self._lock:
             t = self.now()
-            if t < self.lock_until:
-                left = int(self.lock_until - t) + 1
+            until = self.lock_until.get(client, 0.0)
+            if t < until:
+                left = int(until - t) + 1
+                self.log("control: refused sign-in from %s - locked for %d s" % (client, left))
                 return 429, {"error": "Too many wrong PINs. Locked for %d more seconds." % left, "locked_s": left}
             if not check_pin(pin, (self.cfg_get() or {}).get("pin_hash")):
-                self.fails += 1
-                if self.fails >= MAX_PIN_FAILS:
-                    self.fails = 0
-                    self.lock_until = t + LOCKOUT_S
-                    self.log("control: %d wrong PINs - locked for %d s" % (MAX_PIN_FAILS, LOCKOUT_S))
+                n = self.fails[client] = self.fails.get(client, 0) + 1
+                if n >= MAX_PIN_FAILS:
+                    self.fails[client] = 0
+                    self.lock_until[client] = t + LOCKOUT_S
+                    self.log("control: %d wrong PINs from %s - that phone is locked for %d s" % (MAX_PIN_FAILS, client, LOCKOUT_S))
                     return 429, {"error": "Too many wrong PINs. Locked for %d seconds." % LOCKOUT_S, "locked_s": LOCKOUT_S}
-                self.log("control: wrong PIN (%d of %d)" % (self.fails, MAX_PIN_FAILS))
-                return 403, {"error": "Wrong PIN (%d tries left)." % (MAX_PIN_FAILS - self.fails)}
-            self.fails = 0
+                self.log("control: wrong PIN from %s (%d of %d)" % (client, n, MAX_PIN_FAILS))
+                return 403, {"error": "Wrong PIN (%d tries left)." % (MAX_PIN_FAILS - n)}
+            self.fails.pop(client, None)
             tok = secrets.token_urlsafe(24)
-            self.sessions[tok] = t + SESSION_HOURS * 3600
-        self.log("control: phone signed in (session valid %d h)" % SESSION_HOURS)
+            self.sessions[_sk(tok)] = t + SESSION_HOURS * 3600
+        self.log("control: phone %s signed in (session valid %d h)" % (client, SESSION_HOURS))
         return 200, {"session": tok, "hours": SESSION_HOURS}
 
     def _session_ok(self, s):
-        exp = self.sessions.get(s or "")
-        if exp and exp > self.now():
+        k = _sk(s or "")
+        exp = self.sessions.get(k)
+        if s and exp and exp > self.now():
             return True
-        self.sessions.pop(s or "", None)
+        self.sessions.pop(k, None)
         return False
 
-    def new_nonce(self, session):
+    def export_sessions(self):
+        """Signed-in phones (hashed tokens + expiry) for a window reload, so the phone stays signed in."""
+        with self._lock:
+            t = self.now()
+            return {k: v for k, v in self.sessions.items() if v > t}
+
+    def import_sessions(self, d):
+        with self._lock:
+            t = self.now()
+            for k, v in (d or {}).items():
+                if isinstance(k, str) and len(k) == 64 and isinstance(v, (int, float)) and t < v <= t + SESSION_HOURS * 3600:
+                    self.sessions[k] = float(v)
+        self.log("control: %d phone session(s) kept across the window reload" % len(d or {}))
+
+    def new_nonce(self, session, action=""):
         if not self.enabled():
+            self.log("control: refused confirmation for %s - control is off" % (action or "?"))
             return self._off()
         with self._lock:
             if not self._session_ok(session):
+                self.log("control: refused confirmation for %s - no valid session" % (action or "?"))
                 return 401, {"error": "Please enter the PIN again (session missing or expired)."}
+            if action not in self.actions():
+                self.log("control: refused confirmation - unknown action '%s'" % action)
+                return 400, {"error": "Unknown action '%s'." % action}
             n = secrets.token_urlsafe(16)
             t = self.now()
             self.nonces = {k: v for k, v in self.nonces.items() if v[1] > t}
-            self.nonces[n] = (session, t + NONCE_TTL)
-        return 200, {"nonce": n, "ttl": NONCE_TTL}
+            self.nonces[n] = (_sk(session), t + NONCE_TTL, action)
+        return 200, {"nonce": n, "ttl": NONCE_TTL, "action": action}
 
     def act(self, session, nonce, action, params=None):
         if not self.enabled():
@@ -924,11 +1022,18 @@ class Control:
             if nonce and nonce in self.used:
                 code, body = self.used[nonce]
                 return code, dict(body, repeat=True)
-            ent = self.nonces.pop(nonce or "", None)
-            if not ent or ent[0] != session or ent[1] < self.now():
+            ent = self.nonces.get(nonce or "")
+            if not ent or ent[0] != _sk(session) or ent[1] < self.now():
+                self.nonces.pop(nonce or "", None)
                 self.log("control: refused %s - missing or stale confirmation" % action)
                 return 403, {"error": "This tap wasn't confirmed (or the confirm box expired). Open it again."}
-            if action not in ACTIONS:
+            if ent[2] != action:
+                self.log("control: refused %s - the confirmation was for '%s'" % (action, ent[2]))
+                return 403, {"error": "This confirmation was for a different action. Open the box again."}
+            self.nonces.pop(nonce, None)
+            extra = self.extra_actions() or {}
+            if action not in ACTIONS and action not in extra:
+                self.log("control: refused unknown action '%s'" % action)
                 return 400, {"error": "Unknown action '%s'." % action}
             if action == "tweaks":
                 params, why = validate_tweaks(params)
@@ -937,7 +1042,10 @@ class Control:
                     self.used[nonce] = (400, {"error": why})
                     return 400, {"error": why}
             try:
-                code, msg = self.on_action(action, params or {})
+                if action in extra:
+                    code, msg = extra[action](params if isinstance(params, dict) else {})
+                else:
+                    code, msg = self.on_action(action, params or {})
             except Exception as e:
                 log_exc("control action")
                 code, msg = 500, "The PC couldn't do that (%s)." % e

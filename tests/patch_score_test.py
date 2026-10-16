@@ -220,24 +220,16 @@ app.s["remote"] = dict(enabled=False, host="0.0.0.0", port=8765, token="TOK")
 app.remote_dialog()
 root.update()
 qr = [w for w in app._rdlg.winfo_children()[0].winfo_children() if isinstance(w, tk.Canvas)][0]
-check("without qrcode: placeholder", not qr.find_withtag("qr") and R.load_qrcode() is None)
-os.makedirs(os.path.join(pkg, "qrcode"))
-open(os.path.join(pkg, "qrcode", "__init__.py"), "w").write(
-    "class QRCode:\n    def __init__(self, border=2): self.d = ''\n    def add_data(self, d): self.d = d\n    def make(self, fit=True): pass\n"
-    "    def get_matrix(self): return [[(x * y + x) % 3 == 0 for x in range(21)] for y in range(21)]\n"
-)
-btn = [
-    w
-    for w in app._rdlg.winfo_children()[0].winfo_children()
-    if isinstance(w, G.ttk.Button) and w.cget("text") == "Refresh"
-][0]
-btn.invoke()
-root.update()
-check(
-    "installed while open + Refresh -> QR drawn",
-    len(qr.find_withtag("qr")) > 50,
-    str(len(qr.find_withtag("qr"))),
-)
+check("without the qrcode package: QR drawn anyway (built-in encoder)", len(qr.find_withtag("qr")) > 50 and R.load_qrcode() is None,
+      str(len(qr.find_withtag("qr"))))
+from mkl import qr as QRM
+check("built-in QR matrix is the encoded URL's (version 3+, finder corners)",
+      app._qr_matrix == QRM.matrix("http://100.75.74.44:8765/?t=TOK") and all(app._qr_matrix[i][j] for i, j in ((0, 0), (0, 6), (6, 0))))
+dlg = app._rdlg
+dlg.update_idletasks()
+cx = dlg.winfo_rootx() + dlg.winfo_width() / 2 - (root.winfo_rootx() + root.winfo_width() / 2)
+cy = dlg.winfo_rooty() + dlg.winfo_height() / 2 - (root.winfo_rooty() + root.winfo_height() / 2)
+check("Phone dialog opens centred over the main window", abs(cx) < 40 and abs(cy) < 60, "%.0f %.0f" % (cx, cy))
 check("QR encodes the Tailscale URL", app._qr_url == "http://100.75.74.44:8765/?t=TOK", app._qr_url)
 copies = (
     [

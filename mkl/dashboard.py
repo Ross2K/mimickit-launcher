@@ -59,16 +59,14 @@ class DashboardMixin:
         if v:
             snap["vram"] = "%.1f / %.1f GB" % (v[0] / 1024, v[1] / 1024)
             snap["vram_pct"] = round(100 * v[0] / v[1])
-        mp4s = glob.glob(os.path.join(d, "preview_*.mp4")) + glob.glob(
-            os.path.join(self.mk(), "output", "*", "preview_*.mp4")
-        )
-        if mp4s:
-            p = max(mp4s, key=os.path.getmtime)
-            snap["preview"] = dict(
-                path=p,
-                name=os.path.basename(p),
-                key="%s-%d" % (os.path.basename(p), int(os.path.getmtime(p))),
-            )
+        snap["stop_save_msg"] = getattr(self, "stopsave_msg", "")
+        snap["render"] = dict(getattr(self, "render_prog", None) or {})
+        prev = self._preview_list(d)
+        if prev:
+            p = prev[0]["path"]
+            snap["preview"] = dict(path=p, name=os.path.basename(p), key=prev[0]["key"])
+            snap["previews"] = prev
+        self._plugin_call("snapshot", snap)
         self.snap = snap
         if self.dash:
             self.dash.set_snapshot(snap)
@@ -76,6 +74,64 @@ class DashboardMixin:
             threading.Thread(
                 target=self.notifier.send_status, args=(dict(snap),), daemon=True
             ).start()
+
+    PREVIEW_LIST_MAX = 12
+
+    def _preview_list(self, d):
+        """Newest preview MP4s (this run + every run folder), newest first. Paths stay on the PC: the phone only
+        gets name/key and asks for a key, never a path."""
+        mp4s = set(glob.glob(os.path.join(d, "preview_*.mp4")))
+        mp4s |= set(glob.glob(os.path.join(self.mk(), "output", "*", "preview_*.mp4")))
+        out = []
+        for p in mp4s:
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            out.append((st.st_mtime, st.st_size, p))
+        out.sort(reverse=True)
+        return [
+            dict(
+                path=p,
+                name=os.path.basename(p),
+                run=os.path.basename(os.path.dirname(p)),
+                key="%s-%d" % (os.path.basename(p), int(t)),
+                when=time.strftime("%b %d %H:%M", time.localtime(t)),
+                mb=round(sz / 1e6, 1),
+            )
+            for t, sz, p in out[: self.PREVIEW_LIST_MAX]
+        ]
+
+    # preview render progress for the phone (set from the preview reader thread: plain dict swaps, no Tk)
+    PREVIEW_STAGES = (
+        ("free RAM", 10, "Checking memory"),
+        ("PREVIEW VARIANT", 20, "Recording the motion"),
+        ("loaded", 30, "Recording the motion"),
+        ("setup ", 40, "Recording the motion"),
+        ("recorded with variant", 60, "Rendering frames"),
+        ("rendered ", 90, "Writing the MP4"),
+        ("PREVIEW_DONE", 100, "Done"),
+    )
+
+    def _preview_progress(self, line, origin=None):
+        rp = dict(getattr(self, "render_prog", None) or {})
+        if origin is not None:  # start
+            self.render_prog = dict(active=True, pct=5, stage="Starting", started=time.time(), origin=origin)
+            return
+        if not rp.get("active"):
+            return
+        for key, pct, stage in self.PREVIEW_STAGES:
+            if key in line and pct >= rp.get("pct", 0):
+                rp.update(pct=pct, stage=stage)
+        rp["elapsed"] = int(time.time() - rp.get("started", time.time()))
+        self.render_prog = rp
+
+    def _preview_ended(self, rc):
+        rp = dict(getattr(self, "render_prog", None) or {})
+        rp.update(active=False, pct=100 if rc == 0 else rp.get("pct", 0),
+                  stage="Done" if rc == 0 else "Failed (exit code %s) - see the PC log" % rc,
+                  elapsed=int(time.time() - rp.get("started", time.time())))
+        self.render_prog = rp
 
     def _remote_cfg(self):
         return self.s.setdefault("remote", {})
@@ -105,6 +161,7 @@ class DashboardMixin:
                     port,
                     on_render=self._remote_render,
                     control=self._control(),
+                    page_extra=self.plugin_page,
                     log=lambda m: self.q.put("[remote] %s\n" % m),
                 ).start()
                 self.dash.set_snapshot(self.snap)
@@ -120,17 +177,46 @@ class DashboardMixin:
     def _control(self):
         if not getattr(self, "ctl", None):
             self.ctl = R.Control(
-                self._remote_cfg, self._remote_action, log=lambda m: self.q.put("[remote] %s\n" % m)
+                self._remote_cfg,
+                self._remote_action,
+                log=lambda m: self.q.put("[remote] %s\n" % m),
+                extra_actions=self.plugin_actions,
             )
+            self._import_phone_sessions()
         return self.ctl
+
+    def _handoff_path(self):
+        return os.path.join(os.path.dirname(os.path.abspath(CONFIG)), "phone_sessions_handoff.json")
+
+    def export_phone_sessions(self):
+        """Before a window reload (e.g. after an update): hand the signed-in phones to the next window (hashed
+        session tokens only, valid for 2 minutes)."""
+        if not getattr(self, "ctl", None):
+            return
+        U.save_json(self._handoff_path(), dict(t=time.time(), sessions=self.ctl.export_sessions()), backup=False)
+
+    def _import_phone_sessions(self):
+        p = self._handoff_path()
+        try:
+            d = U.load_json(p)
+        except Exception:
+            return
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+        if time.time() - float(d.get("t", 0)) < 120:
+            self.ctl.import_sessions(d.get("sessions") or {})
 
     def _pending_text(self):
         """Pending / in-progress action for the status line (desktop + phone)."""
         ph = getattr(self, "remote_phase", "")
         if ph:
             return ph
+        if getattr(self, "stopsave_phase", "") == "stopping":
+            return "Saved - stopping training..."
         if getattr(self, "stop_save", None):
-            return "Will stop after next save"
+            return "Will stop after the next save"
         return ""
 
     def _save_in_progress(self):
@@ -165,28 +251,40 @@ class DashboardMixin:
         if action == "stop_after_save":
             if getattr(self, "stop_save", None):
                 return 200, "Already set: will stop after next save."
-            self.rq.put(lambda: None if self.stop_save else self.stop_after_save())
-            return 202, "Will stop after the next save."
+            self.rq.put(lambda: None if self.stop_save else self.stop_after_save("phone"))
+            return 202, "Will stop after the next save (if the PC refuses, the reason shows on the status line)."
         if action == "cancel_stop":
             if not getattr(self, "stop_save", None):
                 return 200, "Nothing to cancel."
-            self.rq.put(lambda: self.stop_after_save() if self.stop_save else None)
+            self.rq.put(lambda: self.stop_after_save("phone") if self.stop_save else None)
             return 202, "Stop after next save cancelled."
-        if action == "tweaks":
-            c = self._remote_cfg()
-            c["tweaks"] = dict(c.get("tweaks") or {}, **params)
-            self.rq.put(self._save_settings_only)
+        if action == "tweaks":  # settings belong to the GUI thread: queue the change, don't touch self.s here
+            p = dict(params)
+
+            def apply_tweaks():
+                c = self._remote_cfg()
+                c["tweaks"] = dict(c.get("tweaks") or {}, **p)
+                self._save_settings_only()
+                self._append("[remote] queued for the next resume: %s\n" % p)
+
+            self.rq.put(apply_tweaks)
             return 200, "Queued for the next resume: %s" % ", ".join("%s = %s" % kv for kv in params.items())
         return 400, "Unknown action."
 
-    def _remote_stop_gui(self):
+    SAVE_WAIT_MAX_S = 60  # a stop from the phone waits for a running save at most this long
+
+    def _remote_stop_gui(self, t0=None):
         if not self._training_running():
             self.remote_phase = ""
             return
+        t0 = t0 or time.time()
         if self._save_in_progress():
-            self.remote_phase = "Waiting for the save to finish..."
-            self.root.after(1000, self._remote_stop_gui)
-            return
+            if time.time() - t0 < self.SAVE_WAIT_MAX_S:
+                self.remote_phase = "Waiting for the save to finish..."
+                self.root.after(1000, self._remote_stop_gui, t0)
+                return
+            self._append("[remote] save still looked busy after %d s - stopping anyway (the previous model.pt "
+                         "or its .bak is kept)\n" % self.SAVE_WAIT_MAX_S)
         self.remote_phase = "Stopping..."
         self._append("[remote] stop now (from phone)\n")
         if getattr(self, "stop_save", None):
@@ -224,11 +322,13 @@ class DashboardMixin:
             self.render_msg = "No model.pt yet - nothing to preview."
             self._append("[remote] %s\n" % self.render_msg)
             return
-        self._append("[remote] preview requested from the dashboard\n")
-        self._start_preview(it, model)
+        self._append("[remote] preview requested from the dashboard (renders in the background; it is not "
+                     "opened on this PC)\n")
+        self._start_preview(it, model, origin="phone")
 
     def _preview_finished(self):
         self.render_msg = "Preview finished."
+        self._preview_ended(0)
         c = self.s.get("notify", {})
         if c.get("send_preview") and self.notifier.targets():
             mp4s = glob.glob(os.path.join(self.mk(), "output", "*", "preview_*.mp4")) + glob.glob(
@@ -352,34 +452,29 @@ class DashboardMixin:
                     row=i, column=2
                 )
             qr.delete("all")
-            q_mod = R.load_qrcode()
             self._qr_url = items[0][1] if items else ""
-            if q_mod is not None and items:
-                q = q_mod.QRCode(border=2)
-                q.add_data(items[0][1])
-                q.make(fit=True)
-                mtx = q.get_matrix()
-                k = 180 / len(mtx)
+            mtx = None
+            if items:
+                try:
+                    from mkl import qr as QR  # built in: no 'pip install qrcode' needed (a0.8.0)
+
+                    mtx = QR.matrix(items[0][1])
+                except Exception as e:
+                    log_exc("phone dialog: QR code", e)
+            if mtx:
+                q = 2  # quiet zone (modules); the canvas is white
+                k = 180 / (len(mtx) + 2 * q)
                 for yy, row in enumerate(mtx):
                     for xx, on in enumerate(row):
                         if on:
                             qr.create_rectangle(
-                                xx * k,
-                                yy * k,
-                                (xx + 1) * k,
-                                (yy + 1) * k,
-                                fill="black",
-                                outline="",
-                                tags="qr",
+                                (xx + q) * k, (yy + q) * k, (xx + q + 1) * k, (yy + q + 1) * k,
+                                fill="black", outline="", tags="qr",
                             )
+                self._qr_matrix = mtx
                 qr_lab.configure(text="QR: %s" % items[0][0])
             else:
-                qr.create_text(
-                    90,
-                    90,
-                    text="pip install qrcode\nfor a QR code,\nthen press Refresh;\nor use Copy",
-                    justify="center",
-                )
+                qr.create_text(90, 90, text="No QR code -\nuse Copy", justify="center")
                 qr_lab.configure(text="")
 
         self._rdlg_show = show_urls
@@ -475,6 +570,10 @@ class DashboardMixin:
             side="left", padx=4
         )
         show_urls()
+        # centred over the main window once everything (QR, link rows) is built - it used to be placed before the
+        # link rows existed and then grew down/right from there
+        top.update_idletasks()
+        place_popup(top, self.root)
         self._rdlg_vars = dict(
             enabled=v_en, port=v_port, host=v_host, apply=apply_, test=test, **vs
         )

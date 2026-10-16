@@ -36,6 +36,16 @@ With Tailscale connected on the phone, open:
 e.g. `http://my-pc:8765/?t=Ab3...`. Add it to the home screen for one-tap access. The page refreshes every 10 s.
 Pinch or drag a chart to zoom/pan the time axis, double-tap to reset. The preview video streams (HTTP range requests).
 
+**Preview card (a0.8.0).** Play/Pause and a scrub bar sit under the video. Nothing plays until you press Play. The
+closed *Preview options* section has:
+- the clip (the last 12 previews);
+- speed 0.25x / 0.5x / 1x;
+- *Loop* (remembered on the phone);
+- *Download MP4*.
+
+*Render new preview* shows a progress bar while it works. Previews you request from the phone never open a player
+on the PC.
+
 ## Do NOT port-forward
 
 Don't forward port 8765 on your router or expose it to the internet. The dashboard is plain HTTP (no TLS) and is

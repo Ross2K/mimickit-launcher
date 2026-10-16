@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.7.0"
+VERSION = "a0.8.0"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -204,6 +204,7 @@ HELP = {
 #   PREFERRED_TRAIN / PREFERRED_VIEW (list of config names), PRESETS (list of dicts:
 #   name, kind "train"/"view", file, args (extra list), out, num_envs, help),
 #   ACTIONS (list of dicts: text, help, run(app)) - extra buttons, see mkl/actions.py
+#   PLUGINS (list of callables plugin(app) -> object with optional hooks, see mkl/plugins.py)
 def build_id():
     """Commit a release zip was built from (tools/build.py writes BUILD into the zip); a git checkout has none."""
     try:
@@ -219,6 +220,7 @@ PREFERRED_TRAIN = ["deepmimic_humanoid_ppo"]
 PREFERRED_VIEW = ["view_motion_humanoid"]
 PRESETS = []
 ACTIONS = []
+PLUGINS = []
 if os.path.exists(os.path.join(HERE, "launcher_profile.py")):
     sys.path.insert(0, HERE)
     try:
@@ -227,7 +229,7 @@ if os.path.exists(os.path.join(HERE, "launcher_profile.py")):
         sys.path.remove(HERE)
     VERSION += getattr(_P, "VERSION_SUFFIX", "")
     HELP.update(getattr(_P, "HELP", {}))
-    for _k in ("RETURN_TEXT", "DEFAULT_ENVS", "PREFERRED_TRAIN", "PREFERRED_VIEW", "PRESETS", "ACTIONS"):
+    for _k in ("RETURN_TEXT", "DEFAULT_ENVS", "PREFERRED_TRAIN", "PREFERRED_VIEW", "PRESETS", "ACTIONS", "PLUGINS"):
         if hasattr(_P, _k):
             globals()[_k] = getattr(_P, _k)
 
@@ -1119,6 +1121,18 @@ class Tip:
         w.bind("<ButtonPress>", self.hide, add="+")
         w.bind("<Destroy>", self._gone, add="+")
 
+    @staticmethod
+    def flow(text):
+        """Let the tooltip wrap on its own (a0.6.1 UX item): single hard line breaks inside a sentence become spaces;
+        blank lines (paragraphs) and lines that start a list item ('-', digits, 'Example') stay."""
+        out = []
+        for i, line in enumerate(str(text).split("\n")):
+            if i and out and out[-1] != "" and line.strip() and not re.match(r"\s*(-|\*|\d+[.)]|Example|Or |e\.g\.)", line):
+                out[-1] = out[-1].rstrip() + " " + line.strip()
+            else:
+                out.append(line)
+        return "\n".join(out)
+
     def _schedule(self, _=None):
         self._cancel()
         self._after = self.w.after(self.DELAY, self.show)
@@ -1152,7 +1166,7 @@ class Tip:
             self.top._mk_tip = True
             tk.Label(
                 self.top,
-                text=self.text,
+                text=Tip.flow(self.text),
                 justify="left",
                 bg=T["tip_bg"],
                 fg=T["tip_fg"],

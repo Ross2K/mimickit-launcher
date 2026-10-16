@@ -290,8 +290,66 @@ class ProcessMixin:
                 best = m
         return best
 
+    # ---------------------------------------------------------------- imgui-bundle (Newton viewer window)
+    def _ensure_imgui(self, then):
+        """The Newton viewer window (View clip / Watch latest with 'Use Newton engine') needs the imgui-bundle package
+        in MimicKit's Python. If it's missing, install it once (pip, in the background, output in the log), then run.
+        Returns True if the caller should stop here (then() runs later)."""
+        if not self.v_newton.get() or getattr(self, "_imgui_busy", False):
+            return False
+        py = self.python()
+        ok = self.s.setdefault("imgui_ok", {})
+        tried = self.__dict__.setdefault("_imgui_tried", set())
+        if ok.get(py) or py in tried:
+            return False
+        try:  # quick probe (no imports, just "is it there"): newton present and imgui_bundle missing?
+            r = subprocess.run(
+                [py, "-c", "import importlib.util as u; print(int(bool(u.find_spec('newton'))), "
+                           "int(bool(u.find_spec('imgui_bundle'))))"],
+                capture_output=True, text=True, timeout=60, creationflags=NO_WINDOW)
+            has_newton, has_imgui = (r.stdout.split() + ["0", "0"])[:2]
+        except Exception as e:
+            log_exc("imgui probe", e)
+            return False
+        if has_newton != "1" or has_imgui == "1":
+            ok[py] = True  # nothing to do for this Python (no Newton, or already installed)
+            return False
+        self._imgui_busy = True
+        tried.add(py)  # one install attempt per Python per session (no retry loop)
+        self._append("[gui] the Newton viewer needs the imgui-bundle package - installing it now (one time, needs "
+                     "internet; output below)...\n")
+
+        def work():
+            try:
+                p = subprocess.Popen([py, "-m", "pip", "install", "--disable-pip-version-check", "imgui-bundle"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                     creationflags=NO_WINDOW)
+                for line in p.stdout:
+                    self.q.put("[pip] " + line)
+                res = "ok" if p.wait() == 0 else "pip failed (exit %s)" % p.returncode
+            except Exception as e:
+                res = "%s: %s" % (type(e).__name__, e)
+
+            def done():
+                self._imgui_busy = False
+                if res == "ok":
+                    ok[py] = True
+                    self._save_settings_only()
+                    self._append("[gui] imgui-bundle installed\n")
+                else:
+                    self._append("[gui] could not install imgui-bundle (%s) - starting anyway; if the viewer "
+                                 "window fails, check your internet connection and try again\n" % res)
+                then()
+
+            self.rq.put(done)
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
     def view(self):
         if not self._check("view"):
+            return
+        if self._ensure_imgui(self.view):
             return
         it = self._item("view")
         self._run(
@@ -378,6 +436,8 @@ class ProcessMixin:
 
     def watch(self):
         if not self._check("train"):
+            return
+        if self._ensure_imgui(self.watch):
             return
         model = self.v_model.get().strip() or self._latest_model()
         if not model:
@@ -536,7 +596,8 @@ class ProcessMixin:
             return
         return self._start_preview(it, model)
 
-    def _start_preview(self, it, model, diag=False):
+    def _start_preview(self, it, model, diag=False, origin="PC"):
+        """origin 'phone': rendered in the background only - never opened / played on the PC (--no_open)."""
         pdir = os.path.join(self.mk(), "output", "_launcher_preview")
         os.makedirs(pdir, exist_ok=True)
         view = self._view_env(it, "preview")
@@ -585,8 +646,7 @@ class ProcessMixin:
                 CLIP_LAYOUTS.get(self.v_layout.get(), "grid"),
                 "--out",
                 mp4,
-                "--",
-            ] + mk_args
+            ] + (["--no_open"] if origin != "PC" else []) + ["--"] + mk_args
         logp = os.path.join(pdir, CONSOLE_FILE)
         try:
             offset = os.path.getsize(logp) if os.path.exists(logp) else 0
@@ -620,6 +680,8 @@ class ProcessMixin:
                 self.preview_proc.pid,
             )
         )
+        if not diag:
+            self._preview_progress("", origin=origin)
         threading.Thread(
             target=self._reader,
             args=(self.preview_proc, logp, offset, None, "preview"),
@@ -798,6 +860,8 @@ class ProcessMixin:
         def emit(lines):
             for line in lines:
                 self.q.put(line)
+                if kind == "preview":
+                    self._preview_progress(line)
                 if kind is None:
                     self.sm_q.put(line)
                 if feed:
@@ -842,6 +906,7 @@ class ProcessMixin:
             self.sm_q.put(ended)
         elif kind == "preview" and proc.returncode not in (0, None):
             self.sm_q.put(("preview_end", proc.returncode, logp))
+            self._preview_ended(proc.returncode)
         if kind == "preview" and proc.returncode == 0:
             self.rq.put(self._preview_finished)  # GUI thread: it reads Tk variables
 

@@ -25,6 +25,7 @@ TESTS = [
     "dashboard_touch_test",
     "trainsettings_test",
     "decimate_test",
+    "dashboard_page_test",
     "chart_lines_test",
     "placement_test",
     "fixes042_test",
@@ -93,7 +94,8 @@ def run_tests(d):
         else []
     )
     bad = []
-    for t in TESTS + list(KNOWN):
+    extra = sorted(f[:-3] for f in os.listdir(os.path.join(d, "tests")) if f.endswith("_z_test.py"))  # overlay-only
+    for t in TESTS + extra + list(KNOWN):
         shutil.rmtree(
             os.path.join(d, "tests", "fake_mimickit", "output"), ignore_errors=True
         )  # fresh state per test

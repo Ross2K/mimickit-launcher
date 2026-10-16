@@ -3,6 +3,44 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.0
+
+### Added
+- **Phone preview controls** on the existing preview card: Play/Pause, a scrub bar with time, and a closed-by-default
+  *Preview options* section with clip choice (the last 12 previews), speed 0.25x / 0.5x / 1x, a Loop switch, and
+  *Download MP4*. Nothing plays until you press Play. *Render new preview* shows a progress bar.
+- **Desktop shortcut**: double-click *Create desktop shortcut.bat* to get a Desktop and Start-menu shortcut that starts
+  the launcher without a console and with its own taskbar icon.
+- **Built-in QR code** in the Phone dialog. You don't need to install anything for it.
+- imgui-bundle (needed by the Newton viewer) is installed automatically the first time it's missing. It tries once
+  per session and logs the result.
+- Extension points for personal overlays (settings widgets, phone cards and actions, run-ended hooks).
+
+### Changed
+- **Charts scroll much faster on long runs.** Only the visible part is drawn, at about one point per pixel, and the
+  full redraw waits until scrolling stops. Scroll time per wheel step: 94 ms -> 0.8 ms at 20k points,
+  191 ms -> 0.8 ms at 200k points.
+- Phone-requested previews render without opening a player on the PC.
+- The Phone dialog opens centred on the launcher.
+- The taskbar shows the launcher icon from the first moment (AppUserModelID and icon are set before the window shows).
+- Phone safety: a wrong-PIN lockout locks only that phone. Each confirmation works only for the action it was opened
+  for. Tweaks are applied on the window's own thread. A stop that waits for a save waits at most 60 s, and it is
+  logged when that limit is hit.
+- a0.6.1 items: the chart "?" badge sits in the title row and is bigger. Tooltips wrap cleanly. The banner shows
+  "Will stop after the next save". The y-axis labels no longer overlap. The status column wraps instead of being cut
+  off. Training settings stack on narrow screens.
+
+### Fixed
+- **Stop after next save** could stay armed and never stop, and do it silently. Two causes:
+  1. The "armed" state was cleared *before* the stop was attempted, so a stop that failed left training running with
+     nothing on screen.
+  2. Under pythonw, any error in the window's timer loop ended that loop without a trace.
+  Now:
+  - It detects the save from two signals (model.pt and log.txt).
+  - It checks that training really ended and retries once if it didn't.
+  - Any refusal or error is shown under the button and logged.
+  - Window timer errors are caught, logged and shown.
+
 ## a0.7.0
 
 ### Added

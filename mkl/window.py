@@ -4,6 +4,28 @@ from mkl.core import *  # noqa: F401,F403 - shared helpers/constants
 from mkl.core import __all__ as _core_names  # noqa: F401
 
 
+class TitleBox(ttk.LabelFrame):
+    """LabelFrame whose title row can hold extra widgets (the chart '?' badge). configure(text=) / cget('text') still
+    work on the title text."""
+
+    def __init__(self, master, text="", **kw):
+        self.title_row = ttk.Frame(master)
+        self._title = ttk.Label(self.title_row, text=text, style="TLabelframe.Label")
+        self._title.pack(side="left")
+        super().__init__(master, labelwidget=self.title_row, **kw)
+
+    def configure(self, cnf=None, **kw):
+        if "text" in kw:
+            self._title.configure(text=kw.pop("text"))
+        if cnf or kw:
+            return super().configure(cnf, **kw)
+
+    config = configure
+
+    def cget(self, key):
+        return self._title.cget("text") if key == "text" else super().cget(key)
+
+
 class MainWindowMixin:
     """Main window: layout, theme, dialogs, log panel, GPU/VRAM meter, closing."""
 
@@ -71,6 +93,8 @@ class MainWindowMixin:
         b3.grid(row=1, column=4, padx=8)
         cbx.grid_configure(row=0, rowspan=1)
         Tip(b, HELP["remote"])
+        self.plugin_frame = ttk.Frame(st)  # overlay plugins add their buttons here (none in the public build)
+        self.plugin_frame.grid(row=0, column=6, rowspan=2, padx=4, sticky="w")
 
     def _build_job(self, top):
         """'What to run': configs, num_envs, output folder, run buttons, preview options."""
@@ -101,8 +125,7 @@ class MainWindowMixin:
         Tip(self.b_envswitch, HELP["envs_live"])
         self.l_envswitch = ttk.Label(job, text="", style="Dim.TLabel")
         self.l_envswitch.grid(row=7, column=0, columnspan=6, sticky="w")
-        self.l_stopsave = ttk.Label(job, text="", style="Dim.TLabel")
-        self.l_stopsave.grid(row=8, column=0, columnspan=6, sticky="w")
+        self.l_envswitch.grid_remove()  # takes no room until there is something to say
         ttk.Label(job, text="Output folder").grid(row=2, column=2, sticky="e")
         self.v_out = tk.StringVar()
         e = ttk.Entry(job, textvariable=self.v_out, width=36)
@@ -168,6 +191,10 @@ class MainWindowMixin:
         b.pack(side="left", padx=3)
         Tip(b, HELP["tsettings"])
         self._build_actions(bfa)  # launcher_profile.py ACTIONS (none in the public build)
+        # 'Stop after next save' status / refusal, right under the run buttons (a0.8.0: refusals are visible here)
+        self.l_stopsave = ttk.Label(bfa, text="", style="Dim.TLabel")
+        self.l_stopsave.pack(side="left", padx=(12, 0))
+        self.l_stopsave.pack_forget()
         ttk.Label(bfb, text="Preview device").pack(side="left", padx=(3, 4))
         self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
         cb = ttk.Combobox(
@@ -241,7 +268,9 @@ class MainWindowMixin:
             justify="left",
             font=("Segoe UI", 10) if IS_WIN else ("TkDefaultFont", 10),
         )
-        self.l_status.pack(anchor="w")
+        self.l_status.pack(anchor="w", fill="x")
+        # wrap to the column instead of being cut off on the right (a0.6.1 item: 'speed 7.50 M samples/' was clipped)
+        stf.bind("<Configure>", lambda e: self.l_status.configure(wraplength=max(200, e.width - 16)), add="+")
         tgf = ttk.Frame(stf)
         tgf.pack(anchor="w", fill="x", pady=(2, 0))
         ttk.Label(tgf, text="Progress target").pack(side="left")
@@ -293,7 +322,7 @@ class MainWindowMixin:
 
     def _build_charts(self, mid):
         """Training progress charts with navigation buttons."""
-        right = ttk.LabelFrame(
+        right = TitleBox(
             mid,
             text="Training progress (refreshed every 10 s)",
             padding=4,
@@ -331,9 +360,10 @@ class MainWindowMixin:
         Tip(self.b_home, HELP["chartnav"])
         Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
-        # chart help: a small '?' badge in the top-right corner (hover shows the help, kept inside the window)
-        self.chart_help = tk.Label(self.canvas.get_tk_widget(), text="?", width=2, cursor="question_arrow")
-        self.chart_help.place(relx=1.0, x=-6, y=6, anchor="ne")
+        # chart help: '?' badge in the chart's title row, next to 'Training progress' (a0.6.1 UX item: it used to be
+        # a tiny badge on the end of the Return line); hover shows the help, kept inside the window
+        self.chart_help = tk.Label(right.title_row, text="?", width=2, cursor="question_arrow")
+        self.chart_help.pack(side="left", padx=(8, 0))
         Tip(self.chart_help, HELP["chartnav"])
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
         self.canvas.mpl_connect("button_press_event", self._on_click)
@@ -373,6 +403,7 @@ class MainWindowMixin:
         st.configure("TLabel", background=T["bg"], foreground=T["fg"])
         st.configure("Dim.TLabel", background=T["bg"], foreground=T["dim"])
         st.configure("Good.TLabel", background=T["bg"], foreground=T["good"])
+        st.configure("Err.TLabel", background=T["bg"], foreground=T["err"])
         st.configure(
             "Big.TLabel", background=T["bg"], foreground=T["fg"], font=("Segoe UI", 12, "bold")
         )
@@ -461,7 +492,7 @@ class MainWindowMixin:
             self._style_ax(ax)
         self.canvas.get_tk_widget().configure(bg=T["panel"], highlightthickness=0)
         self.chart_help.configure(
-            bg=T["panel"], fg=T["dim"], relief="solid", bd=1, font=("Segoe UI", 8, "bold"),
+            bg=T["panel"], fg=T["accent"], relief="solid", bd=1, font=("Segoe UI", 10, "bold"),
             highlightthickness=0,
         )
         self._restyle_artists()
@@ -650,13 +681,39 @@ class MainWindowMixin:
                 return
             if a == "detach":
                 self._tt_save()
+                self._plugin_call("closing")
+                if self.dash:
+                    self.dash.stop()
                 self.root.destroy()
                 return  # it keeps running; the next launcher window reattaches
             self.stop()
         self._tt_save(final=True)
+        self._plugin_call("closing")
         if self.dash:
             self.dash.stop()
         self.root.destroy()
+
+    def _tk_callback_error(self, exc, val, tb):
+        """root.report_callback_exception: any error in a button / timer callback."""
+        import traceback
+
+        try:
+            with open(U.log_path() if hasattr(U, "log_path") else os.devnull, "a", encoding="utf-8") as f:
+                f.write("".join(traceback.format_exception(exc, val, tb)))
+        except Exception:
+            pass
+        self._gui_error("button/timer", val)
+
+    def _gui_error(self, where, e):
+        log_exc(where, e)
+        msg = "Launcher error in %s: %s: %s (details in launcher_errors.log)" % (where, type(e).__name__, e)
+        try:
+            self._append("[gui] %s\n" % msg)
+            if hasattr(self, "ban_detail"):
+                self.ban_detail.configure(text="error: %s" % type(e).__name__)
+        except Exception:
+            pass
+        self.last_gui_error = msg
 
     def _append(self, s):
         if not hasattr(self, "t_log"):
@@ -676,13 +733,18 @@ class MainWindowMixin:
                     self.root.after(
                         50, lambda: self._progress_tick(force=True)
                     )  # save final history
+                    self.root.after(100, self._plugin_call, "run_ended")
         except queue.Empty:
             pass
-        try:
-            while True:
-                self.rq.get_nowait()()
-        except queue.Empty:
-            pass
+        for _ in range(200):  # GUI work queued by other threads; one failing job no longer stops the pump
+            try:
+                job = self.rq.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                job()
+            except Exception as e:
+                self._gui_error("queued job", e)
         self.root.after(200, self._pump)
 
     def _show_cmd(self, cmd, cwd=None):

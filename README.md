@@ -94,7 +94,8 @@ keeps running:
    Policy / Reference legend sits in the corner.
    **Clip layout** (with 2+ motions): *All at once* (default) = a 1x2 or 2x2 grid, one camera per clip, shorter clips
    hold their last frame; *One after another* = the clips in sequence. Each panel is labelled with its clip file name.
-4. The video is saved as `preview_<iteration>.mp4` next to the model and opened with your default player.
+4. The video is saved as `preview_<iteration>.mp4` next to the model and opened with your default player (previews
+   requested from the phone are not opened on the PC).
 
 Progress and messages appear in the log panel. **RAM limit:** the preview uses at most 80% of the RAM that is free
 when it starts; render workers are sized to fit, the memory of its processes is watched, and it stops cleanly with a
@@ -181,6 +182,9 @@ launch.bat
 Linux: `./launch.sh`. If `launch.bat` picks the wrong Python, run it directly with your MimicKit venv:
 `C:\path\to\MimicKit\.venv\Scripts\pythonw.exe mimickit_launcher.py`
 (or set the `MIMICKIT_LAUNCHER_PYTHON` environment variable to that path).
+
+**Desktop shortcut:** double-click `Create desktop shortcut.bat` once. You get a *MimicKit Launcher* shortcut on the
+Desktop and in the Start menu, with the launcher icon and no console window. Pin it to the taskbar if you like.
 
 On first start, choose your MimicKit folder (the one containing `mimickit\run.py` and `args\`).
 The launcher runs MimicKit with the venv Python it finds (you can change it in **Settings**).
