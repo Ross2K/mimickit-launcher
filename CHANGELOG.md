@@ -11,6 +11,10 @@ Small phone/wording polish (GUI only, no training or patch files changed).
 - Phone "Parallel sims": hint "Whole number, e.g. 64" under the field; Start/Continue stay disabled until it is valid.
 - Browser tab title matches the header ("MimicKit · run"); PIN label "6–12 digits"; "Working…" everywhere.
 - Z build: plainer updater messages (technical part under Details).
+- PC window (1080p): opens at ~85 % of the screen above the taskbar (maximized on screens up to 1600 px wide),
+  remembers its size/position/maximized state, minimum 1100x720. The Status view scrolls instead of being cut off.
+  Charts use the real screen DPI and shorter axis labels; charts get 3/5 of the width. Startup log line shows DPI
+  awareness and Tk scaling.
 
 ## a0.8.2
 

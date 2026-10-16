@@ -323,6 +323,8 @@ check(
 check("OOM card says 'practice characters (num_envs)'", "number of practice characters (num_envs)" in app.card_texts["cuda_oom"]["what"])
 check("OOM card: first mention 'saved progress (model.pt)'", "Your saved progress (model.pt)" in app.card_texts["cuda_oom"]["safe"])
 check("error banner wording", SM.BANNER["error"][1] == "Training stopped with an error. Your saved progress is safe; see below.")
+app.root.minsize(1, 1)  # a0.8.3 minsize 1100x720 - this check wants a narrow window
+app.root.state("normal")
 app.root.geometry("700x880")
 app._paint_banner("error", SM.BANNER["error"][1])
 app.root.update()

@@ -21,6 +21,7 @@ from mkl.plugins import PluginsMixin
 from mkl.runs import RunsMixin
 from mkl.clips import ClipsMixin
 from mkl import icon
+import re
 
 
 class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin):
@@ -33,14 +34,6 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         icon.apply_icon(root)
         self._icon_shortcut_check()
         root.deiconify()  # main() keeps it hidden until here (icon first); pop-ups below need a visible owner
-        # DPI awareness is on: scale the 96-dpi base size, clamped to the screen
-        try:
-            k = max(1.0, root.winfo_fpixels("1i") / 96.0)
-        except Exception:
-            k = 1.0
-        w = min(int(1280 * k), root.winfo_screenwidth())
-        h = min(int(880 * k), root.winfo_screenheight())
-        root.geometry("%dx%d" % (w, h))
         U.set_log_path(
             os.path.join(os.path.dirname(os.path.abspath(CONFIG)), "launcher_errors.log")
         )
@@ -50,6 +43,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
             self.v_light = tk.BooleanVar(value=False)
             self.apply_theme()
             self.s = resolve_damaged_settings(self.choose, problems[0])
+        self._place_window()
         self._register_secrets()
         self.proc = None
         self.q = queue.Queue()
@@ -98,6 +92,57 @@ def _wait_for_pid(argv):
     t0 = time.time()
     while time.time() - t0 < 30 and proc_info(pid) and proc_info(pid).get("alive"):
         time.sleep(0.25)
+
+
+def _place_window(self):
+    """a0.8.3: open at ~85 % of the work area, centred above the taskbar; maximized on screens <= 1600 px wide;
+    the last size / position / maximized state is restored (if it still fits on the screen). minsize 1100x720."""
+    root = self.root
+    x0, y0, aw, ah = icon.work_area(root)
+    root.minsize(min(1100, aw), min(720, ah))
+    st = self.s.get("window") or {}
+    g = st.get("geometry", "")
+    m = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$", g or "")
+    if m and int(m.group(1)) <= aw + 16 and int(m.group(2)) <= ah + 16 and \
+            x0 - 50 <= int(m.group(3)) < x0 + aw - 100 and y0 - 50 <= int(m.group(4)) < y0 + ah - 100:
+        root.geometry(g)
+        zoom = bool(st.get("zoomed"))
+    else:
+        w, h = int(aw * 0.85), int(ah * 0.85)
+        root.geometry("%dx%d+%d+%d" % (w, h, x0 + (aw - w) // 2, y0 + (ah - h) // 2))
+        zoom = aw <= 1600
+    if zoom:
+        try:
+            root.state("zoomed")
+        except tk.TclError:
+            try:
+                root.attributes("-zoomed", True)
+            except tk.TclError as e:
+                U.log_exc("window: maximize", e)
+    try:
+        scaling = float(root.tk.call("tk", "scaling"))
+    except (tk.TclError, ValueError):
+        scaling = 0.0
+    msg = ("[gui] screen: work area %dx%d, DPI awareness %s, Tk scaling %.2f (%.0f dpi)%s\n" % (
+        aw, ah, {True: "on", False: "OFF (Windows may blur/stretch the window)", None: "n/a"}[icon.DPI_STATE["aware"]]
+        if sys.platform == "win32" else "n/a", scaling, scaling * 72, ", maximized" if zoom else ""))
+    root.after(800, lambda: self._append(msg))
+
+
+def _save_window_state(self):
+    root = self.root
+    try:
+        zoomed = root.state() == "zoomed" or bool(root.attributes("-zoomed"))
+    except tk.TclError:
+        zoomed = False
+    st = self.s.setdefault("window", {})
+    st["zoomed"] = zoomed
+    if not zoomed:
+        st["geometry"] = root.geometry()
+
+
+App._place_window = _place_window
+App._save_window_state = _save_window_state
 
 
 def _icon_shortcut_worker(app):

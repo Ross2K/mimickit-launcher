@@ -41,7 +41,7 @@ class MainWindowMixin:
         mid = ttk.Panedwindow(self.root, orient="horizontal")
         mid.pack(fill="both", expand=True, padx=6, pady=4)
         left = ttk.Frame(mid)
-        mid.add(left, weight=1)
+        mid.add(left, weight=2)  # a0.8.3: left 2 : charts 3
         self._build_status(left)
         self._build_cards(left)
         self._build_output(left)
@@ -350,10 +350,15 @@ class MainWindowMixin:
             text="Training progress (refreshed every 10 s)",
             padding=4,
         )
-        mid.add(right, weight=1)
+        mid.add(right, weight=3)
         self.prog_frame = right
-        self.root.after(300, lambda: mid.sashpos(0, 600))
-        self.fig = Figure(figsize=(5.5, 5), dpi=90, layout="constrained")
+        self.root.after(300, lambda: mid.sashpos(0, max(560, int(mid.winfo_width() * 0.4))))
+        # a0.8.3: real screen DPI (x Windows scale) instead of a fixed 90 dpi - text no longer crunched at 125 %
+        try:
+            dpi = max(72.0, min(240.0, float(self.root.winfo_fpixels("1i"))))
+        except (tk.TclError, ValueError):
+            dpi = 96.0
+        self.fig = Figure(figsize=(560 / dpi, 500 / dpi), dpi=dpi, layout="constrained")
         self.v_ps = tk.BooleanVar(value=bool(self.s.get("per_step_chart", True)))
         self.ax3 = None
         self._make_axes()
@@ -685,6 +690,11 @@ class MainWindowMixin:
         threading.Thread(target=loop, daemon=True).start()
 
     def _on_close(self):
+        try:
+            self._save_window_state()
+            self._save_settings_only()
+        except Exception as e:
+            U.log_exc("window: save size", e)
         if self.proc and self.proc.poll() is None:
             a = self.choose(
                 "Training is still running",

@@ -696,7 +696,7 @@ class ChartsMixin:
             self.ax1.legend(loc="lower right", fontsize=8)
         for ax in self._axes():
             ax.set_xlabel(
-                "Total samples, all sessions (millions)" if ax is self._axes()[-1] else ""
+                "Samples, all sessions (M)" if ax is self._axes()[-1] else ""
             )
             self._style_ax(ax)  # after legend()
 

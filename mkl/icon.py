@@ -73,10 +73,28 @@ def hide_own_console():
         return False
 
 
+DPI_STATE = {"aware": None}
+
+
+def work_area(root):
+    """(x, y, w, h) of the primary screen without the taskbar (Windows); the whole screen elsewhere."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            r = wintypes.RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(r), 0):  # SPI_GETWORKAREA
+                return r.left, r.top, r.right - r.left, r.bottom - r.top
+        except Exception as e:
+            log_exc("icon: work area", e)
+    return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
+
+
 def prepare_process():
     """Everything that must happen before tk.Tk(): DPI awareness, our taskbar identity (AppUserModelID), and no
     stray console button. Works for every start path: the .exe starter, launch.bat, the .pyw, the .py, shortcuts."""
-    set_dpi_aware()
+    DPI_STATE["aware"] = set_dpi_aware()
     set_app_id()
     hide_own_console()
 

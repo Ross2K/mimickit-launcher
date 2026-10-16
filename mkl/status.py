@@ -80,7 +80,7 @@ class StatusMixin:
         self.st_panel = ttk.Frame(body)
         self.con_panel = ttk.Frame(body)
         self._build_console(self.con_panel)
-        self._build_status_panel(self.st_panel)
+        self._build_status_panel(self._scroll_area(self.st_panel))
         self._outview_changed(save=False)
 
     def _build_console(self, parent):
@@ -151,6 +151,41 @@ class StatusMixin:
         self.v_outview.set(v)
         self._outview_changed()
 
+    def _scroll_area(self, outer):
+        """a0.8.3: the Status view scrolls instead of being cut off on short screens (1080p at 125 %). The inner
+        frame fills the visible height when it fits (so its log still stretches), and scrolls when it doesn't."""
+        cv = tk.Canvas(outer, highlightthickness=0, bd=0, bg=T["bg"])
+        ys = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=ys.set)
+        cv.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(cv)
+        win = cv.create_window(0, 0, window=inner, anchor="nw")
+        self._st_canvas = cv
+
+        def fit(_=None):
+            need = inner.winfo_reqheight()
+            h = max(cv.winfo_height(), need)
+            cv.itemconfigure(win, width=cv.winfo_width(), height=h)
+            cv.configure(scrollregion=(0, 0, cv.winfo_width(), h))
+            if need > cv.winfo_height() + 2:
+                if not ys.winfo_manager():
+                    ys.pack(side="right", fill="y", before=cv)
+            elif ys.winfo_manager():
+                ys.pack_forget()
+                cv.yview_moveto(0)
+
+        cv.bind("<Configure>", fit)
+        inner.bind("<Configure>", lambda e: cv.after_idle(fit))
+
+        def wheel(e):
+            if ys.winfo_manager():
+                cv.yview_scroll(-1 if (getattr(e, "delta", 0) > 0 or getattr(e, "num", 0) == 4) else 1, "units")
+
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            cv.bind(seq, wheel)
+            inner.bind(seq, wheel)
+        return inner
+
     def _outview_changed(self, save=True):
         v = self.v_outview.get()
         show, hide = (
@@ -171,6 +206,8 @@ class StatusMixin:
     def _status_theme(self):
         if not hasattr(self, "ban_f"):
             return
+        if getattr(self, "_st_canvas", None):
+            self._st_canvas.configure(bg=T["bg"])
         for w in (self.st_events, self.st_warn):
             w.configure(
                 bg=T["log_bg"],
