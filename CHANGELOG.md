@@ -14,6 +14,14 @@ place: `VERSION` in `mkl/core.py`.
 - **Built-in QR code** in the Phone dialog. You don't need to install anything for it.
 - imgui-bundle (needed by the Newton viewer) is installed automatically the first time it's missing. It tries once
   per session and logs the result.
+- **Phone: Runs and MimicKit patches** (in the Controls panel, both closed by default).
+  - *Runs*: start a new training run with the same configs and presets the PC offers (num_envs, output folder,
+    "overwrite" for a folder that has a run already), or *Continue from run*, picking an earlier run.
+  - *MimicKit patches*: see each patch's state and apply or revert it (Z: the death patch too).
+  - Each action needs the PIN session, a one-time confirmation for that action, and a 2-second hold. The PC checks
+    every request again. Nothing starts while something runs, and patches are refused while training runs. Every
+    refusal is logged and shown on the phone.
+- Patches are now also refused on the PC while training runs (same rule as the phone).
 - Extension points for personal overlays (settings widgets, phone cards and actions, run-ended hooks).
 
 ### Changed

@@ -36,6 +36,18 @@ With Tailscale connected on the phone, open:
 e.g. `http://my-pc:8765/?t=Ab3...`. Add it to the home screen for one-tap access. The page refreshes every 10 s.
 Pinch or drag a chart to zoom/pan the time axis, double-tap to reset. The preview video streams (HTTP range requests).
 
+**Runs and patches (a0.8.0).** The Controls panel has two more closed sections:
+- *Runs*: pick a config (the same list as the PC), num_envs and an output folder (`output/...`), then hold
+  *Start new training*. To continue an earlier run, pick it under *Continue from* and hold *Continue from run*.
+  A folder that already has a run is only replaced if you tick *Overwrite*.
+- *MimicKit patches*: each patch with its state, plus Apply / Revert (hold to confirm).
+
+The PC checks everything again and refuses with a plain reason, which also goes in its log:
+- something is already running;
+- unknown config or run;
+- bad folder name;
+- patches while training runs.
+
 **Preview card (a0.8.0).** Play/Pause and a scrub bar sit under the video. Nothing plays until you press Play. The
 closed *Preview options* section has:
 - the clip (the last 12 previews);
