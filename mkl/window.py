@@ -108,6 +108,8 @@ class MainWindowMixin:
         st = ttk.LabelFrame(top, text="Settings", padding=6)
         st.pack(fill="x")
         self.v_mk = tk.StringVar(value=self.s.get("mimickit", ""))
+        self._mk_cache = self.v_mk.get().strip()
+        self.v_mk.trace_add("write", lambda *_: (setattr(self, "_mk_cache", self.v_mk.get().strip()), setattr(self, "_patch_cache", None)))  # worker threads see the new folder at once
         self.v_venv = tk.StringVar(value=self.s.get("venv", ""))
         for r, (lab, var) in enumerate(
             (

@@ -22,8 +22,12 @@ mk = os.path.join(HERE, "fake_mimickit")
 G.filedialog.askdirectory = lambda **k: mk
 shutil.rmtree(os.path.join(mk, "output"), ignore_errors=True)
 root = tk.Tk()
-root.geometry("1280x880")
+root.geometry("1280x1000")  # Z adds rows; keep the charts tall enough to drag
 app = G.App(root)
+root.update()
+app.CHART_MIN_2, app.CHART_MIN_3 = 0, 10**6  # pin the 2-chart layout (Return + Speed) whatever the height (Z adds rows)
+app._chart_short = 1
+app._make_axes()
 ok = []
 
 
@@ -117,7 +121,8 @@ def steps():
         "%s -> %s w=%s exp=%s" % (z, p, w, 80 * (z[1] - z[0]) / w),
     )
     check("vertical drag ignored while locked", a1.get_ylim() == y0)
-    drag(a2, *mid(a2), -40, 0)
+    y2 = a2.get_ylim()
+    drag(a2, mid(a2)[0], y2[0] + 0.15 * (y2[1] - y2[0]), -40, 0)  # below the legend (small charts)
     check("drag on the lower chart moves the upper one too", a1.get_xlim() == a2.get_xlim() != p)
     # unlock: narrow the y range so visible data lies outside -> drag moves y as well, for that chart only
     lo, hi = y0

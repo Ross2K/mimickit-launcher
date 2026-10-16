@@ -61,6 +61,10 @@ root = tk.Tk()
 root.geometry("1280x880")
 app = G.App(root)
 root.update()
+app.CHART_MIN_2, app.CHART_MIN_3 = 0, 10**6  # pin the 2-chart layout (Return + Speed) whatever the height (Z adds rows)
+app._chart_short = 1
+app._make_axes()
+root.update()
 ax = app.ax1
 for a in app._axes():
     a.clear()
