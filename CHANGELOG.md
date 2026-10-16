@@ -3,6 +3,24 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.1
+
+### Added
+- **Presets can say which MimicKit files they need.** Until those files are there, the preset is still listed but
+  greyed out with a plain hint (for example "run install_....bat once"). That applies to Start, Resume, Continue,
+  Watch and View on the PC, and to the phone's Runs list. Once the files are installed it works like any other
+  config.
+- **Choose which clips the MP4 preview shows** (up to 4). This is for datasets with many clips.
+  - PC: the *Clips...* button next to *Clip layout*. The choice is saved per training config, and a preset can set
+    sensible defaults.
+  - Phone: a clip list under *Preview options* that applies to that one render. The PC checks the names.
+
+### Fixed
+- Preview of AMP runs (steering etc.): the preview only forces its chosen clips onto its own reset, so MimicKit's
+  AMP demo sampling keeps working.
+- Console tables where the returns come before the Iteration row are now read as whole rows. This affects some AMP
+  task loggers. Extra AMP rows (Disc_*, Exp_Prob) and a `nan` value are ignored safely.
+
 ## a0.8.0
 
 ### Added
