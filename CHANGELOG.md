@@ -14,7 +14,7 @@ place: `VERSION` in `mkl/core.py`.
   beside it; stopping now needs a 2-second hold that unlocks 3 seconds after the box opens.
 - The status line (phone) shows the pending / in-progress action: *Will stop after next save*, *Stopping...*,
   *Waiting for the save to finish...*.
-- **Safety, all enforced on the PC**: *Allow control from phone* (Settings -> Phone + notifications) is off by
+- **Safety, all enforced on the PC**: *Allow phone control (needs a PIN)* (Settings -> Phone + notifications) is off by
   default and needs a PIN (stored only as a salted hash). The phone enters the PIN once for a 12-hour session
   (kept in the phone's storage, never in the URL or the view link); every action also needs a fresh one-time nonce
   from the confirm box. 5 wrong PINs lock sign-in for 5 minutes (time shown). Turning control off or changing the
@@ -30,6 +30,9 @@ place: `VERSION` in `mkl/core.py`.
 ### Fixed
 - Phone *Total training* showed "-" once the total passed a day (`1 day, 2:03:04` didn't match); it now shows the
   summed time over all sessions.
+- Background threads no longer touch Tk: a finished preview is handed to the GUI thread, and the MimicKit folder is
+  read from a cached string off the GUI thread. The dashboard checks the token before reading a request body,
+  clamps its size and times out idle connections after 10 s.
 - The GPU poll thread no longer prints a 'main thread is not in main loop' traceback when the window closes.
 - Plateau estimate no longer says *still improving steadily, no plateau in sight* when the last 10 hours gained
   far less than the run's average pace: it says *slowing down* or *plateaued* with the 10-hour gain.

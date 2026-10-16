@@ -144,7 +144,7 @@ yourself to force one.
 
 **Settings -> Phone + notifications...** (everything off by default):
 
-- **Phone dashboard** - a small web page (read-only unless you turn on *Allow control from phone*, PIN-protected) served by the launcher (Python standard library, in a background
+- **Phone dashboard** - a small web page (read-only unless you turn on *Allow phone control*, PIN-protected) served by the launcher (Python standard library, in a background
   thread; it never blocks the window or touches training): status, session/total time, samples/hour, VRAM bar,
   progress estimate, both charts (touch zoom/pan of the time axis), the newest preview MP4 (streams with HTTP range
   requests), and a *Render preview* button (same background pipeline as the window's button, at most one per 5 min).

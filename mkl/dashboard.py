@@ -36,6 +36,7 @@ class DashboardMixin:
 
         snap = dict(
             title="MimicKit Launcher %s - %s" % (VERSION, os.path.basename(d.rstrip("/\\"))),
+            run_name=os.path.basename(d.rstrip("/\\")),
             state=lines[0] if lines else "",
             running=running,
             session_time=grab(r"Running for (\S+) \(this session") or grab(r"session time (\S+)"),
@@ -289,7 +290,7 @@ class DashboardMixin:
         cf.grid(row=16, column=0, columnspan=4, sticky="w", pady=(8, 0))
         v_ctl = tk.BooleanVar(value=bool(c.get("allow_control")))
         ttk.Checkbutton(
-            cf, text="Allow control from phone (stop / resume; off by default; needs a PIN)", variable=v_ctl
+            cf, text="Allow phone control (needs a PIN)", variable=v_ctl
         ).grid(row=0, column=0, columnspan=3, sticky="w")
         ttk.Label(cf, text="PIN (4-12 digits)").grid(row=1, column=0, sticky="w")
         v_pin = tk.StringVar()

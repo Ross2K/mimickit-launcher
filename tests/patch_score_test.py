@@ -209,7 +209,7 @@ check(
 check(
     "127.0.0.1 -> this PC only",
     R.dashboard_urls("127.0.0.1", 1, "x", labelled=True)
-    == [("this PC", "http://127.0.0.1:1/?t=x")],
+    == [("This PC", "http://127.0.0.1:1/?t=x")],
 )
 R.tailscale_info = lambda timeout=4: (["100.75.74.44"], "")
 R.lan_addresses = lambda: ["10.0.0.149", "100.75.74.44"]

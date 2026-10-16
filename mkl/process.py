@@ -191,7 +191,11 @@ class ProcessMixin:
         self.rescan()
 
     def mk(self):
-        return self.v_mk.get().strip()
+        """MimicKit folder. Tk variables are read on the GUI thread only; other threads get the cached string."""
+        if threading.current_thread() is threading.main_thread():
+            self._mk_cache = self.v_mk.get().strip()
+            return self._mk_cache
+        return getattr(self, "_mk_cache", "")
 
     def python(self):
         v = self.v_venv.get().strip()
@@ -839,7 +843,7 @@ class ProcessMixin:
         elif kind == "preview" and proc.returncode not in (0, None):
             self.sm_q.put(("preview_end", proc.returncode, logp))
         if kind == "preview" and proc.returncode == 0:
-            self._preview_finished()
+            self.rq.put(self._preview_finished)  # GUI thread: it reads Tk variables
 
     def _ovr(self, it, agent_only=False):
         """Args that point MimicKit at the saved edited copies (first value of a key wins, so they go first)."""

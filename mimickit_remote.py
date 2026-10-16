@@ -165,7 +165,7 @@ def tailscale_info(timeout=4):
 def dashboard_urls(host, port, token, labelled=False, ts=None, lan=None, hostname=None):
     """Tailscale addresses first (they work from anywhere), then LAN, then the hostname. labelled=True -> [(label, url)]."""
     if host == "127.0.0.1":
-        items = [("this PC", "127.0.0.1")]
+        items = [("This PC", "127.0.0.1")]
     else:
         ts_ips, ts_name = ts if ts is not None else tailscale_info()
         lan = lan_addresses() if lan is None else lan
@@ -285,7 +285,7 @@ h1{font-size:16px;margin:0}.card{background:var(--panel);margin:10px;padding:10p
 canvas{width:100%;height:190px;touch-action:pan-y;display:block}video{width:100%;border-radius:8px;background:#000}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;width:100%}
 button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
-#ctlbtn{width:auto;padding:6px 10px;font-size:13px;margin-right:8px}#ctlbtn.off{background:var(--b);color:var(--dim)}
+#theme{display:inline-block;min-width:32px;min-height:32px;line-height:32px;text-align:center;padding:0 6px}#ctlbtn{width:auto;padding:6px 10px;font-size:13px;margin-right:8px}#ctlbtn.off{background:var(--b);color:var(--dim)}
 #pending{color:#e6bd66;font-weight:600}#pending:empty{display:none}
 details.sec{border-top:1px solid var(--b);padding:6px 0}details.sec summary{font-weight:600;cursor:pointer;padding:4px 0}
 .cnt{color:var(--dim);font-weight:400}.bgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}
@@ -297,7 +297,7 @@ input{background:var(--bg);color:var(--fg);border:1px solid var(--b);border-radi
 </style></head><body>
 <header><h1 id="title">MimicKit</h1><span><button id="ctlbtn" class="off">Controls: off</button><small><a href="#" id="theme">light</a> · <span id="age"></span></small></span></header>
 <div class="card" id="panel" style="display:none"><b>Controls</b> <small id="ctlnote"></small>
-<div id="ctloff" style="display:none"><p>Turned off on the PC.</p><small>Enable "Allow control from phone" in the launcher (Settings &rarr; Phone + notifications) and set a PIN.</small></div>
+<div id="ctloff" style="display:none"><p>Turned off on the PC.</p><small>Enable "Allow phone control" in the launcher (Settings &rarr; Phone + notifications) and set a PIN.</small></div>
 <div id="ctlon">
 <div id="pinbox" style="display:none"><p><small>Enter the PIN set on the PC (once; you stay signed in for 12 h on this phone).</small></p>
 <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN"><p></p><button id="pinok">Sign in</button><p><small id="pinmsg"></small></p></div>
@@ -392,7 +392,7 @@ for(const id of ['c1','c2','c3']){const cv=q(id);let t0=null,mode=null,moved=fal
  cv.addEventListener('wheel',e=>{if(!S)return;e.preventDefault();const v=view||full(),r=cv.getBoundingClientRect(),c=v[0]+(e.clientX-r.left-44)/(r.width-50)*(v[1]-v[0]),f=e.deltaY<0?0.8:1.25;view=[c-(c-v[0])*f,c+(v[1]-c)*f];draw()});
  cv.addEventListener('dblclick',()=>{view=null;draw()})}
 async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){q('state').textContent='access denied ('+r.status+')';return}
- S=await r.json();q('title').textContent=S.title||'MimicKit';q('state').textContent=S.state||'';
+ S=await r.json();q('title').textContent=S.run_name?'MimicKit \u00b7 '+S.run_name:(S.title||'MimicKit');q('state').textContent=S.state||'';
  for(const k of ['session_time','total_time','samples','rate','estimate','per_step','vram'])q(k).textContent=S[k]||'-';
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
  q('age').textContent=new Date().toLocaleTimeString();draw();
@@ -475,6 +475,7 @@ class Dashboard:
 
         class H(BaseHTTPRequestHandler):
             server_version = "MimicKitDashboard"
+            timeout = 10
             protocol_version = "HTTP/1.1"
 
             def log_message(self, *a):
@@ -537,10 +538,15 @@ class Dashboard:
 
             def do_POST(self):
                 dash.requests += 1
-                n = int(self.headers.get("Content-Length") or 0)
-                raw = self.rfile.read(min(n, 65536)) if n else b""
                 if not self._authed():
+                    self.close_connection = True
                     return self._send(403, '{"error": "token required"}')
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    n = 0
+                n = max(0, min(n, 65536))
+                raw = self.rfile.read(n) if n else b""
                 path = urllib.parse.urlparse(self.path).path
                 if path.startswith("/api/control/"):
                     try:
@@ -618,7 +624,7 @@ class Dashboard:
         """-> (code, json text). Every refusal carries a plain-language 'error'."""
         c = self.control
         if c is None or not c.enabled():
-            code, body = 403, {"error": "Turned off on the PC. Enable 'Allow control from phone' in the launcher's Phone settings."}
+            code, body = 403, {"error": "Turned off on the PC. Enable 'Allow phone control' in the launcher's Phone settings."}
             if c is not None:
                 c.log("control: refused %s - control is off" % what)
         elif what == "login":
@@ -863,7 +869,7 @@ class Control:
         self.log("control: all phone sessions revoked%s (%d)" % (" - " + why if why else "", n))
 
     def _off(self):
-        return 403, {"error": "Turned off on the PC. Enable 'Allow control from phone' in the launcher's Phone settings."}
+        return 403, {"error": "Turned off on the PC. Enable 'Allow phone control' in the launcher's Phone settings."}
 
     def login(self, pin):
         if not self.enabled():
