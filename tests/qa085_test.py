@@ -39,8 +39,12 @@ def spy(self):
 MainWindowMixin._gpu_poll_thread = spy
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
+from fake_mk import fake_mk
+G.filedialog.askdirectory = lambda *a, **k: fake_mk()  # no first-run folder dialog (it would block)
 root = tk.Tk()
 app = G.App(root)
+app.v_mk.set(fake_mk())
+app.rescan()
 MainWindowMixin._gpu_poll_thread = orig
 check("Q1: self.rq exists before the GPU poll thread starts", seen.get("rq"), seen)
 check("Q1: _remote_lock exists before the GPU poll thread starts", seen.get("lock"), seen)
@@ -117,6 +121,7 @@ sys.path.insert(0, %r); sys.path.insert(0, %r)
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = os.path.join(tempfile.mkdtemp(), "s.json")
 import tkinter as tk, mimickit_launcher as G
 from fake_mk import fake_mk
+G.filedialog.askdirectory = lambda *a, **k: fake_mk()
 for n in ("showinfo", "showwarning", "showerror"): setattr(G.messagebox, n, lambda *a, **k: None)
 r = tk.Tk(); r.tk.call("tk", "scaling", 1.67)
 a = G.App(r); a.v_mk.set(fake_mk()); a.rescan()
