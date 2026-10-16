@@ -71,6 +71,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.dash = None
         self.rq = queue.Queue()
+        self._remote_lock = __import__("threading").Lock()  # phone check-then-set (stop now / stop after save)
         self.snap = {}
         self.render_msg = ""
         self.notifier = R.Notifier(
@@ -148,7 +149,7 @@ App._save_window_state = _save_window_state
 def _icon_shortcut_worker(app):
     msg = icon.ensure_start_menu_shortcut()
     if msg:
-        app.root.after(0, lambda: app._append("[gui] %s\n" % msg))
+        app.q.put("[gui] %s\n" % msg)  # worker thread: queue, never Tk
 
 
 App._icon_shortcut_check = lambda self: __import__("threading").Thread(

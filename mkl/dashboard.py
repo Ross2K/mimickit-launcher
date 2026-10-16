@@ -203,7 +203,7 @@ class DashboardMixin:
         c["allow_control"] = False
         c["lockdown"] = True
         self.q.put("[remote] phone control turned OFF (%s). Turn it back on in Settings - Phone.\n" % why)
-        self.root.after(0, self._save)
+        self.rq.put(self._save)  # server thread: no Tk calls here
 
     def _handoff_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(CONFIG)), "phone_sessions_handoff.json")
@@ -265,15 +265,24 @@ class DashboardMixin:
                 return 200, "Already stopping."
             return 409, "No training is running."
         if action == "stop_now":
-            if getattr(self, "remote_phase", ""):
-                return 200, "Already stopping (counted once)."
-            self.remote_phase = "Stopping..."
+            with self._remote_lock:  # check-then-set as one step (two phones tapping at once)
+                if getattr(self, "remote_phase", ""):
+                    return 200, "Already stopping (counted once)."
+                self.remote_phase = "Stopping\u2026"
             self.rq.put(self._remote_stop_gui)
             return 202, "Stopping training."
         if action == "stop_after_save":
-            if getattr(self, "stop_save", None):
-                return 200, "Already set: will stop after next save."
-            self.rq.put(lambda: None if self.stop_save else self.stop_after_save("phone"))
+            with self._remote_lock:
+                if getattr(self, "stop_save", None) or getattr(self, "_ss_queued", False):
+                    return 200, "Already set: will stop after next save."
+                self._ss_queued = True
+
+            def arm():
+                self._ss_queued = False
+                if not self.stop_save:
+                    self.stop_after_save("phone")
+
+            self.rq.put(arm)
             return 202, "Will stop after the next save (if the PC refuses, the reason shows on the status line)."
         if action == "cancel_stop":
             if not getattr(self, "stop_save", None):
@@ -307,7 +316,7 @@ class DashboardMixin:
                 return
             self._append("[remote] save still looked busy after %d s - stopping anyway (the previous model.pt "
                          "or its .bak is kept)\n" % self.SAVE_WAIT_MAX_S)
-        self.remote_phase = "Stopping..."
+        self.remote_phase = "Stopping\u2026"
         self._append("[remote] stop now (from phone)\n")
         if getattr(self, "stop_save", None):
             self._stopsave_done("[gui] stop after next save replaced by stop now\n")
@@ -334,7 +343,7 @@ class DashboardMixin:
             known = ((getattr(self, "snap", None) or {}).get("clips") or {}).get("all") or []
             if (not isinstance(clips, list) or not clips or len(clips) > 4
                     or any(not isinstance(c, str) or c not in known for c in clips)):
-                self._append("[remote] refused preview: clip choice %r is not 1-4 clips of this config\n" % (clips,))
+                self.q.put("[remote] refused preview: clip choice %r is not 1-4 clips of this config\n" % (clips,))
                 return False, "Pick 1 to 4 clips from the list."
         self.rq.put(lambda: self._remote_render_gui(clips))
         self.render_msg = "Preview requested from the phone - rendering in the background."
@@ -428,7 +437,7 @@ class DashboardMixin:
         ctl_msg.configure(
             text=(R.LOCKDOWN_MSG if c.get("lockdown") else
                   "PIN is set." if c.get("pin_hash") and int(c.get("pin_len") or 0) >= R.MIN_PIN_LAN else
-                  "PIN is too short - set a new one with 6+ digits." if c.get("pin_hash") else
+                  R.PIN_RULES_MSG if c.get("pin_hash") else
                   "No PIN set yet - control stays off until you set one.")
         )
 

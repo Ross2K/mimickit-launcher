@@ -919,6 +919,7 @@ MAX_PIN_FAILS = 5
 LOCKOUT_S = 300
 GLOBAL_FAILS_PER_HOUR = 20  # wrong PINs from ALL phones within an hour -> phone control is turned OFF on the PC
 MIN_PIN_LAN = 6  # dashboard reachable from the network: PIN must have at least this many digits
+PIN_RULES_MSG = "Phone PIN rules changed. Set a new 6\u201312 digit PIN on the PC (one-time)."
 LOCKDOWN_MSG = "Phone control turned off after too many wrong PINs. Turn it back on from the PC."
 ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch")
 TWEAK_RULES = {"num_envs": (int, 1, 65536)}
@@ -1026,32 +1027,37 @@ class Control:
             if c.get("host") == "0.0.0.0" and int(c.get("pin_len") or 0) < MIN_PIN_LAN:
                 self.log("control: refused sign-in from %s - PIN shorter than %d digits while reachable on the network"
                          % (client, MIN_PIN_LAN))
-                return 403, {"error": "The PC needs a new PIN with at least %d digits first (Settings, Phone)." % MIN_PIN_LAN}
+                return 403, {"error": PIN_RULES_MSG}
+            lockdown = False
             if not check_pin(pin, c.get("pin_hash")):
                 self.fail_times.append(t)
                 if len(self.fail_times) >= GLOBAL_FAILS_PER_HOUR:
                     self.fail_times = []
                     self.sessions.clear()
                     self.nonces.clear()
-                    self.log("control: %d wrong PINs within an hour (all phones) - phone control turned OFF; "
-                             "turn it back on from the PC" % GLOBAL_FAILS_PER_HOUR)
-                    if self.turn_off:
-                        try:
-                            self.turn_off("too many wrong PINs")
-                        except Exception as e:
-                            log_exc("control: turn off", e)
-                    return 403, {"error": LOCKDOWN_MSG, "lockdown": True}
-                n = self.fails[client] = self.fails.get(client, 0) + 1
-                if n >= MAX_PIN_FAILS:
-                    self.fails[client] = 0
-                    self.lock_until[client] = t + LOCKOUT_S
-                    self.log("control: %d wrong PINs from %s - that phone is locked for %d s" % (MAX_PIN_FAILS, client, LOCKOUT_S))
-                    return 429, {"error": "Too many wrong PINs. Locked for %d seconds." % LOCKOUT_S, "locked_s": LOCKOUT_S}
-                self.log("control: wrong PIN from %s (%d of %d)" % (client, n, MAX_PIN_FAILS))
-                return 403, {"error": "Wrong PIN (%d tries left)." % (MAX_PIN_FAILS - n)}
-            self.fails.pop(client, None)
-            tok = secrets.token_urlsafe(24)
-            self.sessions[_sk(tok)] = t + SESSION_HOURS * 3600
+                    lockdown = True
+                else:
+                    n = self.fails[client] = self.fails.get(client, 0) + 1
+                    if n >= MAX_PIN_FAILS:
+                        self.fails[client] = 0
+                        self.lock_until[client] = t + LOCKOUT_S
+                        self.log("control: %d wrong PINs from %s - that phone is locked for %d s" % (MAX_PIN_FAILS, client, LOCKOUT_S))
+                        return 429, {"error": "Too many wrong PINs. Locked for %d seconds." % LOCKOUT_S, "locked_s": LOCKOUT_S}
+                    self.log("control: wrong PIN from %s (%d of %d)" % (client, n, MAX_PIN_FAILS))
+                    return 403, {"error": "Wrong PIN (%d tries left)." % (MAX_PIN_FAILS - n)}
+            if not lockdown:
+                self.fails.pop(client, None)
+                tok = secrets.token_urlsafe(24)
+                self.sessions[_sk(tok)] = t + SESSION_HOURS * 3600
+        if lockdown:  # outside the lock: turn_off touches settings / queues GUI work
+            self.log("control: %d wrong PINs within an hour (all phones) - phone control turned OFF; "
+                     "turn it back on from the PC" % GLOBAL_FAILS_PER_HOUR)
+            if self.turn_off:
+                try:
+                    self.turn_off("too many wrong PINs")
+                except Exception as e:
+                    log_exc("control: turn off", e)
+            return 403, {"error": LOCKDOWN_MSG, "lockdown": True}
         self.log("control: phone %s signed in (session valid %d h)" % (client, SESSION_HOURS))
         return 200, {"session": tok, "hours": SESSION_HOURS}
 

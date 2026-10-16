@@ -50,7 +50,7 @@ check("then the real result", code4 == 200 and "done resume" in b4.get("message"
 cfg2 = dict(allow_control=True, pin_hash=R.hash_pin("1234"), pin_len=4, host="0.0.0.0")
 c2 = R.Control(lambda: cfg2, on_action)
 code, b = c2.login("1234", "x")
-check("4-digit PIN refused while reachable on the network", code == 403 and "6 digits" in b["error"], b)
+check("4-digit PIN refused while reachable on the network", code == 403 and "6\u201312 digit" in b["error"], b)
 cfg2["host"] = "127.0.0.1"
 check("4-digit PIN still works for this-PC-only", c2.login("1234", "x")[0] == 200)
 

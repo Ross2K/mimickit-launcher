@@ -101,7 +101,7 @@ def steps():
     saved = J(r2)["seconds"]
     check(
         "GUI-crash loss bounded by last tick",
-        0 <= real - saved <= 2.6 + 1,
+        -0.2 <= real - saved <= 2.6 + 1,  # a0.8.3: real is an estimate (sleep timing), allow 0.2 s
         "saved %.1f vs real ~%.1f" % (saved, real),
     )
     app._tt_save = app.tt_save_backup

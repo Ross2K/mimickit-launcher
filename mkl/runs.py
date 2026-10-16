@@ -158,19 +158,17 @@ class RunsMixin:
     def _runs_choices(self):
         snap = getattr(self, "snap", None) or {}
         ui = snap.get("runs_ui")
-        if not ui:  # before the first snapshot (phone tapped right after start): build the lists now
-            tmp = {}
-            try:
-                self._runs_snapshot(tmp)
-            except Exception as e:
-                core.log_exc("runs: choices before the first snapshot", e)
-            ui = tmp.get("runs_ui") or {}
+        if not ui:  # before the first snapshot: the lists come from Tk vars - never read them off the GUI thread
+            return None
         return dict(configs=list(ui.get("configs") or []), runs=dict(getattr(self, "_runs_paths", {}) or {}),
                     patches={p["name"]: p for p in ui.get("patches") or []})
 
     # ---------------------------------------------------------------- server thread: validate, refuse or queue
     def _remote_runs_action(self, action, params):
-        clean, why = validate_run_params(action, params, self._runs_choices())
+        ch = self._runs_choices()
+        if ch is None:
+            return 503, "The PC is starting up - try again in a few seconds."
+        clean, why = validate_run_params(action, params, ch)
         if why:
             return 400, why
         busy = self.proc is not None and self.proc.poll() is None
@@ -179,18 +177,18 @@ class RunsMixin:
             return 409, "%s is not installed yet - %s" % (clean["config"], miss[clean["config"]])
         if action in ("start_train", "continue_run"):
             if busy or self._training_running():
-                return 409, "Something is already running on the PC (%s) - start refused. Stop it first." % (
-                    getattr(self, "run_kind", "") or "a run")
-            if getattr(self, "_phone_start_pending", False):
-                return 409, "A start from the phone is already on its way - refused (counted once)."
-            self._phone_start_pending = True
+                return 409, self._busy_text() + " Start refused."
+            with self._remote_lock:
+                if getattr(self, "_phone_start_pending", False):
+                    return 409, "A start from the phone is already on its way - refused (counted once)."
+                self._phone_start_pending = True
             self.rq.put(lambda: self._phone_start_gui(action, clean))
             return 202, ("Starting a new training run on the PC: %s -> %s" % (clean["config"], clean["out"])
                          if action == "start_train" else "Continuing from the chosen run on the PC.")
         if action == "patch":
-            if self._training_running():
-                return 409, ("Training is running - patches change MimicKit's files, so they are refused while it "
-                             "runs. Stop it (or use Stop after next save), then try again.")
+            why = self._patch_refusal(need_mk=False)
+            if why:
+                return 409, why
             self.rq.put(lambda: self._phone_patch_gui(clean))
             return 202, "%s %s on the PC..." % ("Applying" if clean["op"] == "apply" else "Reverting", clean["name"])
         return 400, "Unknown action."
@@ -237,11 +235,20 @@ class RunsMixin:
         finally:
             self._phone_start_pending = False
 
+    def _busy_text(self):
+        """Names what is actually running: 'A preview is running. Close it first.' etc."""
+        if self._training_running():
+            return "Training is running. Stop it first (or use Stop after next save)."
+        kind = getattr(self, "run_kind", "") or ""
+        return {"view": "The clip viewer is running. Close it first.",
+                "watch": "Watch is running. Close it first.",
+                "preview": "A preview is running. Close it first."}.get(kind, "Something is running on the PC (%s). "
+                                                                          "Close it first." % (kind or "a run"))
+
     def _patch_refusal(self, need_mk=True):
-        """Same rule on the PC and the phone: MimicKit files are not changed while training runs."""
+        """Same rule on the PC and the phone: MimicKit files are not changed while anything of MimicKit runs."""
         if self._training_running() or (getattr(self, "proc", None) is not None and self.proc.poll() is None):
-            return ("Training is running - patches change MimicKit's files, so stop it first "
-                    "(or use Stop after next save), then apply or revert.")
+            return "Patches change MimicKit's files. " + self._busy_text()
         if need_mk and (not self.mk() or not os.path.isfile(os.path.join(self.mk(), "mimickit", "run.py"))):
             return "MimicKit folder not set (no mimickit/run.py)."
         return None
