@@ -27,6 +27,8 @@ TESTS = [
     "decimate_test",
     "dashboard_page_test",
     "runs_test",
+    "amp_log_test",
+    "preset_req_test",
     "chart_lines_test",
     "placement_test",
     "fixes042_test",

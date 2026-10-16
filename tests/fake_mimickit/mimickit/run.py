@@ -40,8 +40,14 @@ child = subprocess.Popen(
 )  # like a worker process
 n = int(get("num_envs", "1024"))
 cols = ["Iteration", "Wall_Time", "Samples", "Test_Return", "Train_Return"]
+# STUB_AMP=1: an AMP task run (e.g. steering): extra discriminator / exploration rows in between, an env info key,
+# returns in 0..episode length (task reward per step <= 1), one 'nan' now and then
+AMP = bool(os.environ.get("STUB_AMP"))
+if AMP:
+    cols = ["Iteration", "Wall_Time", "Samples", "Test_Return", "Train_Return", "Disc_Loss", "Disc_Agent_Acc",
+            "Disc_Demo_Acc", "Disc_Reward_Mean", "Exp_Prob"]
 # STUB_LOG_EPLEN=1: like stock MimicKit, episode length goes to log.txt only (not the console table)
-fcols = cols + (["Train_Episode_Length"] if os.environ.get("STUB_LOG_EPLEN") else [])
+fcols = cols + (["Train_Episode_Length"] if os.environ.get("STUB_LOG_EPLEN") else []) + (["Tar_Speed"] if AMP else [])
 ftpl = "{:<25}" * len(fcols)
 with open(os.path.join(out, "log.txt"), "w") as f:
     f.write(ftpl.format(*fcols) + "\r")
@@ -49,7 +55,12 @@ with open(os.path.join(out, "log.txt"), "w") as f:
         samples = (it + 1) * n * 32
         wall = samples / 7.5e6
         vals = [it, round(wall, 5), samples, round(3 + it * 0.01, 3), round(3.5 + it * 0.012, 3)]
-        f.write(ftpl.format(*map(str, (vals + [100 + it])[: len(fcols)])) + "\r")
+        extra = [100 + it]
+        if AMP:
+            ret_t, ret_tr = round(60 + it * 0.2, 3), ("nan" if it % 37 == 5 else round(55 + it * 0.25, 3))
+            vals = [it, round(wall, 5), samples, ret_t, ret_tr, round(0.7 - it * 1e-4, 4), 0.62, 0.58, 0.31, 0.2]
+            extra = ([250 + it % 50] if os.environ.get("STUB_LOG_EPLEN") else []) + [1.8]
+        f.write(ftpl.format(*map(str, (vals + extra)[: len(fcols)])) + "\r")
         f.flush()
         print(
             "-" * 42

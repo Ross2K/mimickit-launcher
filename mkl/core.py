@@ -856,7 +856,8 @@ class StdoutTables:
             if st.startswith("|"):
                 parts = [p.strip() for p in st.strip("|").split("|")]
                 if len(parts) == 2 and parts[0] and _isnum(parts[1]):
-                    if parts[0] == "Iteration" and self.cur:
+                    if parts[0] == "Iteration" and "Iteration" in self.cur:  # a new block (rows before
+                        # Iteration belong to this block, e.g. a logger that prints its 0_Main rows first)
                         self._commit()
                     self.cur[parts[0]] = float(parts[1])
             elif st and set(st) == {"-"} and self.cur:
