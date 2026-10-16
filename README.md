@@ -3,10 +3,11 @@
 A small desktop GUI (Windows and Linux) for running [MimicKit](https://github.com/xbpeng/MimicKit):
 pick a config, press **Start training**, and watch the reward graph, GPU memory and log - no command line needed.
 
-> ## ⚠️ Vibe coded
-> This tool was **built with an AI assistant by someone with little coding experience**.
-> It has had **light testing only** (an automated GUI test against a fake MimicKit folder, a real MimicKit clone,
-> and day-to-day use on one Windows PC with an 8 GB GTX 10-series card). Expect rough edges.
+> ## 🤖 Built by a team of AI agents
+> This tool was **created by one person orchestrating a team of AI agents**: a builder, a QA reviewer and a UX reviewer.
+> Every change is reviewed and tested before it ships, and the owner approves every release.
+> Testing so far: an automated GUI test against a fake MimicKit folder, a real MimicKit clone,
+> and day-to-day use on one Windows PC with an 8 GB GTX 10-series card. Expect some rough edges.
 > It comes with **no warranty of any kind** (see [LICENSE](LICENSE)).
 > **Issues and contributions are very welcome** - see [CONTRIBUTING.md](CONTRIBUTING.md).
 >
