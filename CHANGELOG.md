@@ -3,6 +3,24 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.6
+
+Easier-to-see scrolling at the top + review fixes (GUI only).
+
+- **More room for Settings / What to run at 125 %:** the top area keeps ~300 px (x your Windows scale) before the
+  charts keep their 400 px minimum - the charts give way first now (was only 152 px of top at 1536x864 125 %).
+- **Mouse wheel** scrolls the top area anywhere over it (buttons, labels, boxes); drop-down lists and number boxes
+  keep their own wheel.
+- **Obvious scrolling:** a brighter scrollbar in dark mode and a "▾ more (scroll)" strip at the cut (click it to
+  scroll down).
+- **No scrollbar for a few pixels:** when less than ~20 px would be hidden, the top area takes them from the bottom
+  half instead.
+- Fixes: phone cancel then "stop after save" (while armed, before the PC handled it) now ends armed - the reply
+  "Already set" only comes when stop-after-save is really wanted; wrapped button rows re-check only when the window
+  changes (no more 400 ms polling).
+- Tests: "GUI responsive" allows ~1 s or one outlier (CPU load from parallel tests); the 125 % child test removes
+  its temp MimicKit copy.
+
 ## a0.8.5
 
 More room for the charts at 125 % + review fixes (GUI only).

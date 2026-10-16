@@ -133,13 +133,18 @@ def done():
     s = a.run_btns["stop"]
     print("RES", mid, int(a.BOTTOM_MIN * k * 0.9), a._top_cv.winfo_height(), a._top_inner.winfo_reqheight(),
           s.winfo_rooty() + s.winfo_height() - r.winfo_rooty(), r.winfo_height(), flush=True)
+    import shutil  # a0.8.6 (QA R3): os._exit skips fake_mk's atexit -> remove the /tmp/mkl_test_* copy here
+    shutil.rmtree(os.path.dirname(fake_mk()), True)
     os._exit(0)
 r.after(4000, done); r.mainloop()
 """ % (ROOT, HERE)
 out = subprocess.run([sys.executable, "-c", CHILD], capture_output=True, text=True, timeout=90).stdout
 line = next((l for l in out.splitlines() if l.startswith("RES")), "RES 0 1 0 0 9999 0").split()
 mid, need, toph, topreq, stopb, winh = map(int, line[1:])
-check("125 %% 1536x816: charts box keeps its minimum (%d px >= %d)" % (mid, need), mid >= need)
+# a0.8.6 (UX 1): the 400 px chart minimum gives way so the top keeps ~300 px (x scale); bottom keeps >= ~150 px
+check("125 %% 1536x816: top keeps ~300 px or all of it (%d of %d px, need %d)" % (toph, topreq, min(topreq, need * 300 // 360)),
+      toph >= min(topreq, need * 300 // 360) or mid <= need * 150 // 360 + 20)
+check("125 %% 1536x816: charts box keeps >= ~150 px (%d px)" % mid, mid >= need * 150 // 360)
 check("125 %%: the top section is the one that scrolls (shown %d of %d px)" % (toph, topreq), toph < topreq)
 check("125 %: STOP still inside the window", 0 < stopb <= winh, (stopb, winh))
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

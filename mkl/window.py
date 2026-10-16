@@ -110,8 +110,10 @@ def flow(frame, groups=False):
         for r in rows[: n + 1]:
             r.pack(side="top", anchor="w", fill="x")
 
-    def watch():
-        """Notice widgets the app hid (pack_forget from a row) or packed into frame since the last layout."""
+    def check(_=None):
+        """Notice widgets the app hid (pack_forget from a row) or packed into frame since the last layout.
+        a0.8.6: runs only on <Map>/<Configure> (of frame or a row) or on request - no 400 ms polling."""
+        state["pend"] = False
         if not frame.winfo_exists():
             return
         changed = adopt()
@@ -124,13 +126,29 @@ def flow(frame, groups=False):
                     changed = True
         if changed:
             relayout(force=True)
-        frame.after(400, watch)
+        for r in rows:
+            if r not in hooked:
+                hooked.add(r)
+                r.bind("<Configure>", soon, add="+")
+
+    hooked = set()
+
+    def soon(_=None):
+        if not state.get("pend") and frame.winfo_exists():
+            state["pend"] = True
+            frame.after_idle(check)
+
+    def on_conf(e=None):
+        relayout(e)
+        soon()
 
     adopt()
-    frame._flow_relayout = lambda: (adopt(), relayout(force=True))
-    frame.bind("<Configure>", relayout, add="+")
+    frame._flow_relayout = lambda: (adopt(), relayout(force=True), soon())
+    frame._flow_check = soon
+    frame.bind("<Configure>", on_conf, add="+")
+    frame.bind("<Map>", soon, add="+")
     frame.after_idle(relayout)
-    frame.after(400, watch)
+    frame.after_idle(soon)
 
 
 class MainWindowMixin:
@@ -182,13 +200,45 @@ class MainWindowMixin:
         self._top_cv, self._top_inner = cv, inner
         self._scroll_canvases = getattr(self, "_scroll_canvases", []) + [cv]
 
+        more = tk.Label(outer, text="\u25be more (scroll)", anchor="center", cursor="hand2",
+                        font=("Segoe UI", 8), padx=0, pady=0, bd=0)
+        more.bind("<Button-1>", lambda e: cv.yview_scroll(3, "units"))
+        self._top_more = more
+        st = {"h": 0}
+
+        def show_more():
+            """a0.8.6: a '\u25be more' strip at the cut while part of the top area is hidden below."""
+            try:
+                lo, hi = cv.yview()
+            except tk.TclError:
+                return
+            if ys.winfo_manager() and hi < 0.999:
+                more.configure(bg=T.get("sel", "#2d4f7c"), fg=T.get("fg", "#ffffff"))
+                more.place(in_=cv, relx=0, rely=1.0, relwidth=1.0, anchor="sw")
+                more.lift()
+            elif more.winfo_manager():
+                more.place_forget()
+
+        def yset(lo, hi):
+            ys.set(lo, hi)
+            show_more()
+
+        cv.configure(yscrollcommand=yset)
+
         def fit(_=None):
             k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
             req = inner.winfo_reqheight()
+            winh = self.root.winfo_height()
             others = self.ban_f.winfo_height() + (self._runbar.winfo_reqheight() if hasattr(self, "_runbar") else 0)
-            avail = self.root.winfo_height() - others - int(self.BOTTOM_MIN * k) - 10
-            h = max(min(req, int(110 * k)), min(req, avail))
-            if self.root.winfo_height() <= 1:
+            room = winh - others - 10  # top + bottom half share this
+            avail = room - int(self.BOTTOM_MIN * k)
+            # a0.8.6: the 400 px chart minimum gives way before the top drops below ~300 px (125 % on 864 px)
+            h = max(min(req, int(300 * k)), min(req, avail))
+            h = min(h, max(min(req, int(110 * k)), room - int(150 * k)))  # bottom half never below ~150 px
+            # a0.8.6: less than ~20 px hidden -> take it from the bottom half, no scrollbar
+            if 0 < req - h <= int(20 * k) and room - req >= int(150 * k):
+                h = req
+            if winh <= 1:
                 h = req
             if int(cv.cget("height")) != h:
                 cv.configure(height=h)
@@ -200,19 +250,53 @@ class MainWindowMixin:
             elif ys.winfo_manager():
                 ys.pack_forget()
                 cv.yview_moveto(0)
+            st["h"] = h
+            show_more()
         self._top_fit = fit
+        ys.configure(style="Top.Vertical.TScrollbar")
 
         cv.bind("<Configure>", lambda e: cv.after_idle(fit))
         inner.bind("<Configure>", lambda e: cv.after_idle(fit))
         self.root.bind("<Configure>", lambda e: cv.after_idle(fit) if e.widget is self.root else None, add="+")
 
-        def wheel(e):
-            if ys.winfo_manager():
-                cv.yview_scroll(-1 if (getattr(e, "delta", 0) > 0 or getattr(e, "num", 0) == 4) else 1, "units")
+        # a0.8.6: the wheel scrolls the top area over ANY child widget (bind_all while the pointer is inside),
+        # except comboboxes / spinboxes, which keep their own wheel (value change). The all-binding is added
+        # once (add="+", so dialog bindings stay) and only acts while the pointer is over the top area.
+        hover = {"on": False}
+        skip = ("TCombobox", "TSpinbox", "Spinbox", "Text", "Listbox")
 
-        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            cv.bind(seq, wheel)
-            inner.bind(seq, wheel)
+        def wheel(e):
+            if not hover["on"] or not ys.winfo_manager():
+                return
+            try:
+                if e.widget.winfo_class() in skip or not str(e.widget).startswith(str(outer)):
+                    return
+            except (tk.TclError, AttributeError):
+                return
+            cv.yview_scroll(-1 if (getattr(e, "delta", 0) > 0 or getattr(e, "num", 0) == 4) else 1, "units")
+            return "break"
+
+        def inside():
+            x, y = self.root.winfo_pointerxy()
+            ox, oy = outer.winfo_rootx(), outer.winfo_rooty()
+            return ox <= x < ox + outer.winfo_width() and oy <= y < oy + outer.winfo_height()
+
+        def enter(_=None):
+            if not hover["on"]:
+                hover["on"] = True
+                if not hover.get("bound"):
+                    hover["bound"] = True
+                    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                        self.root.bind_all(seq, wheel, add="+")
+
+        def leave(_=None):
+            if not inside():  # <Leave> also fires when the pointer moves onto a child widget
+                hover["on"] = False
+
+        outer.bind("<Enter>", enter, add="+")
+        outer.bind("<Leave>", leave, add="+")
+        self._top_wheel = wheel
+        self._top_hover = hover
         return inner
 
     def _build_settings(self, top):
@@ -668,6 +752,17 @@ class MainWindowMixin:
             arrowcolor=T["fg"],
             bordercolor=T["border"],
         )
+        dark = not self.v_light.get()
+        st.configure(  # a0.8.6: the top-area scrollbar stands out in dark mode (users missed that it scrolls)
+            "Top.Vertical.TScrollbar",
+            background="#9a9a9a" if dark else T["btn"],
+            troughcolor="#3a3a3a" if dark else T["panel"],
+            arrowcolor="#ffffff" if dark else T["fg"],
+            bordercolor="#5a5a5a" if dark else T["border"],
+        )
+        st.map("Top.Vertical.TScrollbar", background=[("active", "#c8c8c8" if dark else T["btn_act"])])
+        if hasattr(self, "_top_more"):
+            self._top_more.configure(bg=T["sel"], fg=T["fg"])
         st.configure("TPanedwindow", background=T["bg"])
         st.configure("Sash", background=T["border"])
         # classic tk bits: combobox drop-down list, Text widgets

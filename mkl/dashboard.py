@@ -271,22 +271,18 @@ class DashboardMixin:
                 self.remote_phase = "Stopping\u2026"
             self.rq.put(self._remote_stop_gui)
             return 202, "Stopping training."
-        if action == "stop_after_save":
-            with self._remote_lock:
-                if getattr(self, "stop_save", None) or getattr(self, "_ss_queued", False):
-                    return 200, "Already set: will stop after next save."
-                self._ss_queued = True
+        if action in ("stop_after_save", "cancel_stop"):
+            want = action == "stop_after_save"
+            with self._remote_lock:  # the wanted state (pending phone request, else the armed state) decides
+                pending = getattr(self, "_ss_want", None)
+                cur = pending if pending is not None else bool(getattr(self, "stop_save", None))
+                if cur == want:
+                    return 200, ("Already set: will stop after next save." if want else "Nothing to cancel.")
+                self._ss_want = want
                 gen = self._ss_gen = getattr(self, "_ss_gen", 0) + 1
-            self.rq.put(lambda: self._ss_apply(gen, True))
-            return 202, "Will stop after the next save (if the PC refuses, the reason shows on the status line)."
-        if action == "cancel_stop":
-            with self._remote_lock:
-                queued = getattr(self, "_ss_queued", False)
-                self._ss_queued = False  # a queued (not yet armed) stop after save is dropped
-                if not getattr(self, "stop_save", None) and not queued:
-                    return 200, "Nothing to cancel."
-                gen = self._ss_gen = getattr(self, "_ss_gen", 0) + 1
-            self.rq.put(lambda: self._ss_apply(gen, False))
+            self.rq.put(lambda: self._ss_apply(gen, want))
+            if want:
+                return 202, "Will stop after the next save (if the PC refuses, the reason shows on the status line)."
             return 202, "Stop after next save cancelled."
         if action == "tweaks":  # settings belong to the GUI thread: queue the change, don't touch self.s here
             p = dict(params)
@@ -310,7 +306,7 @@ class DashboardMixin:
         with self._remote_lock:
             if gen != getattr(self, "_ss_gen", 0):
                 return  # superseded by a later phone request
-            self._ss_queued = False
+            self._ss_want = None
         if bool(self.stop_save) != want:
             self.stop_after_save("phone")
 
