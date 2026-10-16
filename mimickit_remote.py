@@ -283,7 +283,8 @@ h1{font-size:16px;margin:0}.card{background:var(--panel);margin:10px;padding:10p
 .bar{height:10px;background:var(--b);border-radius:5px;overflow:hidden}.bar>div{height:100%;width:0}
 canvas{width:100%;height:190px;touch-action:pan-y;display:block}video{width:100%;border-radius:8px;background:#000}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;width:100%}
-button{min-height:44px}#ctlbtn,#theme,.seg button,.pvrow button,.bgrid button{min-height:44px}button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
+button{min-height:44px}#ctlbtn,#theme,.seg button,.pvrow button,.bgrid button{min-height:44px}button:disabled{opacity:.5}button{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+.stoprow{display:flex;justify-content:space-between;gap:24px;margin:22px 0 6px;padding-top:12px;border-top:1px dashed var(--b)}.stoprow button.small{width:auto;font-size:13px;padding:6px 12px}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
 #theme{display:inline-block;min-width:32px;min-height:32px;line-height:32px;text-align:center;padding:0 6px}#ctlbtn{width:auto;padding:6px 10px;font-size:13px;margin-right:8px}#ctlbtn.off{background:var(--b);color:var(--dim)}
 #pending{color:#e6bd66;font-weight:600}#pending:empty{display:none}
 details.sec{border-top:1px solid var(--b);padding:6px 0}details.sec summary{font-weight:600;cursor:pointer;padding:4px 0}
@@ -305,9 +306,8 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <div id="pinbox" style="display:none"><p><small>Enter the PIN set on the PC (once; you stay signed in for 12 h on this phone).</small></p>
 <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN"><p></p><button id="pinok">Sign in</button><p><small id="pinmsg"></small></p></div>
 <details class="sec" id="s_train"><summary>Training <span class="cnt" id="n_train"></span></summary><div class="bgrid">
-
-<button class="sec2" id="a_stopsave">Stop after next save</button>
-<button class="danger" id="a_stopnow">Stop now</button><button id="a_resume">Resume</button></div>
+<button id="a_resume">Resume</button></div>
+<div class="stoprow"><button class="sec2 small" id="a_stopsave">Stop after next save</button><button class="danger small" id="a_stopnow">Stop now</button></div>
 <small>Training saves its progress by itself every few minutes.</small></details>
 <details class="sec" id="s_tweak"><summary>Next-resume tweaks <span class="cnt" id="n_tweak"></span></summary>
 <p><small>Applied the next time training is resumed.</small></p><div class="bgrid"><input id="t_envs" type="number" min="1" max="65536" placeholder="Parallel sims, e.g. 64">
@@ -324,7 +324,7 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 </div><p><small id="ctlmsg"></small></p></div>
 <div class="modal" id="modal"><div class="mbox"><b id="m_title">Stop training now?</b><p><small id="m_text"></small></p>
 <div class="bgrid"><button id="m_keep">Keep training</button><button class="sec2" id="m_alt">Stop after next save</button></div>
-<button class="danger hold" id="m_hold" disabled><i id="m_bar"></i><span id="m_holdt">Hold to stop now (unlocks in 3 s)</span></button>
+<button class="danger" id="m_hold" disabled><span id="m_holdt">Yes, stop now</span></button>
 <p><small id="m_msg"></small></p></div></div>
 <div class="card"><div id="state">loading...</div><div id="pending"></div>
 <div class="row"><span class="k">Session</span><span class="v" id="session_time"></span></div>
@@ -472,16 +472,17 @@ q('pinok').onclick=async()=>{const [c,j]=await cpost('login',{pin:q('pin').value
  if(c===200){SES=j.session;localStorage.mkSes=SES;q('pinmsg').textContent=''}else q('pinmsg').textContent=j.error||('refused ('+c+')');updCtl()};
 function modal(o){q('m_title').textContent=o.title;q('m_text').textContent=o.text||'';q('m_msg').textContent='';q('m_alt').textContent=o.alt?'Stop after next save':'Cancel';
  q('m_hold').style.display=o.hold?'':'none';HOLDTXT=o.holdText||'stop now';q('m_alt').style.display=(o.hold&&!o.alt)?'none':'';q('m_keep').textContent=o.keep||'Keep training';q('modal').classList.add('on');MODAL=o;
- if(o.hold){const h=q('m_hold');h.disabled=true;q('m_holdt').textContent='Hold to stop now (unlocks in 3 s)';clearTimeout(MODAL_T);MODAL_T=setTimeout(()=>{h.disabled=false;q('m_holdt').textContent='Hold 2 s to '+HOLDTXT},3000);q('m_holdt').textContent='Hold to '+HOLDTXT+' (unlocks in 3 s)'}}
-let HOLDTXT='stop now',MODAL=null,MODAL_T=0,HOLD=0,HOLD_T0=0;const closeModal=()=>{q('modal').classList.remove('on');clearTimeout(MODAL_T);MODAL=null};
+ if(o.hold){const h=q('m_hold');h.disabled=true;clearTimeout(MODAL_T);clearInterval(MODAL_I);let left=Math.round((o.timeout||(o.onhold?15000:5000))/1000);
+  const lab=()=>q('m_holdt').textContent='Yes, '+HOLDTXT+' ('+left+' s)';lab();MODAL_T=setTimeout(()=>{h.disabled=false},400);
+  MODAL_I=setInterval(()=>{left--;if(left<=0){closeModal();q('ctlmsg').textContent='Cancelled (no answer).'}else lab()},1000)}}
+let HOLDTXT='stop now',MODAL=null,MODAL_T=0,MODAL_I=0;const closeModal=()=>{q('modal').classList.remove('on');clearTimeout(MODAL_T);clearInterval(MODAL_I);MODAL=null};
+document.addEventListener('contextmenu',e=>{if(e.target.closest&&e.target.closest('button'))e.preventDefault()});
 q('m_keep').onclick=()=>{if(MODAL&&MODAL.ok&&!MODAL.hold){const o=MODAL;closeModal();o.ok()}else closeModal()};
-q('m_alt').onclick=()=>{const a=MODAL&&MODAL.alt;closeModal();if(a)act('stop_after_save')};
-function holdEnd(){cancelAnimationFrame(HOLD);HOLD=0;q('m_bar').style.width='0'}
-function holdStep(){const p=Math.min(1,(Date.now()-HOLD_T0)/2000);q('m_bar').style.width=(p*100)+'%';if(p>=1){holdEnd();const f=MODAL&&MODAL.onhold;closeModal();if(f)f();else act('stop_now')}else HOLD=requestAnimationFrame(holdStep)}
-q('m_hold').addEventListener('pointerdown',e=>{if(q('m_hold').disabled)return;e.preventDefault();HOLD_T0=Date.now();HOLD=requestAnimationFrame(holdStep)});
-for(const ev of ['pointerup','pointerleave','pointercancel'])q('m_hold').addEventListener(ev,holdEnd);
+q('m_alt').onclick=()=>{const a=MODAL&&MODAL.alt;closeModal();if(a)act('stop_after_save',{},null,q('a_stopsave'))};
+// a0.8.3: tap + confirm (hold-to-confirm failed on Android: long-press opens a system gesture)
+q('m_hold').onclick=()=>{if(q('m_hold').disabled||!MODAL)return;const f=MODAL.onhold;closeModal();if(f)f();else act('stop_now',{},null,q('a_stopnow'))};
 q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save is lost. Stop after next save keeps it.',alt:true,hold:true});
-q('a_stopsave').onclick=()=>modal({title:S&&S.stop_save?'Cancel the stop after next save?':'Stop after the next save?',keep:'Confirm',ok:()=>act(S&&S.stop_save?'cancel_stop':'stop_after_save')});
+q('a_stopsave').onclick=()=>{const c=S&&S.stop_save;modal({title:c?'Cancel the stop after next save?':'Stop after the next save?',text:c?'Training keeps going.':'Training stops right after its next save - nothing is lost.',keep:'Cancel',hold:true,holdText:c?'cancel it':'stop after save',timeout:5000,onhold:()=>act(c?'cancel_stop':'stop_after_save',{},null,q('a_stopsave'))})};
 q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
 q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);modal({title:'Use '+v+' parallel sims for the next resume?',keep:'Confirm',ok:()=>act('tweaks',{num_envs:Number.isInteger(n)?n:v},q('tweakmsg'))})};
 // ---- Runs + MimicKit patches (a0.8.0): names/keys only come from the PC's lists; the PC checks everything again

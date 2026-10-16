@@ -10,7 +10,16 @@ Small phone/wording polish (GUI only, no training or patch files changed).
 - Phone dark mode is true black; buttons are at least 44 px tall (easier to tap).
 - Phone "Parallel sims": hint "Whole number, e.g. 64" under the field; Start/Continue stay disabled until it is valid.
 - Browser tab title matches the header ("MimicKit · run"); PIN label "6–12 digits"; "Working…" everywhere.
-- Z build: plainer updater messages (technical part under Details).
+- **Phone Stop buttons fixed (Android):** holding a button opened Android's text-select/menu gesture and broke the
+  hold. Now every confirm is TAP + "Yes, ..." (auto-cancels after 5 s for stops, 15 s otherwise). Stop now / Stop
+  after next save sit in their own row, away from other buttons. Buttons no longer select text or open a menu.
+- **Set your phone PIN again once** if the phone says "Phone PIN rules changed" (old PINs were 4-12 digits; now
+  6-12 when the phone can reach the PC over the network).
+- "Looks trained" only after at least 2 h of training and a plateau that held for 45 min (it fired after 30 min).
+- Refusals say what is running ("A preview is running. Close it first."). A saved window position is only reused
+  if the whole window fits on today's screen.
+- Internal: no Tk calls from background threads, phone stop taps locked against double taps, .bat files kept CRLF.
+- Z build: plainer updater messages (technical part under Details); update install is tap + confirm too.
 - PC window (1080p): opens at ~85 % of the screen above the taskbar (maximized on screens up to 1600 px wide),
   remembers its size/position/maximized state, minimum 1100x720. The Status view scrolls instead of being cut off.
   Charts use the real screen DPI and shorter axis labels; charts get 3/5 of the width. Startup log line shows DPI
