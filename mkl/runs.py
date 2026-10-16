@@ -144,6 +144,7 @@ class RunsMixin:
             busy=bool(self.proc and self.proc.poll() is None),
             busy_kind=getattr(self, "run_kind", "") if self.proc and self.proc.poll() is None else "",
             msg=getattr(self, "runs_msg", ""),
+            missing={i["name"]: i["missing"] for i in getattr(self, "train_items", []) if i.get("missing")},
         )
 
     def _runs_choices(self):
@@ -158,6 +159,9 @@ class RunsMixin:
         if why:
             return 400, why
         busy = self.proc is not None and self.proc.poll() is None
+        miss = ((getattr(self, "snap", None) or {}).get("runs_ui") or {}).get("missing") or {}
+        if action in ("start_train", "continue_run") and clean["config"] in miss:
+            return 409, "%s is not installed yet - %s" % (clean["config"], miss[clean["config"]])
         if action in ("start_train", "continue_run"):
             if busy or self._training_running():
                 return 409, "Something is already running on the PC (%s) - start refused. Stop it first." % (
@@ -189,7 +193,7 @@ class RunsMixin:
         try:
             if self.proc is not None and self.proc.poll() is None:
                 return self._runs_note("start refused - something started on the PC meanwhile", True)
-            if p["config"] not in [i["name"] for i in self.train_items]:
+            if p["config"] not in [i["name"] for i in self.train_items if not i.get("missing")]:
                 return self._runs_note("start refused - config %s is gone (rescan?)" % p["config"], True)
             self.v_train.set(p["config"])
             self._train_changed()

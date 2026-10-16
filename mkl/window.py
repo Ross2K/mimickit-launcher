@@ -110,6 +110,7 @@ class MainWindowMixin:
         ttk.Label(job, text="View config").grid(row=0, column=2, sticky="e", padx=(12, 0))
         self.cb_view = ttk.Combobox(job, textvariable=self.v_view, state="readonly", width=34)
         self.cb_view.grid(row=0, column=3, sticky="w")
+        self.cb_view.bind("<<ComboboxSelected>>", self._view_changed)
         Tip(self.cb_view, HELP["viewsel"])
         self.l_preset_help = ttk.Label(job, text="", style="Dim.TLabel", wraplength=1100)
         self.l_preset_help.grid(row=1, column=0, columnspan=6, sticky="w")
@@ -241,6 +242,9 @@ class MainWindowMixin:
                 self._save_settings_only(),
             ),
         )
+        b = ttk.Button(bfb, text="Clips...", command=self.clips_dialog)
+        b.pack(side="left", padx=(6, 0))
+        Tip(b, "Which motion clips the MP4 preview shows (up to 4), saved per training config.")
         b = ttk.Button(bfb, text="Preview diagnostics", command=self.preview_diag)
         b.pack(side="left", padx=(12, 3))
         Tip(b, HELP["pdiag"])
@@ -306,11 +310,23 @@ class MainWindowMixin:
         self.vram = None
         self.root.after(10, self._draw_vram)
 
+    def _view_changed(self, _=None):
+        it = self._item("view") or {}
+        if it.get("missing"):
+            self._append("[gui] view '%s' is not installed yet - %s\n" % (it["name"], it["missing"]))
+        self._sync_run_buttons(self._training_running())
+
     def _sync_run_buttons(self, running):
         """a0.7.0 cleanup: state-aware enabling. Training: start/resume/continue dim, stop buttons live; idle: reverse."""
+        miss_t = bool((self._item("train") or {}).get("missing")) if hasattr(self, "train_items") else False
+        miss_v = bool((self._item("view") or {}).get("missing")) if hasattr(self, "view_items") else False
         for k, b in (getattr(self, "run_btns", None) or {}).items():
             if k in ("train", "resume", "continue"):
-                on = not running
+                on = not running and not miss_t
+            elif k == "watch":
+                on = not miss_t
+            elif k == "view":
+                on = not miss_v
             elif k in ("stop", "stopsave"):
                 on = running
             else:

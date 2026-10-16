@@ -343,7 +343,8 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <div class="row"><span class="k">Clip</span><select id="pv_sel"></select></div>
 <div class="row"><span class="k">Speed</span><span class="seg" id="pv_rate"><button data-r="0.25">0.25&times;</button><button data-r="0.5">0.5&times;</button><button data-r="1">1&times;</button></span></div>
 <div class="row"><span class="k">Loop</span><label><input type="checkbox" id="pv_loop"> play again from the start</label></div>
-<div class="row"><span class="k">File</span><a id="pv_dl" href="#">Download MP4</a></div></details></div><p></p>
+<div class="row"><span class="k">File</span><a id="pv_dl" href="#">Download MP4</a></div>
+<div id="pv_clipbox" style="display:none"><div class="row"><span class="k">Clips for a new render</span><small id="pv_clipn"></small></div><select id="pv_clips" multiple size="5" style="width:100%;max-width:100%"></select><small>Up to 4. Default = the PC's choice.</small></div></details></div><p></p>
 <button id="render">Render new preview</button><div id="rprog" style="display:none;margin-top:6px"><div class="bar"><div id="rbar" style="background:var(--acc)"></div></div><small id="rstage"></small></div><p><small id="rmsg"></small></p></div>
 <!--EXTRA_HTML-->
 <div class="card"><small>Controls are off unless allowed on the PC (PIN required). Updates every 10 s.</small></div>
@@ -441,7 +442,8 @@ function rProg(){const r=(S&&S.render)||{};const on=r.active||(r.stage&&r.elapse
  q('rstage').textContent=r.stage?(r.stage+(r.active?' \u00b7 '+fmt(r.elapsed||0)+' so far':'')+(r.origin?' \u00b7 started on the '+(r.origin==='phone'?'phone':'PC'):'')):'';
  if(r.active&&!window.RFAST){window.RFAST=setTimeout(()=>{window.RFAST=0;tick()},2500)}
  q('render').disabled=!!r.active;q('render').textContent=r.active?'Rendering... ('+(r.pct||0)+'%)':'Render new preview'}
-q('render').onclick=async()=>{q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:H});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
+q('render').onclick=async()=>{const C=S&&S.clips,sel=C?[...q('pv_clips').selectedOptions].map(o=>o.value):null;if(sel&&(sel.length<1||sel.length>4)){q('rmsg').textContent='Pick 1 to 4 clips under Preview options.';return}
+ q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(sel?{clips:sel}:{})});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
  setTimeout(tick,1500)};
 
 // ---- Controls panel (a0.7.0). Session token lives in localStorage, never in the URL; every action needs a fresh nonce.
@@ -480,11 +482,14 @@ q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);mod
 // ---- Runs + MimicKit patches (a0.8.0): names/keys only come from the PC's lists; the PC checks everything again
 let RU_SIG='',RU_CFG='';const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function opts(sel,items,cur){const v=sel.value;sel.innerHTML=items.map(([k,t])=>'<option value="'+esc(k)+'">'+esc(t)+'</option>').join('');sel.value=(v&&items.some(i=>i[0]===v))?v:(cur&&items.some(i=>i[0]===cur)?cur:(items[0]?items[0][0]:''))}
-function runsTick(){const R=S&&S.runs_ui;if(!R)return;const sig=JSON.stringify([R.configs,R.runs.map(r=>r.key)]);
- if(sig!==RU_SIG){RU_SIG=sig;opts(q('r_cfg'),R.configs.map(c=>[c,c]),R.config);opts(q('r_src'),R.runs.map(r=>[r.key,r.name+' \u00b7 '+r.saved]),'')}
+let CL_SIG='';function clipsTick(){const C=S&&S.clips;q('pv_clipbox').style.display=C?'':'none';if(!C)return;const sig=JSON.stringify(C);
+ if(sig!==CL_SIG){CL_SIG=sig;q('pv_clips').innerHTML=C.all.map(n=>'<option'+(C.chosen.includes(n)?' selected':'')+'>'+esc(n)+'</option>').join('')}
+ const n=[...q('pv_clips').selectedOptions].length;q('pv_clipn').textContent=n+' of 4';q('pv_clipn').style.color=n>4?'#e6bd66':''}
+function runsTick(){clipsTick();const R=S&&S.runs_ui;if(!R)return;const sig=JSON.stringify([R.configs,R.runs.map(r=>r.key)]);
+ if(sig!==RU_SIG){RU_SIG=sig;opts(q('r_cfg'),R.configs.map(c=>[c,c+((R.missing||{})[c]?' (not installed)':'')]),R.config);opts(q('r_src'),R.runs.map(r=>[r.key,r.name+' \u00b7 '+r.saved]),'')}
  const c=q('r_cfg').value;if(c!==RU_CFG){RU_CFG=c;if(document.activeElement!==q('r_out'))q('r_out').value=(c===R.config?R.out:(R.outs[c]||R.out))||'';if(!q('r_envs').value)q('r_envs').value=R.num_envs||''}
- q('r_help').textContent=(R.helps&&R.helps[c])||'';const r=R.runs.find(x=>x.key===q('r_src').value);q('r_srcinfo').textContent=r?('saved '+r.saved+' \u00b7 '+r.total+' trained, '+r.sessions+' session(s)'):'No earlier runs with a model.pt yet.';
- q('runbusy').textContent=R.busy?('Running on the PC ('+(R.busy_kind||'run')+') - starting is off until it stops.'):'';q('a_start').disabled=!!R.busy;q('a_cont').disabled=!!R.busy||!r;
+ const miss=(R.missing||{})[c];q('r_help').textContent=miss?('Not installed: '+miss):((R.helps&&R.helps[c])||'');q('r_help').style.color=miss?'#e6bd66':'';const r=R.runs.find(x=>x.key===q('r_src').value);q('r_srcinfo').textContent=r?('saved '+r.saved+' \u00b7 '+r.total+' trained, '+r.sessions+' session(s)'):'No earlier runs with a model.pt yet.';
+ q('runbusy').textContent=R.busy?('Running on the PC ('+(R.busy_kind||'run')+') - starting is off until it stops.'):'';q('a_start').disabled=!!R.busy||!!miss;q('a_cont').disabled=!!R.busy||!r||!!miss;
  q('n_runs').textContent='('+R.runs.length+' earlier)';if(R.msg)q('runmsg').textContent=R.msg;
  const P=R.patches||[];q('n_patch').textContent='('+P.filter(p=>p.status==='applied').length+' of '+P.length+' applied)';
  const ps=JSON.stringify(P)+!!S.running;if(ps!==q('plist').dataset.sig){q('plist').dataset.sig=ps;q('plist').innerHTML=P.map(p=>'<div class="row"><span class="k">'+esc(p.title)+'</span><span class="v">'+esc(p.status)+'</span></div><div class="bgrid"><button class="sec2" data-p="'+esc(p.name)+'" data-op="apply"'+(S.running||p.status==='applied'||p.status==='missing'||p.status==='unknown'?' disabled':'')+'>Apply</button><button class="sec2" data-p="'+esc(p.name)+'" data-op="revert"'+(S.running||!p.can_revert||p.status==='not applied'||p.status==='missing'||p.status==='unknown'?' disabled':'')+'>Revert</button></div>').join('')+(S.running?'<small>Training is running: patches change MimicKit files, so they are off until it stops.</small>':'');
@@ -622,7 +627,12 @@ class Dashboard:
                                                              self.client_address[0]))
                 if path != "/api/render":
                     return self._send(404, '{"error": "not found"}')
-                code, msg = dash.request_render()
+                try:
+                    body = json.loads(raw or b"{}")
+                except ValueError:
+                    body = {}
+                clips = body.get("clips") if isinstance(body, dict) else None
+                code, msg = dash.request_render(clips)
                 return self._send(code, json.dumps({"message": msg}))
 
             def _file(self, p, download=False):
@@ -730,7 +740,8 @@ class Dashboard:
             s["previews"] = [{k: v for k, v in x.items() if k != "path"} for x in s["previews"]]
         return s
 
-    def request_render(self):
+    def request_render(self, clips=None):
+        """clips: optional list of clip names for this render (the PC checks them against its own list)."""
         now = time.time()
         wait = self.min_interval - (now - self._last_render)
         if wait > 0:
@@ -742,7 +753,7 @@ class Dashboard:
             return 503, "Rendering is not available."
         self._last_render = now
         try:
-            ok, msg = self.on_render()
+            ok, msg = self.on_render(clips) if clips is not None else self.on_render()
         except Exception as e:
             ok, msg = False, "failed: %s" % e
         if not ok:

@@ -67,6 +67,13 @@ class DashboardMixin:
             snap["preview"] = dict(path=p, name=os.path.basename(p), key=prev[0]["key"])
             snap["previews"] = prev
         try:
+            it = self._item("train")
+            names = self._clips_of(it) if it else []
+            if len(names) > 1:
+                snap["clips"] = dict(all=names, chosen=self._chosen_clips(it))
+        except Exception as e:
+            log_exc("phone clip list", e)
+        try:
             self._runs_snapshot(snap)
         except Exception as e:
             log_exc("phone runs list", e)
@@ -310,18 +317,24 @@ class DashboardMixin:
         self._append("[remote] resume (from phone)\n")
         self.resume()
 
-    def _remote_render(self):
+    def _remote_render(self, clips=None):
         """Called from the web server thread: never touches Tk, only queues work for the GUI thread."""
         if self.preview_proc and self.preview_proc.poll() is None:
             return False, "A preview is already being rendered."
-        self.rq.put(self._remote_render_gui)
+        if clips is not None:
+            known = ((getattr(self, "snap", None) or {}).get("clips") or {}).get("all") or []
+            if (not isinstance(clips, list) or not clips or len(clips) > 4
+                    or any(not isinstance(c, str) or c not in known for c in clips)):
+                self._append("[remote] refused preview: clip choice %r is not 1-4 clips of this config\n" % (clips,))
+                return False, "Pick 1 to 4 clips from the list."
+        self.rq.put(lambda: self._remote_render_gui(clips))
         self.render_msg = "Preview requested from the phone - rendering in the background."
         return (
             True,
             "Preview started - it appears here when it is done (usually under a minute or two).",
         )
 
-    def _remote_render_gui(self):
+    def _remote_render_gui(self, clips=None):
         it = self._item("train")
         model = self.v_model.get().strip() or self._latest_model()
         if not it or not model:
@@ -330,7 +343,7 @@ class DashboardMixin:
             return
         self._append("[remote] preview requested from the dashboard (renders in the background; it is not "
                      "opened on this PC)\n")
-        self._start_preview(it, model, origin="phone")
+        self._start_preview(it, model, origin="phone", clips=clips)
 
     def _preview_finished(self):
         self.render_msg = "Preview finished."

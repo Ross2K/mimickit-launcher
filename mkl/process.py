@@ -72,6 +72,9 @@ class ProcessMixin:
         for pr in PRESETS:  # profile presets (launcher_profile.py) go first in the lists
             a = read_args_file(os.path.join(self.mk(), pr["file"])) if self.mk() else {}
             ex = list(pr.get("args", []))
+            # a0.8.0: presets can name the MimicKit files they need ('requires'); while any is missing the preset is
+            # still listed (so you know it exists) but can't start, and says how to install it ('hint')
+            miss = [r for r in pr.get("requires", []) if not (self.mk() and os.path.exists(os.path.join(self.mk(), r)))]
             env = (
                 ex[ex.index("--env_config") + 1]
                 if "--env_config" in ex
@@ -87,7 +90,9 @@ class ProcessMixin:
                     engine=(a.get("engine_config") or [""])[0],
                     num_envs=int(pr.get("num_envs") or (a.get("num_envs") or ["0"])[0] or 0),
                     out=pr.get("out") or (a.get("out_dir") or [""])[0],
-                    motion=motion_of(self.mk(), env) if self.mk() and env else "",
+                    motion=motion_of(self.mk(), env) if self.mk() and env and not miss else "",
+                    missing=(pr.get("hint") or "Not installed: missing %s" % ", ".join(miss)) if miss else "",
+                    preview_clips=list(pr.get("preview_clips", [])),
                 )
             )
         self.train_items = pre["train"] + self.train_items
@@ -144,6 +149,11 @@ class ProcessMixin:
         self.v_out.set(default_out(it))
         if it["num_envs"]:
             self.v_envs.set(it["num_envs"])
+        self._sync_run_buttons(self._training_running() if hasattr(self, "run_kind") else False)
+        if it.get("missing"):
+            self.l_preset_help.configure(text="NOT INSTALLED - %s" % it["missing"], style="Err.TLabel")
+            return
+        self.l_preset_help.configure(style="Dim.TLabel")
         self.l_preset_help.configure(
             text=(it["help"] + "\n" if it.get("help") else "")
             + "%s  |  env: %s  |  motion: %s  |  engine in file: %s"
@@ -239,6 +249,10 @@ class ProcessMixin:
                 "Nothing selected",
                 "No %s config selected (MimicKit's args folder may be empty)." % kind,
             )
+            return False
+        if it.get("missing"):
+            self._append("[gui] refused: %s - %s\n" % (it["name"], it["missing"]))
+            messagebox.showinfo("Not installed yet", "%s\n\n%s" % (it["name"], it["missing"]))
             return False
         self.s["last_train"], self.s["last_view"] = self.v_train.get(), self.v_view.get()
         self._save()
@@ -610,7 +624,7 @@ class ProcessMixin:
             return
         return self._start_preview(it, model)
 
-    def _start_preview(self, it, model, diag=False, origin="PC"):
+    def _start_preview(self, it, model, diag=False, origin="PC", clips=None):
         """origin 'phone': rendered in the background only - never opened / played on the PC (--no_open)."""
         pdir = os.path.join(self.mk(), "output", "_launcher_preview")
         os.makedirs(pdir, exist_ok=True)
@@ -660,7 +674,8 @@ class ProcessMixin:
                 CLIP_LAYOUTS.get(self.v_layout.get(), "grid"),
                 "--out",
                 mp4,
-            ] + (["--no_open"] if origin != "PC" else []) + ["--"] + mk_args
+            ] + (["--clips", ",".join(clips if clips is not None else self._chosen_clips(it))]
+                 if (clips if clips is not None else self._chosen_clips(it)) else []) + (["--no_open"] if origin != "PC" else []) + ["--"] + mk_args
         logp = os.path.join(pdir, CONSOLE_FILE)
         try:
             offset = os.path.getsize(logp) if os.path.exists(logp) else 0

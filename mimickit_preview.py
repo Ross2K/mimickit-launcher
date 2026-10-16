@@ -378,7 +378,15 @@ def cmd_record(a):
     _maybe_simulated_crash(a.variant, "build_env")
     ckpt("build_env")
     clips = dataset_motions(mk, args.parse_string("env_config"))
-    K = max(1, min(a.motions, MAX_CLIPS, len(clips))) if a.motions > 0 else 1
+    sel = pick_clips(clips, a.clips)
+    if sel:
+        K = min(len(sel), MAX_CLIPS)
+        log("chosen clips: %s" % ", ".join(os.path.basename(clips[i]) for i in sel[:K]))
+    else:
+        if a.clips:
+            log("chosen clips %r not found in this env's motion list - previewing the first ones" % a.clips)
+        K = max(1, min(a.motions, MAX_CLIPS, len(clips))) if a.motions > 0 else 1
+        sel = list(range(K))
     log(
         "motions: %d%s; previewing %d (one env per motion, each from t=0)"
         % (
@@ -426,11 +434,16 @@ def cmd_record(a):
     scope = wp.ScopedDevice(a.device)
     scope.__enter__()  # MimicKit launches some kernels without a device
     ckpt("env.reset")
-    forced = torch.arange(K, device=a.device, dtype=torch.long)
+    forced = torch.tensor(sel[:K], device=a.device, dtype=torch.long)
     if hasattr(env, "_sample_motion_times"):
         # deepmimic_env._reset_ref_motion() asks _sample_motion_times(n) for (motion ids, start times): with rand_reset
-        # False it samples a random motion by weight at t=0. Override on this instance: env e plays motion e from t=0.
-        env._sample_motion_times = lambda n: (forced[:n].clone(), torch.zeros(n, device=a.device))
+        # False it samples a random motion by weight at t=0. Override on this instance: env e plays chosen clip e from
+        # t=0. Other callers (AMP's demo sampling asks for many samples at once) keep MimicKit's own sampler.
+        _orig_smt = env._sample_motion_times
+        env._sample_motion_times = lambda n: (
+            (forced[:n].clone(), torch.zeros(n, device=a.device)) if n <= K else _orig_smt(n))
+    if hasattr(env, "_get_env_motion_ids") and hasattr(env, "_sync_motion"):
+        env._get_env_motion_ids = lambda: forced.clone()  # view preset: env e shows chosen clip e
     with torch.no_grad():
         obs, info = env.reset()
     lib = getattr(env, "_motion_lib", None)
@@ -560,6 +573,21 @@ def cmd_record(a):
         "recorded %d steps x %d clip(s) in %.1f s (%.1fx real time; setup %.1f s) -> %s"
         % (n, K, el, n / fps / el, setup, a.out)
     )
+
+
+def pick_clips(clips, spec):
+    """--clips 'walk_v1,run_v1' (file names, with or without .pkl, or 0-based numbers) -> motion ids, in that order."""
+    out = []
+    for t in [x.strip() for x in (spec or "").split(",") if x.strip()]:
+        if t.isdigit() and int(t) < len(clips):
+            i = int(t)
+        else:
+            names = [os.path.splitext(os.path.basename(c))[0] for c in clips]
+            t0 = os.path.splitext(os.path.basename(t))[0]
+            i = names.index(t0) if t0 in names else next((j for j, n in enumerate(names) if n.endswith(t0)), -1)
+        if i >= 0 and i not in out:
+            out.append(i)
+    return out
 
 
 def dataset_motions(mk, env_yaml):
@@ -1617,6 +1645,7 @@ def main(argv=None):
     p.add_argument("--ghost", default="overlay", choices=GHOST_MODES)
     p.add_argument("--layout", default="grid", choices=LAYOUTS)
     p.add_argument("--motions", type=int, default=4)
+    p.add_argument("--clips", default="", help="comma list of clip names (or ids) to preview, max 4")
     p.add_argument("--mk", default=".")
     p.add_argument("--device", default="auto")
     p.add_argument("--out", default="preview.mp4")
