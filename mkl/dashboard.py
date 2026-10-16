@@ -347,7 +347,7 @@ class DashboardMixin:
         it = self._item("train")
         model = self.v_model.get().strip() or self._latest_model()
         if not it or not model:
-            self.render_msg = "No model.pt yet - nothing to preview."
+            self.render_msg = "No saved progress yet - nothing to preview."
             self._append("[remote] %s\n" % self.render_msg)
             return
         self._append("[remote] preview requested from the dashboard (renders in the background; it is not "

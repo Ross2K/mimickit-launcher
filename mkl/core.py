@@ -294,7 +294,7 @@ from mkl.dialogs import DarkMessageBox, new_popup, place_popup, scroll_popup, ti
 messagebox = DarkMessageBox(T)  # dark popups; same API as tkinter.messagebox
 # dashboard bind address -> what the user picks
 BIND_LABEL = {
-    "127.0.0.1": "This PC only",
+    "127.0.0.1": "Only this PC (phone can't connect)",
     "0.0.0.0": "My phone and other devices (Tailscale recommended)",
 }
 

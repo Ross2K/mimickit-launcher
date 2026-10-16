@@ -195,7 +195,7 @@ root.update()
 app.remote_dialog()
 root.update()
 v = app._rdlg_vars
-check("dialog offers the two plain choices", v["host"].get() == "This PC only")
+check("dialog offers the two plain choices", v["host"].get() == "Only this PC (phone can't connect)")
 v["enabled"].set(True)
 v["port"].set("8799")
 v["apply"]()
@@ -260,7 +260,7 @@ if getattr(app, "_rdlg", None) and app._rdlg.winfo_exists():
 app.s.setdefault("remote", {})["host"] = "192.168.1.50"  # not offered by this version (hand-edited / older build)
 app.remote_dialog()
 root.update()
-check("unknown saved host falls back to 'This PC only'", app._rdlg_vars["host"].get() == "This PC only")
+check("unknown saved host falls back to 'This PC only'", app._rdlg_vars["host"].get() == "Only this PC (phone can't connect)")
 app.dash.stop()
 app.dash = None
 root.destroy()

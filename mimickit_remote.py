@@ -305,16 +305,16 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <div id="pinbox" style="display:none"><p><small>Enter the PIN set on the PC (once; you stay signed in for 12 h on this phone).</small></p>
 <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN"><p></p><button id="pinok">Sign in</button><p><small id="pinmsg"></small></p></div>
 <details class="sec" id="s_train"><summary>Training <span class="cnt" id="n_train"></span></summary><div class="bgrid">
-<button class="sec2" id="a_save" disabled title="Not available yet: MimicKit saves on its own interval">Save checkpoint</button>
+
 <button class="sec2" id="a_stopsave">Stop after next save</button>
 <button class="danger" id="a_stopnow">Stop now</button><button id="a_resume">Resume</button></div>
-<small>Save checkpoint is not available yet (MimicKit saves on its own interval).</small></details>
+<small>Training saves its progress by itself every few minutes.</small></details>
 <details class="sec" id="s_tweak"><summary>Next-resume tweaks <span class="cnt" id="n_tweak"></span></summary>
-<p><small>Applied the next time training is resumed.</small></p><div class="bgrid"><input id="t_envs" type="number" min="1" max="65536" placeholder="num_envs">
+<p><small>Applied the next time training is resumed.</small></p><div class="bgrid"><input id="t_envs" type="number" min="1" max="65536" placeholder="Parallel sims, e.g. 64">
 <button class="sec2" id="a_tweak">Queue for next resume</button></div><small id="tweakmsg"></small></details>
 <details class="sec" id="s_runs"><summary>Runs <span class="cnt" id="n_runs"></span></summary><small id="runbusy"></small>
 <div class="row"><span class="k">Config</span><select id="r_cfg"></select></div><small id="r_help"></small>
-<div class="row"><span class="k">num_envs</span><input id="r_envs" type="number" min="1" max="65536" style="width:45%"></div>
+<div class="row"><span class="k">Parallel sims</span><input id="r_envs" type="number" min="1" max="65536" style="width:45%"></div>
 <div class="row"><span class="k">Output folder</span><input id="r_out" autocomplete="off" spellcheck="false" style="width:60%"></div>
 <div class="row"><span class="k">Overwrite</span><label><input type="checkbox" id="r_ovw"> replace an earlier run there</label></div>
 <div class="bgrid"><button id="a_start">Start new training</button></div>
@@ -467,7 +467,7 @@ function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: of
  const run=S&&S.running;q('a_resume').disabled=!!run;q('a_stopnow').disabled=!run;q('a_stopsave').disabled=!run;
  q('a_stopsave').textContent=S&&S.stop_save?'Cancel stop after save':'Stop after next save';
  q('n_train').textContent='(3 of 4)';const tw=(S&&S.tweaks)||{};const nt=Object.keys(tw).length;q('n_tweak').textContent=nt?'('+nt+' pending)':'(0)';
- q('tweakmsg').textContent=nt?'Pending until next resume: '+Object.entries(tw).map(([k,v])=>k+' = '+v).join(', '):'';}
+ q('tweakmsg').textContent=nt?'Pending until next resume: '+Object.entries(tw).map(([k,v])=>(k==='num_envs'?'parallel sims':k)+' = '+v).join(', '):'';}
 q('pinok').onclick=async()=>{const [c,j]=await cpost('login',{pin:q('pin').value});q('pin').value='';
  if(c===200){SES=j.session;localStorage.mkSes=SES;q('pinmsg').textContent=''}else q('pinmsg').textContent=j.error||('refused ('+c+')');updCtl()};
 function modal(o){q('m_title').textContent=o.title;q('m_text').textContent=o.text||'';q('m_msg').textContent='';q('m_alt').textContent=o.alt?'Stop after next save':'Cancel';
@@ -480,10 +480,10 @@ function holdEnd(){cancelAnimationFrame(HOLD);HOLD=0;q('m_bar').style.width='0'}
 function holdStep(){const p=Math.min(1,(Date.now()-HOLD_T0)/2000);q('m_bar').style.width=(p*100)+'%';if(p>=1){holdEnd();const f=MODAL&&MODAL.onhold;closeModal();if(f)f();else act('stop_now')}else HOLD=requestAnimationFrame(holdStep)}
 q('m_hold').addEventListener('pointerdown',e=>{if(q('m_hold').disabled)return;e.preventDefault();HOLD_T0=Date.now();HOLD=requestAnimationFrame(holdStep)});
 for(const ev of ['pointerup','pointerleave','pointercancel'])q('m_hold').addEventListener(ev,holdEnd);
-q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save (model.pt) is lost. Stop after next save keeps it.',alt:true,hold:true});
+q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save is lost. Stop after next save keeps it.',alt:true,hold:true});
 q('a_stopsave').onclick=()=>modal({title:S&&S.stop_save?'Cancel the stop after next save?':'Stop after the next save?',keep:'Confirm',ok:()=>act(S&&S.stop_save?'cancel_stop':'stop_after_save')});
 q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
-q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);modal({title:'Queue num_envs = '+v+' for the next resume?',keep:'Confirm',ok:()=>act('tweaks',{num_envs:Number.isInteger(n)?n:v},q('tweakmsg'))})};
+q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);modal({title:'Use '+v+' parallel sims for the next resume?',keep:'Confirm',ok:()=>act('tweaks',{num_envs:Number.isInteger(n)?n:v},q('tweakmsg'))})};
 // ---- Runs + MimicKit patches (a0.8.0): names/keys only come from the PC's lists; the PC checks everything again
 let RU_SIG='',RU_CFG='';const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function opts(sel,items,cur){const v=sel.value;sel.innerHTML=items.map(([k,t])=>'<option value="'+esc(k)+'">'+esc(t)+'</option>').join('');sel.value=(v&&items.some(i=>i[0]===v))?v:(cur&&items.some(i=>i[0]===cur)?cur:(items[0]?items[0][0]:''))}
@@ -497,12 +497,14 @@ function runsTick(){clipsTick();const R=S&&S.runs_ui;if(!R)return;const sig=JSON
  q('runbusy').textContent=R.busy?('Running on the PC ('+(R.busy_kind||'run')+') - starting is off until it stops.'):'';q('a_start').disabled=!!R.busy||!!miss;q('a_cont').disabled=!!R.busy||!r||!!miss;
  q('n_runs').textContent='('+R.runs.length+' earlier)';if(R.msg)q('runmsg').textContent=R.msg;
  const P=R.patches||[];q('n_patch').textContent='('+P.filter(p=>p.status==='applied').length+' of '+P.length+' applied)';
- const ps=JSON.stringify(P)+!!S.running;if(ps!==q('plist').dataset.sig){q('plist').dataset.sig=ps;q('plist').innerHTML=P.map(p=>'<div class="row"><span class="k">'+esc(p.title)+'</span><span class="v">'+esc(p.status)+'</span></div><div class="bgrid"><button class="sec2" data-p="'+esc(p.name)+'" data-op="apply"'+(S.running||p.status==='applied'||p.status==='missing'||p.status==='unknown'?' disabled':'')+'>Apply</button><button class="sec2" data-p="'+esc(p.name)+'" data-op="revert"'+(S.running||!p.can_revert||p.status==='not applied'||p.status==='missing'||p.status==='unknown'?' disabled':'')+'>Revert</button></div>').join('')+(S.running?'<small>Training is running: patches change MimicKit files, so they are off until it stops.</small>':'');
+ const ps=JSON.stringify(P)+!!S.running;if(ps!==q('plist').dataset.sig){q('plist').dataset.sig=ps;
+  const whyOff=(p,op)=>S.running?'Off while training runs (patches change MimicKit files).':p.status==='missing'?'MimicKit folder not found on the PC.':p.status==='unknown'?'The PC could not read this patch\u2019s state (see the PC log).':op==='apply'&&p.status==='applied'?'Already applied.':op==='revert'&&!p.can_revert?'This one cannot be reverted.':op==='revert'&&p.status==='not applied'?'Not applied, nothing to revert.':'';
+  q('plist').innerHTML=P.map(p=>{const wa=whyOff(p,'apply'),wr=whyOff(p,'revert'),w=wa&&wr?(wa===wr?wa:wa+' '+wr):'';return '<div class="row"><span class="k">'+esc(p.title)+'</span><span class="v">'+esc(p.status)+'</span></div><div class="bgrid"><button class="sec2" data-p="'+esc(p.name)+'" data-op="apply"'+(wa?' disabled title="'+esc(wa)+'"':'')+'>Apply</button><button class="sec2" data-p="'+esc(p.name)+'" data-op="revert"'+(wr?' disabled title="'+esc(wr)+'"':'')+'>Revert</button></div>'+((wa||wr)&&!S.running?'<small>'+esc(w||wa||wr)+'</small>':'')}).join('')+(S.running?'<small>Training is running: patches change MimicKit files, so they are off until it stops.</small>':'');
   for(const b of q('plist').querySelectorAll('button'))b.onclick=()=>{const p=P.find(x=>x.name===b.dataset.p),op=b.dataset.op;modal({title:(op==='apply'?'Apply':'Revert')+' "'+p.title+'"?',text:p.why+' Runs started afterwards use it.',keep:'Cancel',hold:true,holdText:op,onhold:()=>act('patch',{name:p.name,op},q('patchmsg'))})}}}
 q('a_start').onclick=()=>{const n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim(),w=q('r_ovw').checked;
- modal({title:'Start a new training run?',text:c+' \u00b7 num_envs '+n+' \u2192 '+o+(w?' (REPLACES an earlier run there)':''),keep:'Cancel',hold:true,holdText:'start',onhold:()=>act('start_train',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,overwrite:w},q('runmsg'))})};
+ modal({title:'Start a new training run?',text:c+' \u00b7 '+n+' parallel sims \u2192 '+o+(w?' (REPLACES an earlier run there)':''),keep:'Cancel',hold:true,holdText:'start',onhold:()=>act('start_train',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,overwrite:w},q('runmsg'))})};
 q('a_cont').onclick=()=>{const R=S.runs_ui,r=R.runs.find(x=>x.key===q('r_src').value),n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim();if(!r)return;
- modal({title:'Continue from '+r.name+'?',text:'New run of '+c+' into '+o+' (a _resumeN folder if it is used), from its newest model.pt. Carries '+r.total+' of training.',keep:'Cancel',hold:true,holdText:'continue',onhold:()=>act('continue_run',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,src:r.key},q('runmsg'))})};
+ modal({title:'Continue from '+r.name+'?',text:'New run of '+c+' into '+o+' (a new numbered folder if that one is used), from its newest saved progress. Carries '+r.total+' of training.',keep:'Cancel',hold:true,holdText:'continue',onhold:()=>act('continue_run',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,src:r.key},q('runmsg'))})};
 /*EXTRA_JS*/
 showPanel();
 tick();setInterval(tick,10000);window.addEventListener('resize',draw);
@@ -918,7 +920,8 @@ GLOBAL_FAILS_PER_HOUR = 20  # wrong PINs from ALL phones within an hour -> phone
 MIN_PIN_LAN = 6  # dashboard reachable from the network: PIN must have at least this many digits
 LOCKDOWN_MSG = "Phone control turned off after too many wrong PINs. Turn it back on from the PC."
 ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch")
-TWEAK_RULES = {"num_envs": (int, 1, 65536)}  # name -> (type, min, max); applied on the next resume
+TWEAK_RULES = {"num_envs": (int, 1, 65536)}
+TWEAK_LABEL = {"num_envs": "Parallel sims"}  # what the phone calls it  # name -> (type, min, max); applied on the next resume
 
 
 def _sk(token):
@@ -950,9 +953,9 @@ def validate_tweaks(p):
             return None, "'%s' can't be changed from the phone." % k
         typ, lo, hi = TWEAK_RULES[k]
         if isinstance(v, bool) or not isinstance(v, typ):
-            return None, "%s must be a whole number." % k
+            return None, "%s must be a whole number, e.g. 64." % TWEAK_LABEL.get(k, k)
         if not lo <= v <= hi:
-            return None, "%s must be between %d and %d." % (k, lo, hi)
+            return None, "%s must be between %d and %d." % (TWEAK_LABEL.get(k, k), lo, hi)
         out[k] = v
     return out, None
 
