@@ -474,6 +474,10 @@ class ChartsMixin:
         )
         self._finish_axes(ax3, d, earlier, lines, log, off)
         self._status_lines(d, est_rate, lines, running, segs)
+        try:
+            self._check_milestones(d, log, running)  # a0.9.0
+        except Exception as e:
+            log_exc("milestones", e)
         if getattr(self, "v_outview", None) is not None and self.v_outview.get() == "status":
             lines = [
                 l for l in lines if not l.startswith(STATUS_PANEL_SHOWS)

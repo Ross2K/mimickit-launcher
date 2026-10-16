@@ -3,6 +3,24 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.9.0
+
+New: "First steps!" and "Walking well" alerts (GUI only).
+
+- While training, the launcher watches the scores MimicKit already logs. **"First steps!"** fires once when, for 3
+  checks in a row, the test episodes last at least 80 % of the full episode (it stays upright) AND the per-step match
+  score (Test_Return / Test_Episode_Length) is at least 20 %. **"Walking well"** fires once at 50 %.
+- Shown as a green card on the PC, a banner on the phone page, and sent to Discord / Telegram if those are set up.
+- Fires once per run: the flag is kept in the output folder (milestones.json); resuming or continuing doesn't
+  repeat it.
+- Thresholds in **Training settings -> Milestone alerts** (match score for each level, "stays upright" share,
+  checks in a row; or turn the alerts off).
+- Why 20 % / 50 %: DeepMimic-style rewards are 0-1 per step, so the per-step score is how closely the clip is
+  matched. Falling / flailing policies stay well under 15 %; the undead run that has started to hold itself up is at
+  ~21.8 %; well-tracked clips reach 60-80 %.
+- No episode length in the log: the match score alone is used (Return / full episode length). Full length = the
+  run's episode_length x control_freq (env_config.yaml / engine_config.yaml in the output folder).
+
 ## a0.8.9
 
 Dark-mode polish + review fixes (GUI only).

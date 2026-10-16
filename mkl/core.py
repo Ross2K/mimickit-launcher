@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.8.9"
+VERSION = "a0.9.0"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog

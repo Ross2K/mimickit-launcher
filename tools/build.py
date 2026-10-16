@@ -28,7 +28,7 @@ TESTS = [
     "dashboard_page_test",
     "runs_test",
     "amp_log_test",
-    "preset_req_test", "control_gate_test", "window_place_test", "phone_stop_tap_test", "stopsave_race_test", "stop_visible_test", "flow_test", "qa085_test", "qa086_test", "qa087_test", "qa088_test", "qa089_test",
+    "preset_req_test", "control_gate_test", "window_place_test", "phone_stop_tap_test", "stopsave_race_test", "stop_visible_test", "flow_test", "qa085_test", "qa086_test", "qa087_test", "qa088_test", "qa089_test", "milestone_test",
     "chart_lines_test",
     "placement_test",
     "fixes042_test",

@@ -326,6 +326,7 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <button class="sec2" id="m_alt" style="margin-bottom:10px">Stop after next save</button>
 <div class="yesno"><button class="sec2" id="m_keep">Cancel</button><button class="danger" id="m_hold" disabled><span id="m_holdt">Yes, stop now</span></button></div>
 <p><small id="m_msg"></small></p></div></div>
+<div class="card" id="mile" style="display:none;border-color:#3f9a54"><b id="mile_t" style="color:#7fb38a"></b><br><small id="mile_x"></small></div>
 <div class="card"><div id="state">loading\u2026</div><div id="pending"></div>
 <div class="row"><span class="k">Session</span><span class="v" id="session_time"></span></div>
 <div class="row"><span class="k">Total training</span><span class="v" id="total_time"></span></div>
@@ -415,7 +416,7 @@ async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no
  S=await r.json();q('title').textContent=S.run_name?'MimicKit \u00b7 '+S.run_name:(S.title||'MimicKit');document.title=q('title').textContent;q('state').textContent=S.state||'';
  for(const k of ['session_time','total_time','samples','rate','estimate','per_step','vram'])q(k).textContent=S[k]||'-';
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
- q('age').textContent=new Date().toLocaleTimeString();draw();
+ q('age').textContent=new Date().toLocaleTimeString();draw();const M=S.milestone;q('mile').style.display=M?'':'none';if(M){q('mile_t').textContent='\u2605 '+M.title;q('mile_x').textContent=M.text}
  pvList();rProg();
  if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||S.stop_save_msg||'';CTL=!!S.control;q('ctlofft').textContent=S.control_lockdown?'Phone control turned off after too many wrong PINs. Turn it back on from the PC.':'Turned off on the PC.';updCtl();runsTick();if(window.extraTick)extraTick()}catch(e){q('state').textContent='offline - retrying'}}
 // ---- preview card (a0.8.0): play/pause, scrub, loop (no autoplay), clip choice, 0.25/0.5/1x, download, render progress

@@ -60,6 +60,9 @@ class DashboardMixin:
             snap["vram"] = "%.1f / %.1f GB" % (v[0] / 1024, v[1] / 1024)
             snap["vram_pct"] = round(100 * v[0] / v[1])
         snap["stop_save_msg"] = getattr(self, "stopsave_msg", "")
+        ms = getattr(self, "_milestone", None)  # a0.9.0: phone banner
+        if ms and ms.get("run") == os.path.basename(d.rstrip("/\\")):
+            snap["milestone"] = dict(title=ms["title"], text=ms["text"], at=ms["at"], key=ms["key"])
         snap["render"] = dict(getattr(self, "render_prog", None) or {})
         prev = self._preview_list(d)
         if prev:

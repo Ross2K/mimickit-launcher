@@ -505,7 +505,15 @@ class StatusMixin:
         if cid in self.cards:
             self._close_card(cid, remember=False)
         self._card_seen.add(cid)
-        if cid == "looks_trained":
+        if cid == "milestone":  # a0.9.0: 'First steps!' / 'Walking well' (one card, newest level wins)
+            c = dict(
+                title=ctx.get("title", "Milestone"),
+                what=ctx.get("text", ""),
+                safe="Training keeps running. A preview shows how it moves now.",
+                actions=[("Render preview", "preview"), ("Keep training", "dismiss")],
+            )
+            col = T["good"]
+        elif cid == "looks_trained":
             c = dict(
                 title=SM.LOOKS_TRAINED["title"],
                 what=SM.LOOKS_TRAINED["what"].format(a=ctx.get("a", "?")),
@@ -641,6 +649,51 @@ class StatusMixin:
             threading.Thread(
                 target=self.notifier.send, args=(msg,), kwargs=dict(kind="trained"), daemon=True
             ).start()
+
+
+    # ------------------------------------------------------------------ milestones (a0.9.0)
+    def _milestone_history(self, d, log):
+        """The rows to judge: the live/console rows; log.txt when they lack Test_Episode_Length (stock MimicKit only
+        writes it to log.txt). Cached by log.txt mtime."""
+        from mkl import milestones as MS
+
+        if any(MS._num(v) for v in (log.get("Test_Episode_Length") or [])):
+            return log
+        f = os.path.join(d, "log.txt")
+        try:
+            mt = os.path.getmtime(f)
+        except OSError:
+            return log
+        c = getattr(self, "_ms_logcache", None)
+        if not c or c[0] != f or c[1] != mt:
+            try:
+                h = parse_log(f)
+            except Exception as e:
+                log_exc("milestones: log.txt", e)
+                h = {}
+            self._ms_logcache = c = (f, mt, h)
+        return c[2] if c[2].get("Test_Return") else log
+
+    def _check_milestones(self, d, log, running):
+        """'First steps!' / 'Walking well': once per run chain (flag in each output folder's milestones.json)."""
+        from mkl import milestones as MS
+
+        if not running or self.run_kind != "train" or not d or not os.path.isdir(d):
+            return []
+        try:
+            chain = run_chain(d)
+        except (ValueError, OSError):
+            chain = [d]
+        new = MS.check(d, chain, self._milestone_history(d, log), MS.cfg(self.s))
+        for info in new:
+            self._milestone = dict(info, run=os.path.basename(d.rstrip("/\\")), at=time.time())
+            self._show_card("milestone", **info)
+            self._append("[gui] milestone: %s %s\n" % (info["title"], info["text"]))
+            if self.notifier.targets():
+                msg = "%s %s - %s" % (info["title"], os.path.basename(d.rstrip("/\\")), info["text"])
+                threading.Thread(target=self.notifier.send, args=(msg,), kwargs=dict(kind="milestone"),
+                                 daemon=True).start()
+        return new
 
 
 def open_path(p):

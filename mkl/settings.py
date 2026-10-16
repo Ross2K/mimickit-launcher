@@ -60,6 +60,7 @@ class SettingsMixin:
         self._ts_fields(base, cols, mk, vars_)
         self._ts_clips(cols, env, mk)
         self._ts_scale(cols)
+        self._ts_milestones(cols)
         self._ts_stubs(cols)
         # a0.6.1 item: never cut the right-hand column / help text sideways. If both columns don't fit in 80% of the
         # screen, stack them, so the dialog only ever scrolls up and down.
@@ -116,6 +117,10 @@ class SettingsMixin:
             return changes, h, bad
 
         def save():
+            msbad = self._ts_ms_apply()  # a0.9.0: milestone thresholds are launcher settings (saved right away)
+            if msbad:
+                messagebox.showerror("Check these values", "\n".join(msbad), parent=top)
+                return None
             changes, h, bad = collect()
             if bad:
                 messagebox.showerror("Check these values", "\n".join(bad), parent=top)
@@ -284,6 +289,60 @@ class SettingsMixin:
             text="Not built yet: each needs your input on how it should work.",
             style="Dim.TLabel",
         ).grid(row=len(TS.STUBS), column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+    MS_FIELDS = (  # (key, label, type, lo, hi, hint)
+        ("first_pct", "\"First steps!\" at match score (%)", float, 1, 100,
+         "Per-step test match score (Test_Return / Test_Episode_Length, in %) for the first alert. Default 20."),
+        ("well_pct", "\"Walking well\" at match score (%)", float, 1, 100,
+         "Per-step match score for the second, higher alert. Default 50."),
+        ("upright_pct", "Stays upright: episode length at least (%)", float, 1, 100,
+         "Test episodes must last this share of the full episode (episode_length x control_freq). Default 80."),
+        ("evals", "Checks in a row", int, 1, 50,
+         "How many evaluations in a row must meet both. Default 3."),
+    )
+
+    def _ts_milestones(self, cols):
+        """a0.9.0: thresholds of the 'First steps!' / 'Walking well' alerts (banner on PC + phone, Discord/Telegram)."""
+        from mkl import milestones as MS
+
+        lf = self._ts_section(cols[1], "Milestone alerts")
+        c = MS.cfg(self.s)
+        self._ts_ms_vars = {}
+        v_on = tk.BooleanVar(value=bool(c["enabled"]))
+        ttk.Checkbutton(lf, text="Alert me when training reaches a milestone", variable=v_on).grid(
+            row=0, column=0, columnspan=3, sticky="w")
+        self._ts_ms_vars["enabled"] = (v_on, bool)
+        for r, (k, label, typ, lo, hi, hint) in enumerate(self.MS_FIELDS, start=1):
+            v = tk.StringVar(value=("%g" % c[k]) if typ is float else str(int(c[k])))
+            self._ts_ms_vars[k] = (v, typ)
+            self._ts_row(lf, r, label, ttk.Entry(lf, textvariable=v, width=7), hint)
+        ttk.Label(lf, text="Each alert fires once per run (resuming doesn't repeat it). No episode length in the "
+                  "log: match score only.", style="Dim.TLabel", wraplength=360, justify="left").grid(
+            row=len(self.MS_FIELDS) + 1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
+    def _ts_ms_apply(self):
+        """Validate + store the milestone thresholds in self.s['milestones']. Returns the list of bad fields."""
+        vs = getattr(self, "_ts_ms_vars", None)
+        if not vs:
+            return []
+        out, bad = {}, []
+        for k, label, typ, lo, hi, _ in self.MS_FIELDS:
+            try:
+                v = typ(float(str(vs[k][0].get()).strip()))
+                assert lo <= v <= hi
+                out[k] = v
+            except (ValueError, AssertionError):
+                bad.append("%s (%g-%g)" % (label, lo, hi))
+        if not bad and out["well_pct"] < out["first_pct"]:
+            bad.append('"Walking well" must be at least "First steps!"')
+        if bad:
+            return bad
+        out["enabled"] = bool(vs["enabled"][0].get())
+        if out != {k: v for k, v in (self.s.get("milestones") or {}).items()}:
+            self.s["milestones"] = out
+            self._save_settings_only()
+            self._append("[gui] milestone alerts: %s\n" % ", ".join("%s=%s" % kv for kv in out.items()))
+        return []
 
     def _ts_section(self, parent, title):
         """A titled box in the training settings dialog."""
