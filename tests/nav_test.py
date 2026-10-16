@@ -4,6 +4,9 @@ range with manual y drag only when data lies outside it, Home/double-click reset
   xvfb-run -a python tests/nav_test.py [--shots DIR]"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -18,7 +21,7 @@ SHOTS = sys.argv[sys.argv.index("--shots") + 1] if "--shots" in sys.argv else ""
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
 G.messagebox.askyesno = lambda *a, **k: True
-mk = os.path.join(HERE, "fake_mimickit")
+mk = fake_mk()
 G.filedialog.askdirectory = lambda **k: mk
 shutil.rmtree(os.path.join(mk, "output"), ignore_errors=True)
 root = tk.Tk()

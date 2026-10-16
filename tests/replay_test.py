@@ -6,6 +6,9 @@ Set STUB_REPLAY=console.txt (+ STUB_LOG=log.txt) to replay a real capture instea
 assume the 154-iteration default."""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +22,7 @@ import shutil, tkinter as tk, mimickit_launcher as G
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: print("[dialog]", a))
 G.messagebox.askyesno = lambda *a, **k: True
-mk = os.path.join(HERE, "fake_mimickit")
+mk = fake_mk()
 G.filedialog.askdirectory = lambda **k: mk
 shot = sys.argv[sys.argv.index("--shot") + 1] if "--shot" in sys.argv else None
 root = tk.Tk()
@@ -120,6 +123,21 @@ def verify():
 T = float(os.environ.get("VERIFY_AT", "14"))
 root.after(1500, go)
 root.after(int(T * 500), midcheck)
-root.after(int(T * 1000), verify)
+T0 = time.time()
+
+
+def poll():  # a0.8.5: verify once all 154 rows are in or the child has exited (60 s cap) - no fixed sleep
+    app._progress_tick(force=True)
+    pr = app.proc
+    done = app.live.rows() >= 154 or (pr is not None and pr.poll() is not None)
+    if done or time.time() - T0 > 60:
+        if not done:
+            print("[poll] 60 s timeout: %d rows" % app.live.rows(), flush=True)
+        root.after(600, verify)  # let the reader drain the last lines
+        return
+    root.after(250, poll)
+
+
+root.after(int(T * 500) + 500, poll)
 root.mainloop()
 sys.exit(0 if all(ok) else 1)

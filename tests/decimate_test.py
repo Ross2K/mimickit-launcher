@@ -3,6 +3,9 @@ desktop charts and the phone page; hover readouts report real data points.
   xvfb-run -a python tests/decimate_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import json, math, os, random, re, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -55,7 +58,7 @@ from matplotlib.backend_bases import MouseEvent
 
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
-fmk = os.path.join(HERE, "fake_mimickit")
+fmk = fake_mk()
 G.filedialog.askdirectory = lambda **k: fmk
 root = tk.Tk()
 root.geometry("1280x880")

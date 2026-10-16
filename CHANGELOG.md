@@ -3,6 +3,24 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.5
+
+More room for the charts at 125 % + review fixes (GUI only).
+
+- **Charts keep their room:** when the window is short, the Settings / What to run area scrolls (scrollbar on its
+  right) instead of squeezing the charts; the bottom half keeps ~400 px (x your Windows scale).
+- **Run buttons pinned:** Start / Resume / Stop after next save / STOP sit just under the scrolling area - always
+  visible.
+- **Tooltips** appear just below (or beside) the control after a short delay and never cover the buttons on its row.
+- The chart caption (what Return / Samples/hour mean) moved into the chart's "?" tooltip; "Hover any control = help"
+  moved to the top banner; less padding between boxes.
+- Fixes: the phone queue and lock exist before the GPU thread starts; phone "stop after save" / cancel / "stop after
+  save" always ends armed (newest request wins); a separate log line when a new run replaced the old one during a
+  stop retry; friendlier names in logs ("clip viewer process ended"); wrapped button rows keep each button's spacing
+  and pick up buttons added later.
+- Tests: the replay test waits for all rows (60 s cap) instead of a fixed time; tests write runs into a temp folder,
+  never into the repo.
+
 ## a0.8.4
 
 PC layout at 125 % scaling + review fixes (GUI only).

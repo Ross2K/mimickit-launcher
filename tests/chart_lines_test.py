@@ -4,13 +4,16 @@ of drawn items stays constant however big the history is or where you zoom. Hove
 xvfb-run -a python tests/chart_lines_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 CFG = os.path.join(tempfile.mkdtemp(), "s.json")  # own settings (no first-run prompt, nothing left by other tests)
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = CFG
-open(CFG, "w").write('{"mimickit": %s}' % __import__("json").dumps(os.path.join(HERE, "fake_mimickit")))
+open(CFG, "w").write('{"mimickit": %s}' % __import__("json").dumps(fake_mk()))
 import tkinter as tk, mimickit_launcher as G
 from matplotlib.backend_bases import MouseEvent
 

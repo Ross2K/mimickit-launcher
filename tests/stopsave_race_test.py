@@ -59,7 +59,7 @@ while time.time() - t0 < 4.5:
     time.sleep(0.02)
 check("new run started during the 3 s search survives", new.poll() is None and not f.kills and not f.stops,
       (f.kills, f.stops))
-check("logged instead", any("nothing to stop" in m for m in f.log), f.log)
+check("Q3: separate log line names the new run it leaves alone", any("a new run (PID %d) has started" % new.pid in m and "leaving the new run alone" in m for m in f.log), f.log)
 # same run still alive -> the retry does stop + kill it
 f2 = Fake(root, new)
 f2._stopsave_find_kill()

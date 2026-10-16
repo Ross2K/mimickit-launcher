@@ -152,15 +152,23 @@ def scroll_popup(parent, title, theme, max_frac=MAX_FRAC):
 
 
 def tip_position(anchor, w, h, gap=4):
-    """Tooltip below the anchor widget (flipped above when there's no room), clamped inside the anchor's window
-    (or its monitor if the tooltip is bigger than the window)."""
-    ax, ay, ah = anchor.winfo_rootx(), anchor.winfo_rooty(), anchor.winfo_height()
+    """Tooltip just below the anchor widget, left-aligned with it (a0.8.5); above when there's no room below; beside
+    it (right, else left) when neither fits. Never overlaps the anchor's own row, so it can't cover the button next to
+    it. Clamped inside the anchor's window (or its monitor if the tooltip is bigger than the window)."""
+    ax, ay, aw, ah = anchor.winfo_rootx(), anchor.winfo_rooty(), anchor.winfo_width(), anchor.winfo_height()
     win, mon = window_rect(anchor), monitor_rect(anchor)
     area = win if w <= win[2] and h <= win[3] else mon
-    x, y = ax + 10, ay + ah + gap
-    if y + h > area[1] + area[3]:
+    top, bottom = area[1], area[1] + area[3]
+    if ay + ah + gap + h <= bottom:
+        y = ay + ah + gap
+    elif ay - gap - h >= top:
         y = ay - h - gap
-    return clamp(x, y, w, h, area)
+    else:  # beside the control, vertically clamped
+        y = ay
+        x = ax + aw + gap if ax + aw + gap + w <= area[0] + area[2] else ax - w - gap
+        return clamp(x, y, w, h, area)
+    x, y2 = clamp(ax, y, w, h, area)
+    return x, y2
 
 
 class DarkMessageBox:

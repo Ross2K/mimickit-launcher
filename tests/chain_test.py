@@ -2,6 +2,9 @@
 chronological view env yaml.   xvfb-run -a python tests/chain_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import json, os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +17,7 @@ import expect  # per-build expected defaults
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: print("[dialog]", a))
 G.messagebox.askyesno = lambda *a, **k: True
-mk = os.path.join(HERE, "fake_mimickit")
+mk = fake_mk()
 G.filedialog.askdirectory = lambda **k: mk
 shutil.rmtree(os.path.join(mk, "output"), ignore_errors=True)
 ok = []

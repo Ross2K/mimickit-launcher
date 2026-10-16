@@ -2,6 +2,9 @@
 xvfb-run -a python tests/vram_bridge_test.py [--shot out.png]"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, shutil, stat, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -18,7 +21,7 @@ import tkinter as tk, mimickit_launcher as G
 
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
-mk = os.path.join(HERE, "fake_mimickit")
+mk = fake_mk()
 G.filedialog.askdirectory = lambda **k: mk
 shot = sys.argv[sys.argv.index("--shot") + 1] if "--shot" in sys.argv else None
 root = tk.Tk()

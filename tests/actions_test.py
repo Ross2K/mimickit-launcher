@@ -1,6 +1,9 @@
 """Profile ACTIONS buttons + install_files (backup originals, copy patch files).  xvfb-run -a python tests/actions_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,7 +41,7 @@ check("second run keeps the first backup", b == [] and open(os.path.join(bk, "da
 
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
-G.filedialog.askdirectory = lambda **k: os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_mimickit")
+G.filedialog.askdirectory = lambda **k: fake_mk()
 check("actions: none in the public build, the profile's in an overlay", len(core.ACTIONS) == expect.PROFILE_ACTIONS)
 hit = []
 core.ACTIONS = [dict(text="Do thing", help="tip", run=lambda app: hit.append(app))]

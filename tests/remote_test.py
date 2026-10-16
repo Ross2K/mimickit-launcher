@@ -3,6 +3,9 @@ formatting with mocked HTTP, and GUI responsiveness while the server is hammered
 """
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import http.client, json, os, socket, sys, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -318,7 +321,7 @@ port = s.getsockname()[1]
 s.close()
 root = tk.Tk()
 app = G.App(root)
-app.v_mk.set(os.path.join(HERE, "fake_mimickit"))
+app.v_mk.set(fake_mk())
 app.s["remote"] = dict(enabled=True, host="127.0.0.1", port=port)
 app._remote_apply()
 t0 = time.time()

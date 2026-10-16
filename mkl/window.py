@@ -26,50 +26,111 @@ class TitleBox(ttk.LabelFrame):
         return self._title.cget("text") if key == "text" else super().cget(key)
 
 
+def _pad(v):
+    """pack padding (int, 'n', '3 5' or (a, b)) -> (a, b) ints."""
+    if isinstance(v, (tuple, list)):
+        v = list(v) + list(v)[:1]
+        return int(float(str(v[0]))), int(float(str(v[1])))
+    parts = str(v).split() or ["0"]
+    a = int(float(parts[0]))
+    return a, int(float(parts[1])) if len(parts) > 1 else a
+
+
 def flow(frame, groups=False):
     """Re-lay the packed children of frame into as many rows as needed (a0.8.4: nothing is cut off at 125 %).
-    groups=True keeps a label together with the widget after it (e.g. 'Clip layout' + its box)."""
-    kids = [w for w in frame.pack_slaves()]
-    units, i = [], 0
-    while i < len(kids):
-        w = kids[i]
-        if groups and isinstance(w, ttk.Label) and i + 1 < len(kids) and not isinstance(kids[i + 1], ttk.Label):
-            units.append((w, kids[i + 1]))
-            i += 2
-        else:
-            units.append((w,))
-            i += 1
-    for w in kids:
-        w.pack_forget()
-    state = {"w": -1}
-    rows = []
+    groups=True keeps a label together with the widget after it (e.g. 'Clip layout' + its box).
+    a0.8.5: each widget keeps its own pack padding; a widget hidden later (pack_forget) stays hidden, and one packed
+    into frame later (new, or shown again) is adopted with its padding on the next check."""
+    rows, units, opts = [], [], {}
 
-    def relayout(_=None):
+    def grab(w):
+        try:
+            i = w.pack_info()
+        except tk.TclError:
+            i = {}
+        opts[w] = dict(padx=_pad(i.get("padx", 3)), pady=_pad(i.get("pady", 1)),
+                       ipadx=i.get("ipadx", 0), ipady=i.get("ipady", 0))
+
+    def adopt():
+        """Children packed straight into frame (not into our rows) -> units. Returns True if anything changed."""
+        new = [w for w in frame.pack_slaves() if w not in rows]
+        if not new:
+            return False
+        known = {w for u in units for w in u}
+        i = 0
+        while i < len(new):
+            w = new[i]
+            grab(w)
+            if w in known:  # shown again: keep its old place
+                i += 1
+                continue
+            if groups and isinstance(w, ttk.Label) and i + 1 < len(new) and not isinstance(new[i + 1], ttk.Label) \
+                    and new[i + 1] not in known:
+                grab(new[i + 1])
+                units.append((w, new[i + 1]))
+                i += 2
+            else:
+                units.append((w,))
+                i += 1
+        for w in new:
+            w.pack_forget()
+            shown.add(w)
+        return True
+
+    shown, placed = set(), set()
+    state = {"w": -1}
+
+    def relayout(_=None, force=False):
         width = frame.winfo_width()
-        if width <= 1 or width == state["w"]:
+        if width <= 1 or (width == state["w"] and not force):
             return
         state["w"] = width
         for u in units:
             for w in u:
-                w.pack_forget()
+                if w.winfo_manager() == "pack":
+                    w.pack_forget()
         for r in rows:
             r.pack_forget()
+        placed.clear()
         n, used = 0, 0
         for u in units:
-            need = sum(w.winfo_reqwidth() + 6 for w in u)
+            vis = [w for w in u if w in shown]
+            if not vis:
+                continue
+            need = sum(w.winfo_reqwidth() + sum(opts[w]["padx"]) for w in vis)
             if used and used + need > width:
                 n, used = n + 1, 0
             while len(rows) <= n:
                 rows.append(ttk.Frame(frame))
-            for w in u:
-                w.pack(in_=rows[n], side="left", padx=3, pady=1)
+            for w in vis:
+                w.pack(in_=rows[n], side="left", **opts[w])
                 w.lift(rows[n])
+                placed.add(w)
             used += need
         for r in rows[: n + 1]:
             r.pack(side="top", anchor="w", fill="x")
 
+    def watch():
+        """Notice widgets the app hid (pack_forget from a row) or packed into frame since the last layout."""
+        if not frame.winfo_exists():
+            return
+        changed = adopt()
+        for u in units:
+            for w in u:
+                packed = w.winfo_manager() == "pack"
+                if w in placed and not packed:
+                    placed.discard(w)
+                    shown.discard(w)  # hidden by the app
+                    changed = True
+        if changed:
+            relayout(force=True)
+        frame.after(400, watch)
+
+    adopt()
+    frame._flow_relayout = lambda: (adopt(), relayout(force=True))
     frame.bind("<Configure>", relayout, add="+")
     frame.after_idle(relayout)
+    frame.after(400, watch)
 
 
 class MainWindowMixin:
@@ -80,12 +141,14 @@ class MainWindowMixin:
     def _build(self):
         """The main window, top to bottom: banner, settings row, what to run, status + cards + output | charts."""
         self._build_banner()  # health banner, version on its right
-        top = ttk.Frame(self.root, padding=6)
-        top.pack(fill="x")
+        top = self._top_area()  # a0.8.5: Settings + What to run scroll/shrink first; the charts keep a real minimum
+        # run / stop buttons: outside the scrolling top, so STOP is always visible whatever the window height
+        self._runbar = ttk.Frame(self.root, padding=(10, 2, 6, 0))
+        self._runbar.pack(fill="x")
         self._build_settings(top)
         self._build_job(top)
         mid = ttk.Panedwindow(self.root, orient="horizontal")
-        mid.pack(fill="both", expand=True, padx=6, pady=4)
+        mid.pack(fill="both", expand=True, padx=6, pady=(2, 4))
         lo = ttk.Frame(mid)
         mid.add(lo, weight=2)  # a0.8.3: left 2 : charts 3
 
@@ -103,9 +166,58 @@ class MainWindowMixin:
         self._build_charts(mid)
         self.apply_theme()
 
+    BOTTOM_MIN = 400  # px at 96 dpi: chart area (~360 px charts + toolbar) kept when the window is short
+
+    def _top_area(self):
+        """a0.8.5: Settings + What to run in a frame that scrolls when the window is short, so the bottom half
+        (status / output | charts) keeps a real minimum height instead of being squeezed first (125 %)."""
+        outer = ttk.Frame(self.root)
+        outer.pack(fill="x")
+        cv = tk.Canvas(outer, highlightthickness=0, bd=0, height=1, bg=T.get("bg", "#202020"))
+        ys = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=ys.set)
+        cv.pack(side="left", fill="x", expand=True)
+        inner = ttk.Frame(cv, padding=(6, 2, 6, 0))
+        win = cv.create_window(0, 0, window=inner, anchor="nw")
+        self._top_cv, self._top_inner = cv, inner
+        self._scroll_canvases = getattr(self, "_scroll_canvases", []) + [cv]
+
+        def fit(_=None):
+            k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+            req = inner.winfo_reqheight()
+            others = self.ban_f.winfo_height() + (self._runbar.winfo_reqheight() if hasattr(self, "_runbar") else 0)
+            avail = self.root.winfo_height() - others - int(self.BOTTOM_MIN * k) - 10
+            h = max(min(req, int(110 * k)), min(req, avail))
+            if self.root.winfo_height() <= 1:
+                h = req
+            if int(cv.cget("height")) != h:
+                cv.configure(height=h)
+            cv.itemconfigure(win, width=max(1, cv.winfo_width()))
+            cv.configure(scrollregion=(0, 0, cv.winfo_width(), req))
+            if req > h + 1:
+                if not ys.winfo_manager():
+                    ys.pack(side="right", fill="y", before=cv)
+            elif ys.winfo_manager():
+                ys.pack_forget()
+                cv.yview_moveto(0)
+        self._top_fit = fit
+
+        cv.bind("<Configure>", lambda e: cv.after_idle(fit))
+        inner.bind("<Configure>", lambda e: cv.after_idle(fit))
+        self.root.bind("<Configure>", lambda e: cv.after_idle(fit) if e.widget is self.root else None, add="+")
+
+        def wheel(e):
+            if ys.winfo_manager():
+                cv.yview_scroll(-1 if (getattr(e, "delta", 0) > 0 or getattr(e, "num", 0) == 4) else 1, "units")
+
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            cv.bind(seq, wheel)
+            inner.bind(seq, wheel)
+        return inner
+
     def _build_settings(self, top):
         """Settings row: MimicKit folder, venv, light mode, phone, patches, About."""
-        st = ttk.LabelFrame(top, text="Settings", padding=6)
+        st = ttk.LabelFrame(top, text="Settings", padding=(6, 2, 6, 4))
         st.pack(fill="x")
         self.v_mk = tk.StringVar(value=self.s.get("mimickit", ""))
         self._mk_cache = self.v_mk.get().strip()
@@ -155,8 +267,8 @@ class MainWindowMixin:
 
     def _build_job(self, top):
         """'What to run': configs, num_envs, output folder, run buttons, preview options."""
-        job = ttk.LabelFrame(top, text="What to run", padding=6)
-        job.pack(fill="x", pady=4)
+        job = ttk.LabelFrame(top, text="What to run", padding=(6, 2, 6, 4))
+        job.pack(fill="x", pady=(3, 0))
         self.v_train = tk.StringVar()
         self.v_view = tk.StringVar()
         ttk.Label(job, text="Training config").grid(row=0, column=0, sticky="w")
@@ -216,10 +328,10 @@ class MainWindowMixin:
             row=4, column=4, sticky="w", padx=6
         )
         # a0.8.4: the run/stop buttons have their own row (STOP always visible at 125 %); the rest wraps below
-        bf = ttk.Frame(job)
-        bf.grid(row=5, column=0, columnspan=6, sticky="w", pady=(6, 0))
+        bf = ttk.Frame(self._runbar)  # a0.8.5: pinned below the scrolling top (see _build)
+        bf.pack(side="left")
         bf2 = ttk.Frame(job)
-        bf2.grid(row=6, column=0, columnspan=6, sticky="we", pady=(4, 0))
+        bf2.grid(row=6, column=0, columnspan=6, sticky="we", pady=(2, 0))
         bfa = ttk.Frame(bf2)  # other run buttons + args/settings buttons (+ profile ACTIONS), wraps
         bfa.pack(side="top", fill="x")
         for key, txt, fn, parent in (
@@ -246,7 +358,7 @@ class MainWindowMixin:
             if key == "stopsave":
                 self.b_stopsave = b
         bfb = ttk.Frame(bf2)  # preview options on their own line(s), wraps too
-        bfb.pack(side="top", fill="x", pady=(4, 0))
+        bfb.pack(side="top", fill="x", pady=(2, 0))
         b = ttk.Button(bfa, text="Rescan args", command=self.rescan)
         b.pack(side="left", padx=3)
         Tip(b, "Re-read MimicKit's args folder.")
@@ -313,7 +425,6 @@ class MainWindowMixin:
         b = ttk.Button(bfb, text="Preview diagnostics", command=self.preview_diag)
         b.pack(side="left", padx=(12, 3))
         Tip(b, HELP["pdiag"])
-        ttk.Label(bfb, text="Hover = help", style="Dim.TLabel").pack(side="left", padx=8)
         flow(bfa)
         flow(bfb, groups=True)
         self.custom = list(self.s.get("custom_args", []))
@@ -462,14 +573,15 @@ class MainWindowMixin:
         self.chart_help = tk.Label(right.title_row, text="?", width=2, cursor="question_arrow")
         # before the title: on a narrow window the title row gets clipped from the right, the badge must stay whole
         self.chart_help.pack(side="left", padx=(0, 6), before=right._title)
-        Tip(self.chart_help, HELP["chartnav"])
+        # a0.8.5: the chart caption (what Return / Samples/hour mean) moved into this tooltip - no squeezed line
+        # under the charts any more
+        self.chart_caption = RETURN_TEXT + "\nSamples/hour = training speed."
+        Tip(self.chart_help, self.chart_caption + "\n\n" + HELP["chartnav"])
+        Tip(right._title, self.chart_caption)
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
         self.canvas.mpl_connect("button_press_event", self._on_click)
         self.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.canvas.mpl_connect("button_release_event", self._on_release)
-        ttk.Label(
-            right, text=RETURN_TEXT + "\n" "Samples/hour = training speed.", style="Dim.TLabel"
-        ).pack(anchor="w")
 
     def _toggle_theme(self):
         self.apply_theme()

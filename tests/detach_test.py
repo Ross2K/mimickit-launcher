@@ -3,6 +3,9 @@ Stop kills the saved PID's whole process tree, 'keep running' on close, and PID-
   xvfb-run -a python tests/detach_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import json, os, shutil, signal, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +13,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = os.path.join(tempfile.mkdtemp(), "s.json")
 os.environ.update(STUB_ITERS="100000", STUB_SLEEP="0.2", STUB_TEST_SECS="600")
-mk = os.path.join(HERE, "fake_mimickit")
+mk = fake_mk()
 shutil.rmtree(os.path.join(mk, "output"), ignore_errors=True)
 ok = []
 

@@ -4,6 +4,9 @@ interfaces setups kept), Show buttons on masked fields, secrets kept out of logs
   xvfb-run -a python tests/fixes042_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import ast, datetime, glob, json, os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -115,7 +118,7 @@ import tkinter as tk, mimickit_launcher as G
 
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
-fmk = os.path.join(HERE, "fake_mimickit")
+fmk = fake_mk()
 G.filedialog.askdirectory = lambda **k: fmk
 U.save_json(CFG, {"mimickit": fmk, "light_mode": False, "venv": "", "marker": "good"})
 U.save_json(CFG, {"mimickit": fmk, "light_mode": False, "venv": "", "marker": "newer"})

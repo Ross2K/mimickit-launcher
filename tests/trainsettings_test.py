@@ -3,6 +3,9 @@ hold trim/extend, clip start share patch), the dialog incl. 'Coming soon' stubs,
   xvfb-run -a python tests/trainsettings_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import json, os, pickle, shutil, sys, tempfile, time, types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -242,7 +245,7 @@ from expect import PROFILE_PRESETS
 for n in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, n, lambda *a, **k: None)
 G.messagebox.askyesno = lambda *a, **k: True
-fmk = os.path.join(HERE, "fake_mimickit")
+fmk = fake_mk()
 G.filedialog.askdirectory = lambda **k: fmk
 root = tk.Tk()
 app = G.App(root)

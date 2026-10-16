@@ -3,6 +3,9 @@ display smoothing.   python tests/estimate_test.py  (the GUI part needs xvfb: xv
 """
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import math, os, random, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -135,7 +138,7 @@ if os.environ.get("DISPLAY"):
     import tkinter as tk
 
     G.messagebox.showinfo = lambda *a, **k: None
-    G.filedialog.askdirectory = lambda **k: os.path.join(HERE, "fake_mimickit")
+    G.filedialog.askdirectory = lambda **k: fake_mk()
     root = tk.Tk()
     app = G.App(root)
     vals = [app._smooth_estimate("chainA", v) for v in (20, 90, 90, 90)]

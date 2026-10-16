@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.8.4"
+VERSION = "a0.8.5"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -293,7 +293,9 @@ from mkl.dialogs import DarkMessageBox, new_popup, place_popup, scroll_popup, ti
 
 messagebox = DarkMessageBox(T)  # dark popups; same API as tkinter.messagebox
 # what each kind of MimicKit process is called in messages (never the raw 'preview' / 'view')
-KIND_NAME = {"train": "Training", "view": "The clip viewer", "watch": "Watch", "preview": "A preview"}
+KIND_NAME = {"train": "Training", "view": "The clip viewer", "watch": "The watch window", "preview": "A preview"}
+# plain nouns for log lines ("[gui] clip viewer process ended ...")
+KIND_NOUN = {"train": "training", "view": "clip viewer", "watch": "watch window", "preview": "preview"}
 
 # dashboard bind address -> what the user picks
 BIND_LABEL = {
@@ -1106,7 +1108,7 @@ class Tip:
 
     _by_widget = {}
     _active = None
-    DELAY = 350
+    DELAY = 450  # a0.8.5: short delay, so moving across a row of buttons doesn't flash tooltips
 
     def __new__(cls, w, text):
         old = cls._by_widget.get(str(w))

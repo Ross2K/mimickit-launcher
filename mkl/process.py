@@ -237,7 +237,8 @@ class ProcessMixin:
 
     def _check(self, kind):
         if self.proc and self.proc.poll() is None:
-            what = KIND_NAME.get(getattr(self, "run_kind", "") or "", "Something")
+            rk = getattr(self, "run_kind", "") or ""
+            what = KIND_NAME.get(rk, "Training" if rk in ("", "train") else "Another run")
             msg = ("%s is running. Press STOP first." % what) if what == "Training" else (
                 "%s is running. Close it first (or press STOP)." % what)
             self._append("[gui] refused: %s\n" % msg)
@@ -935,7 +936,7 @@ class ProcessMixin:
                 st["exit_code"] = proc.returncode
                 write_run_state(state_path, st)
         ended = "[gui] %sprocess ended (exit code %s)\n" % (
-            "%s " % KIND_NAME.get(kind, kind).lower() if kind else "",
+            "%s " % KIND_NOUN.get(kind, "run") if kind else "",
             proc.returncode,
         )
         self.q.put(ended)

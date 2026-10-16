@@ -3,13 +3,16 @@ the main window in each screen corner (regression: close dialog not centred, cha
 xvfb-run -a -s "-screen 0 1280x1024x24" python tests/placement_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 CFG = os.path.join(tempfile.mkdtemp(), "s.json")  # own settings (no first-run prompt, nothing left by other tests)
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = CFG
-open(CFG, "w").write('{"mimickit": %s}' % __import__("json").dumps(os.path.join(HERE, "fake_mimickit")))
+open(CFG, "w").write('{"mimickit": %s}' % __import__("json").dumps(fake_mk()))
 import tkinter as tk, mimickit_launcher as G
 from mkl import dialogs as D
 
@@ -21,7 +24,7 @@ def check(n, c, i=""):
     print(("PASS " if c else "FAIL ") + n + ("  - " + str(i) if i else ""), flush=True)
 
 
-G.filedialog.askdirectory = lambda **k: os.path.join(HERE, "fake_mimickit")
+G.filedialog.askdirectory = lambda **k: fake_mk()
 G.App._gpu_poll_thread = lambda self: None
 root = tk.Tk()
 app = G.App(root)

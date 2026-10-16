@@ -3,6 +3,9 @@ xvfb-run -a -s "-screen 0 1300x900x24" python tests/gui_test.py [MIMICKIT_DIR] [
 """
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, subprocess, sys, tempfile, time, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -15,7 +18,7 @@ import expect  # per-build expected defaults
 mk = (
     os.path.abspath(sys.argv[1])
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--")
-    else os.path.join(HERE, "fake_mimickit")
+    else fake_mk()
 )
 shot = sys.argv[sys.argv.index("--shot") + 1] if "--shot" in sys.argv else None
 fake = (

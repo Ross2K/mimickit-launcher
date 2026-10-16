@@ -28,10 +28,13 @@ class StatusMixin:
 
     def _build_banner(self):
         f = tk.Frame(self.root, padx=6, pady=3)
-        f.pack(fill="x", padx=6, pady=(4, 2))
+        f.pack(fill="x", padx=6, pady=(3, 1))
         self.ban_f = f
         self.ban_ver = tk.Label(f, text="version " + VERSION)
         self.ban_ver.pack(side="right")
+        # a0.8.5: the 'Hover = help' hint lives in the banner (it used to wrap onto its own preview line)
+        self.ban_hint = tk.Label(f, text="Hover any control = help")
+        self.ban_hint.pack(side="right", padx=(8, 8))
         self.ban_dot = tk.Label(f, text="\u25cf", font=("Segoe UI", 11))
         self.ban_dot.pack(side="left")
         self.ban_detail = tk.Label(f, text="", anchor="e")  # grey technical detail (exit code)
@@ -46,6 +49,7 @@ class StatusMixin:
         room = (
             self.ban_f.winfo_width()
             - self.ban_ver.winfo_reqwidth()
+            - self.ban_hint.winfo_reqwidth()
             - self.ban_dot.winfo_reqwidth()
             - self.ban_detail.winfo_reqwidth()
             - 40
@@ -333,6 +337,7 @@ class StatusMixin:
         bg = T["panel"]
         self.ban_f.configure(bg=bg)
         self.ban_ver.configure(bg=bg, fg=T["dim"])
+        self.ban_hint.configure(bg=bg, fg=T["dim"])
         self.ban_detail.configure(bg=bg, fg=T["dim"])
         self.ban_dot.configure(bg=bg, fg=col)
         self.ban_lab.configure(bg=bg, fg=T["fg"] if level in ("idle", "info", "ok") else col)

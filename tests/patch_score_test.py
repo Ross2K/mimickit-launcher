@@ -3,6 +3,9 @@ history CSV with old headers, dashboard URL ordering/labels and QR refresh after
   xvfb-run -a python tests/patch_score_test.py"""
 
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
 import os, shutil, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -125,10 +128,10 @@ check(
 for nm in ("showinfo", "showwarning", "showerror"):
     setattr(G.messagebox, nm, lambda *a, **k: None)
 G.messagebox.askyesno = lambda *a, **k: False
-G.filedialog.askdirectory = lambda **k: os.path.join(HERE, "fake_mimickit")
+G.filedialog.askdirectory = lambda **k: fake_mk()
 root = tk.Tk()
 app = G.App(root)
-app.v_mk.set(os.path.join(HERE, "fake_mimickit"))
+app.v_mk.set(fake_mk())
 for _ in range(20):
     root.update()
     time.sleep(0.02)

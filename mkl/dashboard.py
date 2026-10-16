@@ -276,23 +276,17 @@ class DashboardMixin:
                 if getattr(self, "stop_save", None) or getattr(self, "_ss_queued", False):
                     return 200, "Already set: will stop after next save."
                 self._ss_queued = True
-
-            def arm():
-                with self._remote_lock:
-                    still = self._ss_queued
-                    self._ss_queued = False
-                if still and not self.stop_save:
-                    self.stop_after_save("phone")
-
-            self.rq.put(arm)
+                gen = self._ss_gen = getattr(self, "_ss_gen", 0) + 1
+            self.rq.put(lambda: self._ss_apply(gen, True))
             return 202, "Will stop after the next save (if the PC refuses, the reason shows on the status line)."
         if action == "cancel_stop":
             with self._remote_lock:
                 queued = getattr(self, "_ss_queued", False)
-                self._ss_queued = False  # a queued (not yet armed) stop after save is dropped: arm() sees it gone
+                self._ss_queued = False  # a queued (not yet armed) stop after save is dropped
                 if not getattr(self, "stop_save", None) and not queued:
                     return 200, "Nothing to cancel."
-            self.rq.put(lambda: self.stop_after_save("phone") if self.stop_save else None)
+                gen = self._ss_gen = getattr(self, "_ss_gen", 0) + 1
+            self.rq.put(lambda: self._ss_apply(gen, False))
             return 202, "Stop after next save cancelled."
         if action == "tweaks":  # settings belong to the GUI thread: queue the change, don't touch self.s here
             p = dict(params)
@@ -308,6 +302,17 @@ class DashboardMixin:
         return 400, "Unknown action."
 
     SAVE_WAIT_MAX_S = 60  # a stop from the phone waits for a running save at most this long
+
+    def _ss_apply(self, gen, want):
+        """GUI thread: phone arm (want=True) / cancel (want=False) of stop-after-save. Only the NEWEST phone request
+        (generation counter, decided under the lock) acts, so arm / cancel / arm always ends armed and
+        arm / cancel always ends cancelled, whatever order the queued callbacks run in."""
+        with self._remote_lock:
+            if gen != getattr(self, "_ss_gen", 0):
+                return  # superseded by a later phone request
+            self._ss_queued = False
+        if bool(self.stop_save) != want:
+            self.stop_after_save("phone")
 
     def _remote_stop_gui(self, t0=None):
         if not self._training_running():

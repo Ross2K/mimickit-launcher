@@ -35,6 +35,8 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         root.title("MimicKit Launcher  %s" % VERSION)
         icon.apply_icon(root)
         self.q = queue.Queue()  # before any worker thread (the icon shortcut check) can put into it
+        self.rq = queue.Queue()  # GUI-thread work queue; must exist before the GPU poll / server threads start
+        self._remote_lock = threading.Lock()  # phone check-then-set (stop now / stop after save)
         self._icon_shortcut_check()
         root.deiconify()  # main() keeps it hidden until here (icon first); pop-ups below need a visible owner
         U.set_log_path(
@@ -72,8 +74,6 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         self._gpu_poll_thread()
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.dash = None
-        self.rq = queue.Queue()
-        self._remote_lock = threading.Lock()  # phone check-then-set (stop now / stop after save)
         self.snap = {}
         self.render_msg = ""
         self.notifier = R.Notifier(
