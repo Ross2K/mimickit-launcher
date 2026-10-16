@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.9.1"
+VERSION = "a0.9.2"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -177,6 +177,10 @@ HELP = {
     "One after another = the clips in sequence, each labelled.\n"
     "One long clip (all animations) = EVERY training clip back to back in one MP4 (ignores the 1-4 clip choice; up to\n"
     "64 clips, each shortened if they add up to more than 15 min). Takes longer to render - progress shows in the log.",
+    "allclips": "All clips: the preview includes EVERY clip of the training data (up to 64), not just the 1-4 chosen\n"
+    "under Clips... (greyed out while ticked). Uses the Clip layout: All at once = an automatic grid (e.g. 31 clips ->\n"
+    "6x6, smaller tiles, frame at most 1920 px wide); One after another / One long clip = all clips in sequence.\n"
+    "Takes longer to render - progress shows in the log and on the phone.",
     "ghost": "Reference ghost in the preview MP4: the motion clip the policy is tracking (same clip, same time), drawn as a\n"
     "translucent orange character. Overlay (default) = drawn in place, on top of the policy. Side by side = next to\n"
     "the policy (offset sideways, camera frames both). Off = policy only. Applies to every clip.",

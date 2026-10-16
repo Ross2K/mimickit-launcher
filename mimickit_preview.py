@@ -380,14 +380,16 @@ def cmd_record(a):
     clips = dataset_motions(mk, args.parse_string("env_config"))
     sel = pick_clips(clips, a.clips)
     long_ = getattr(a, "layout", "") == "long"
-    if long_:  # a0.9.1: all clips (or the chosen ones) back to back
-        sel = sel or list(range(len(clips)))
+    all_ = bool(getattr(a, "all_clips", False))
+    if all_ or long_:  # a0.9.1 long: all clips (or the chosen ones) back to back; a0.9.2 'All clips': every clip
+        sel = list(range(len(clips))) if all_ else (sel or list(range(len(clips))))
         if not sel:
             sel = [0]
         if len(sel) > MAX_LONG_CLIPS:
-            log("one long clip: %d clips - showing the first %d (cap)" % (len(sel), MAX_LONG_CLIPS))
+            log("all clips: %d clips - showing the first %d (cap)" % (len(sel), MAX_LONG_CLIPS))
         K = min(len(sel), MAX_LONG_CLIPS)
-        log("one long clip: %d clip(s) back to back" % K)
+        log("%s: %d clip(s)%s" % ("all clips" if all_ else "one long clip", K,
+                                  " at once" if getattr(a, "layout", "") == "grid" else " back to back"))
     elif sel:
         K = min(len(sel), MAX_CLIPS)
         log("chosen clips: %s" % ", ".join(os.path.basename(clips[i]) for i in sel[:K]))
@@ -475,7 +477,7 @@ def cmd_record(a):
         else ["clip"]
     )
     nper = [int(math.ceil(L_ * fps)) for L_ in lens]
-    if long_ and sum(lens) > MAX_LONG_S:
+    if (long_ or (all_ and getattr(a, "layout", "") == "seq")) and sum(lens) > MAX_LONG_S:
         nper, cap = long_caps(lens, fps)
         log("one long clip: clips add up to %.0f s - each shortened to at most %.1f s (total cap %.0f s)"
             % (sum(lens), cap, MAX_LONG_S))
@@ -854,7 +856,26 @@ def frame_specs(c, layout):
 
 
 def grid_shape(K):
-    return (1, 1) if K == 1 else (1, 2) if K == 2 else (2, 2)
+    """(rows, cols): 1x1, 1x2, 2x2 up to 4 clips (as before); more ('All clips'): ceil(sqrt(K)) columns."""
+    if K <= 4:
+        return (1, 1) if K == 1 else (1, 2) if K == 2 else (2, 2)
+    cols = int(math.ceil(math.sqrt(K)))
+    return int(math.ceil(K / float(cols))), cols
+
+
+GRID_MAX_W = 1920  # 'All clips' grid: the whole frame stays at most this wide (and H.264-friendly)
+GRID_MIN_TILE_W = 240
+
+
+def tile_size(K, w, h, layout="grid", max_w=GRID_MAX_W):
+    """Panel size for the grid: the normal w x h up to 4 clips; with more, tiles shrink so the frame is <= max_w wide
+    (never below GRID_MIN_TILE_W), keeping the aspect ratio; multiples of 16 for the encoder."""
+    if layout != "grid" or K <= 4:
+        return w, h
+    rows, cols = grid_shape(K)
+    tw = max(GRID_MIN_TILE_W, min(w, max_w // cols)) // 16 * 16
+    th = max(16, int(round(tw * h / float(w) / 16.0)) * 16)
+    return tw, th
 
 
 def verify_mapping(char_file, npz, ref=False, per_clip=False):
@@ -1061,6 +1082,7 @@ def cmd_render(a, guard=None):
                 "OK" if gerr < 0.01 else "WARNING",
             )
         )
+    tw, th = tile_size(c["K"], a.width, a.height, layout)  # a0.9.2: many tiles -> smaller panels
     if c["K"] > 1:
         rows, cols = grid_shape(c["K"])
         log(
@@ -1071,7 +1093,7 @@ def cmd_render(a, guard=None):
                 ", ".join(c["names"]),
                 n,
                 (
-                    ", %dx%d grid of %dx%d panels" % (rows, cols, a.width, a.height)
+                    ", %dx%d grid of %dx%d panels (frame %dx%d)" % (rows, cols, tw, th, cols * tw, rows * th)
                     if layout == "grid"
                     else ""
                 ),
@@ -1100,8 +1122,8 @@ def cmd_render(a, guard=None):
                 bounds[i],
                 bounds[i + 1],
                 os.path.join(tmp, "part%03d.mp4" % i),
-                a.width,
-                a.height,
+                tw,
+                th,
                 mode,
                 layout,
             )
@@ -1308,6 +1330,10 @@ def _record_proc(a, device, guard, slow_check, variant=None):
         cmd += ["--clips", a.clips]
     if getattr(a, "layout", "") == "long":
         cmd += ["--layout", "long"]
+    elif getattr(a, "all_clips", False):  # the record step needs the layout for the duration cap
+        cmd += ["--layout", a.layout]
+    if getattr(a, "all_clips", False):  # a0.9.2
+        cmd.append("--all_clips")
     cmd += ["--"] + a.mk_args
     env = variant_env(variant)
     cmd[cmd.index("--out") : cmd.index("--out")] = ["--warp_cache", a.warp_cache]
@@ -1695,6 +1721,7 @@ def main(argv=None):
     p.add_argument("--layout", default="grid", choices=LAYOUTS)
     p.add_argument("--motions", type=int, default=4)
     p.add_argument("--clips", default="", help="comma list of clip names (or ids) to preview, max 4 (layout long: any)")
+    p.add_argument("--all_clips", action="store_true", help="every clip of the env (up to MAX_LONG_CLIPS), any layout")
     p.add_argument("--mk", default=".")
     p.add_argument("--device", default="auto")
     p.add_argument("--out", default="preview.mp4")

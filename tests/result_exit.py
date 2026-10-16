@@ -3,6 +3,8 @@
 
 import atexit, os, re, sys
 
+os.environ.setdefault("MIMICKIT_NO_UPDATE_CHECK", "1")  # a0.9.2: tests never hit GitHub from the automatic check
+
 _state = {"fail": False, "result": None}
 
 

@@ -82,6 +82,8 @@ class DashboardMixin:
             self._runs_snapshot(snap)
         except Exception as e:
             log_exc("phone runs list", e)
+        if hasattr(self, "_autoupd_snapshot"):
+            self._autoupd_snapshot(snap)  # a0.9.2: update notice for the phone
         self._plugin_call("snapshot", snap)
         self.snap = snap
         if self.dash:
@@ -366,14 +368,14 @@ class DashboardMixin:
         self._append("[remote] resume (from phone)\n")
         self.resume()
 
-    def _remote_render(self, clips=None, layout=None):
+    def _remote_render(self, clips=None, layout=None, all_clips=False):
         """Called from the web server thread: never touches Tk, only queues work for the GUI thread.
         layout (a0.9.1): optional 'grid' / 'seq' / 'long' for this render only; 'long' ignores the clip choice."""
         if self.preview_proc and self.preview_proc.poll() is None:
             return False, "A preview is already being rendered."
         if layout is not None and layout not in CLIP_LAYOUTS.values():
             return False, "Unknown clip layout."
-        if layout == "long":
+        if layout == "long" or all_clips:  # a0.9.2: 'All clips' = every clip, the 1-4 choice doesn't apply
             clips = None
         if clips is not None:
             known = ((getattr(self, "snap", None) or {}).get("clips") or {}).get("all") or []
@@ -381,14 +383,14 @@ class DashboardMixin:
                     or any(not isinstance(c, str) or c not in known for c in clips)):
                 self.q.put("[remote] refused preview: clip choice %r is not 1-4 clips of this config\n" % (clips,))
                 return False, "Pick 1 to 4 clips from the list."
-        self.rq.put(lambda: self._remote_render_gui(clips, layout))
+        self.rq.put(lambda: self._remote_render_gui(clips, layout, bool(all_clips)))
         self.render_msg = "Preview requested from the phone - rendering in the background."
         return (
             True,
             "Preview started - it appears here when it is done (usually under a minute or two).",
         )
 
-    def _remote_render_gui(self, clips=None, layout=None):
+    def _remote_render_gui(self, clips=None, layout=None, all_clips=False):
         it = self._item("train")
         model = self.v_model.get().strip() or self._latest_model()
         if not it or not model:
@@ -397,7 +399,7 @@ class DashboardMixin:
             return
         self._append("[remote] preview requested from the dashboard (renders in the background; it is not "
                      "opened on this PC)\n")
-        self._start_preview(it, model, origin="phone", clips=clips, layout=layout)
+        self._start_preview(it, model, origin="phone", clips=clips, layout=layout, all_clips=bool(all_clips))
 
     def _preview_finished(self):
         self.render_msg = "Preview finished."
@@ -465,14 +467,14 @@ class DashboardMixin:
         ttk.Checkbutton(
             cf, text="Allow phone control (needs a PIN)", variable=v_ctl
         ).grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(cf, text="PIN: 6–12 digits").grid(row=1, column=0, sticky="w")
+        ttk.Label(cf, text="PIN: 4–12 digits").grid(row=1, column=0, sticky="w")
         v_pin = tk.StringVar()
         ttk.Entry(cf, textvariable=v_pin, width=14, show="*").grid(row=1, column=1, sticky="w")
         ctl_msg = ttk.Label(cf, style="Dim.TLabel", wraplength=520, justify="left")
         ctl_msg.grid(row=2, column=0, columnspan=3, sticky="w")
         ctl_msg.configure(
             text=(R.LOCKDOWN_MSG if c.get("lockdown") else
-                  "PIN is set." if c.get("pin_hash") and int(c.get("pin_len") or 0) >= R.MIN_PIN_LAN else
+                  "PIN is set." if c.get("pin_hash") and (int(c.get("pin_len") or 0) >= R.MIN_PIN_LAN or not c.get("pin_len")) else
                   R.PIN_RULES_MSG if c.get("pin_hash") else
                   "No PIN set yet - control stays off until you set one.")
         )
@@ -481,9 +483,9 @@ class DashboardMixin:
             pin = v_pin.get().strip()
             revoke = None
             if pin:
-                if not (pin.isdigit() and R.MIN_PIN_LAN <= len(pin) <= 12):
-                    ctl_msg.configure(text="PIN must be 6-12 digits - not changed.")
-                    self._append("[remote] PIN not changed: must be 6-12 digits\n")
+                if not (pin.isdigit() and R.MIN_PIN_LAN <= len(pin) <= R.MAX_PIN_LEN):
+                    ctl_msg.configure(text="PIN must be 4-12 digits - not changed.")
+                    self._append("[remote] PIN not changed: must be 4-12 digits\n")
                 else:
                     c["pin_hash"] = R.hash_pin(pin)
                     c["pin_len"] = len(pin)

@@ -329,6 +329,7 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <button class="sec2" id="m_alt" style="margin-bottom:10px">Stop after next save</button>
 <div class="yesno"><button class="sec2" id="m_keep">Cancel</button><button class="danger" id="m_hold" disabled><span id="m_holdt">Yes, stop now</span></button></div>
 <p><small id="m_msg"></small></p></div></div>
+<div class="card" id="updn" style="display:none"><small id="updn_t"></small></div>
 <div class="card" id="mile" style="display:none;border-color:#3f9a54"><b id="mile_t" style="color:#7fb38a"></b><br><small id="mile_x"></small></div>
 <div class="card"><div id="state">loading\u2026</div><div id="pending"></div>
 <div class="row"><span class="k">Session</span><span class="v" id="session_time"></span></div>
@@ -348,7 +349,7 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <div class="row"><span class="k">Speed</span><span class="seg" id="pv_rate"><button data-r="0.25">0.25&times;</button><button data-r="0.5">0.5&times;</button><button data-r="1">1&times;</button></span></div>
 <div class="row"><span class="k">Loop</span><label><input type="checkbox" id="pv_loop"> play again from the start</label></div>
 <div class="row"><span class="k">File</span><a id="pv_dl" href="#">Download MP4</a></div>
-<div id="pv_clipbox" style="display:none"><div class="row"><span class="k">Clips for a new render</span><small id="pv_clipn"></small></div><select id="pv_clips" multiple size="5" style="width:100%;max-width:100%"></select><small>Up to 4. Default = the PC's choice.</small></div></details></div><p></p>
+<div id="pv_clipbox" style="display:none"><div class="row"><span class="k">All clips</span><label><input type="checkbox" id="pv_all"> render every clip <small id="pv_alln"></small></label></div><div class="row"><span class="k">Clips for a new render</span><small id="pv_clipn"></small></div><select id="pv_clips" multiple size="5" style="width:100%;max-width:100%"></select><small>Up to 4. Default = the PC's choice.</small></div></details></div><p></p>
 <div class="row"><span class="k">Clip layout</span><select id="r_layout"><option value="">PC's choice</option><option value="grid">All at once</option><option value="seq">One after another</option><option value="long">One long clip (all animations)</option></select></div>
 <button id="render">Render new preview</button><div id="rprog" style="display:none;margin-top:6px"><div class="bar"><div id="rbar" style="background:var(--acc)"></div></div><small id="rstage"></small></div><p><small id="rmsg"></small></p></div>
 <!--EXTRA_HTML-->
@@ -420,7 +421,7 @@ async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no
  S=await r.json();q('title').textContent=S.run_name?'MimicKit \u00b7 '+S.run_name:(S.title||'MimicKit');document.title=q('title').textContent;q('state').textContent=S.state||'';
  for(const k of ['session_time','total_time','samples','rate','estimate','per_step','vram'])q(k).textContent=S[k]||'-';
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
- q('age').textContent=new Date().toLocaleTimeString();draw();const M=S.milestone;q('mile').style.display=M?'':'none';if(M){q('mile_t').textContent='\u2605 '+M.title;q('mile_x').textContent=M.text}
+ q('age').textContent=new Date().toLocaleTimeString();draw();const M=S.milestone;q('mile').style.display=M?'':'none';const UN=S.upd_notice;q('updn').style.display=UN?'':'none';if(UN)q('updn_t').textContent='Update '+UN.version+' is available'+(UN.z?' \u2013 see Updates below or on the PC.':' \u2013 get it from the release page on the PC.')+' Nothing installs by itself.';if(M){q('mile_t').textContent='\u2605 '+M.title;q('mile_x').textContent=M.text}
  pvList();rProg();
  if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||S.stop_save_msg||'';CTL=!!S.control;q('ctlofft').textContent=S.control_lockdown?'Phone control turned off after too many wrong PINs. Turn it back on from the PC.':'Turned off on the PC.';updCtl();runsTick();if(window.extraTick)extraTick()}catch(e){q('state').textContent='offline - retrying'}}
 // ---- preview card (a0.8.0): play/pause, scrub, loop (no autoplay), clip choice, 0.25/0.5/1x, download, render progress
@@ -447,8 +448,10 @@ function rProg(){const r=(S&&S.render)||{};const on=r.active||(r.stage&&r.elapse
  q('rstage').textContent=r.stage?(r.stage+(r.active?' \u00b7 '+fmt(r.elapsed||0)+' so far':'')+(r.origin?' \u00b7 started on the '+(r.origin==='phone'?'phone':'PC'):'')):'';
  if(r.active&&!window.RFAST){window.RFAST=setTimeout(()=>{window.RFAST=0;tick()},2500)}
  q('render').disabled=!!r.active;q('render').textContent=r.active?'Rendering\u2026 ('+(r.pct||0)+'%)':'Render new preview'}
-q('render').onclick=async()=>{const lay=q('r_layout').value;const C=S&&S.clips,sel=C&&lay!=='long'?[...q('pv_clips').selectedOptions].map(o=>o.value):null;if(sel&&(sel.length<1||sel.length>4)){q('rmsg').textContent='Pick 1 to 4 clips under Preview options.';return}
- const bd=Object.assign(sel?{clips:sel}:{},lay?{layout:lay}:{});
+q('pv_all').checked=localStorage.mkPvAll==='1';function pvAll(){q('pv_clips').disabled=q('pv_all').checked;q('pv_clips').style.opacity=q('pv_all').checked?'.45':''}pvAll();
+q('pv_all').onchange=()=>{localStorage.mkPvAll=q('pv_all').checked?'1':'0';pvAll()};
+q('render').onclick=async()=>{const lay=q('r_layout').value;const C=S&&S.clips,all=!!(C&&q('pv_all').checked),sel=C&&lay!=='long'&&!all?[...q('pv_clips').selectedOptions].map(o=>o.value):null;if(sel&&(sel.length<1||sel.length>4)){q('rmsg').textContent='Pick 1 to 4 clips under Preview options (or tick All clips).';return}
+ const bd=Object.assign(sel?{clips:sel}:{},lay?{layout:lay}:{},all?{all_clips:true}:{});
  q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(bd)});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
  setTimeout(tick,1500)};
 
@@ -503,7 +506,7 @@ let RU_SIG='',RU_CFG='';const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;
 function opts(sel,items,cur){const v=sel.value;sel.innerHTML=items.map(([k,t])=>'<option value="'+esc(k)+'">'+esc(t)+'</option>').join('');sel.value=(v&&items.some(i=>i[0]===v))?v:(cur&&items.some(i=>i[0]===cur)?cur:(items[0]?items[0][0]:''))}
 let CL_SIG='';function clipsTick(){const C=S&&S.clips;q('pv_clipbox').style.display=C?'':'none';if(!C)return;const sig=JSON.stringify(C);
  if(sig!==CL_SIG){CL_SIG=sig;q('pv_clips').innerHTML=C.all.map(n=>'<option'+(C.chosen.includes(n)?' selected':'')+'>'+esc(n)+'</option>').join('')}
- const n=[...q('pv_clips').selectedOptions].length;q('pv_clipn').textContent=n+' of 4';q('pv_clipn').style.color=n>4?'#e6bd66':''}
+ const n=[...q('pv_clips').selectedOptions].length;q('pv_clipn').textContent=n+' of 4';q('pv_alln').textContent='('+Math.min(C.all.length,64)+')';q('pv_clipn').style.color=n>4?'#e6bd66':''}
 function runsTick(){clipsTick();const R=S&&S.runs_ui;if(!R)return;const sig=JSON.stringify([R.configs,R.runs.map(r=>r.key)]);
  if(sig!==RU_SIG){RU_SIG=sig;opts(q('r_cfg'),R.configs.map(c=>[c,c+((R.missing||{})[c]?' (not installed)':'')]),R.config);opts(q('r_src'),R.runs.map(r=>[r.key,r.name+' \u00b7 '+r.saved]),'')}
  const c=q('r_cfg').value;if(c!==RU_CFG){RU_CFG=c;if(document.activeElement!==q('r_out'))q('r_out').value=(c===R.config?R.out:(R.outs[c]||R.out))||'';if(!q('r_envs').value)q('r_envs').value=R.num_envs||''}
@@ -655,7 +658,8 @@ class Dashboard:
                     body = {}
                 clips = body.get("clips") if isinstance(body, dict) else None
                 layout = body.get("layout") if isinstance(body, dict) else None
-                code, msg = dash.request_render(clips, layout if layout in RENDER_LAYOUTS else None)
+                all_clips = isinstance(body, dict) and body.get("all_clips") is True  # a0.9.2
+                code, msg = dash.request_render(clips, layout if layout in RENDER_LAYOUTS else None, all_clips=all_clips)
                 return self._send(code, json.dumps({"message": msg}))
 
             def _file(self, p, download=False):
@@ -764,7 +768,7 @@ class Dashboard:
             s["previews"] = [{k: v for k, v in x.items() if k != "path"} for x in s["previews"]]
         return s
 
-    def request_render(self, clips=None, layout=None):
+    def request_render(self, clips=None, layout=None, all_clips=False):
         """clips: optional list of clip names for this render (the PC checks them against its own list)."""
         now = time.time()
         wait = self.min_interval - (now - self._last_render)
@@ -777,7 +781,9 @@ class Dashboard:
             return 503, "Rendering is not available."
         self._last_render = now
         try:
-            if layout in RENDER_LAYOUTS:  # a0.9.1
+            if all_clips:  # a0.9.2: every clip (the PC caps it at 64), in this layout or the PC's
+                ok, msg = self.on_render(None, layout=layout if layout in RENDER_LAYOUTS else None, all_clips=True)
+            elif layout in RENDER_LAYOUTS:  # a0.9.1
                 ok, msg = self.on_render(clips, layout=layout)
             else:
                 ok, msg = self.on_render(clips) if clips is not None else self.on_render()
@@ -936,8 +942,9 @@ NONCE_TTL = 120  # s a confirm-box nonce stays valid
 MAX_PIN_FAILS = 5
 LOCKOUT_S = 300
 GLOBAL_FAILS_PER_HOUR = 20  # wrong PINs from ALL phones within an hour -> phone control is turned OFF on the PC
-MIN_PIN_LAN = 6  # dashboard reachable from the network: PIN must have at least this many digits
-PIN_RULES_MSG = "Phone PIN rules changed. Set a new 6\u201312 digit PIN on the PC (one-time)."
+MIN_PIN_LAN = 4  # a0.9.2: back to 4-12 digits (the a0.8.2Z 6-digit rule locked existing 4-5 digit PINs out)
+MAX_PIN_LEN = 12
+PIN_RULES_MSG = "Set a 4\u201312 digit PIN on the PC."
 LOCKDOWN_MSG = "Phone control turned off after too many wrong PINs. Turn it back on from the PC."
 ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch",
            "ghost")
@@ -1045,10 +1052,6 @@ class Control:
                 return 429, {"error": "Too many wrong PINs. Locked for %d more seconds." % left, "locked_s": left}
             self._prune(t)
             c = self.cfg_get() or {}
-            if c.get("host") == "0.0.0.0" and int(c.get("pin_len") or 0) < MIN_PIN_LAN:
-                self.log("control: refused sign-in from %s - PIN shorter than %d digits while reachable on the network"
-                         % (client, MIN_PIN_LAN))
-                return 403, {"error": PIN_RULES_MSG}
             lockdown = False
             if not check_pin(pin, c.get("pin_hash")):
                 self.fail_times.append(t)

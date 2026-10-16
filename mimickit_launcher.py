@@ -23,10 +23,11 @@ from mkl.actions import ActionsMixin
 from mkl.plugins import PluginsMixin
 from mkl.runs import RunsMixin
 from mkl.clips import ClipsMixin
+from mkl.updatecheck import AutoUpdateMixin
 from mkl import icon
 
 
-class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin):
+class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin, AutoUpdateMixin):
     def __init__(self, root):
         self.root = root
         # Tk callback errors used to go to stderr - invisible under pythonw.exe. Now: launcher_errors.log + log panel
@@ -81,6 +82,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         )
         self.root.after(800, self._remote_apply)
         self._plugins_init()  # launcher_profile.py PLUGINS (none in the public build)
+        self._autoupd_init()  # a0.9.2: automatic update check (notice only, never installs)
 
 
 def _wait_for_pid(argv):

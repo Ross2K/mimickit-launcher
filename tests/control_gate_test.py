@@ -1,5 +1,5 @@
 """a0.8.2: Control.act runs the action outside the lock (slow action -> 202 'Working...', the same nonce later returns
-the result, other phones are not blocked); PIN: 6+ digits on the network, global ceiling turns control off, lockout
+the result, other phones are not blocked); PIN: 4-12 digits (a0.9.2 rollback), global ceiling turns control off, lockout
 entries pruned; stop-after-save matches the exact --out_dir.   python tests/control_gate_test.py"""
 
 import result_exit  # noqa: F401
@@ -50,7 +50,11 @@ check("then the real result", code4 == 200 and "done resume" in b4.get("message"
 cfg2 = dict(allow_control=True, pin_hash=R.hash_pin("1234"), pin_len=4, host="0.0.0.0")
 c2 = R.Control(lambda: cfg2, on_action)
 code, b = c2.login("1234", "x")
-check("4-digit PIN refused while reachable on the network", code == 403 and "6\u201312 digit" in b["error"], b)
+check("a0.9.2: saved 4-digit PIN works again on the network (no re-entry)", code == 200 and b.get("session"), b)
+cfg2b = dict(allow_control=True, pin_hash=R.hash_pin("13579"), pin_len=5, host="0.0.0.0")
+check("saved 5-digit PIN works on the network", R.Control(lambda: cfg2b, on_action).login("13579", "y")[0] == 200)
+check("wrong PIN still refused", R.Control(lambda: cfg2b, on_action).login("1111", "y")[0] == 403)
+check("PIN rule constants 4-12", R.MIN_PIN_LAN == 4 and R.MAX_PIN_LEN == 12 and R.GLOBAL_FAILS_PER_HOUR == 20)
 cfg2["host"] = "127.0.0.1"
 check("4-digit PIN still works for this-PC-only", c2.login("1234", "x")[0] == 200)
 

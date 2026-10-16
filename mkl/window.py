@@ -472,6 +472,12 @@ class MainWindowMixin:
         Tip(b, HELP["remote"])
         self.plugin_frame = ttk.Frame(st)  # overlay plugins add their buttons here (none in the public build)
         self.plugin_frame.grid(row=0, column=6, rowspan=2, padx=4, sticky="w")
+        # a0.9.2: 'Update aX.Y.Z available' notice (automatic check) - hidden until there is one; click = details
+        self.l_update = ttk.Label(st, text="", style="Err.TLabel", cursor="hand2")
+        self.l_update.grid(row=0, column=7, rowspan=2, padx=6, sticky="w")
+        self.l_update.bind("<Button-1>", lambda e: self.open_update_notice())
+        Tip(self.l_update, "A newer launcher version is out. Click for details. Nothing is installed automatically.")
+        self.l_update.grid_remove()
 
     def _build_job(self, top):
         """'What to run': configs, num_envs, output folder, run buttons, preview options."""
@@ -630,6 +636,20 @@ class MainWindowMixin:
         b = ttk.Button(bfb, text="Clips...", command=self.clips_dialog)
         b.pack(side="left", padx=(6, 0))
         Tip(b, "Which motion clips the MP4 preview shows (up to 4), saved per training config.")
+        self.b_clips = b
+        # a0.9.2: 'All clips' - every renderable clip (up to 64) in the chosen layout; greys out Clips... while ticked
+        self.v_allclips = tk.BooleanVar(value=bool(self.s.get("preview_all_clips", False)))
+
+        def allclips_changed():
+            self.s["preview_all_clips"] = bool(self.v_allclips.get())
+            self._save_settings_only()
+            self.b_clips.state(["disabled"] if self.v_allclips.get() else ["!disabled"])
+
+        self.cb_allclips = ttk.Checkbutton(bfb, text="All clips", variable=self.v_allclips, command=allclips_changed)
+        self.cb_allclips.pack(side="left", padx=(6, 0))
+        Tip(self.cb_allclips, HELP["allclips"])
+        if self.v_allclips.get():
+            self.b_clips.state(["disabled"])
         b = ttk.Button(bfb, text="Preview diagnostics", command=self.preview_diag)
         b.pack(side="left", padx=(12, 3))
         Tip(b, HELP["pdiag"])
@@ -1034,6 +1054,8 @@ class MainWindowMixin:
             style="Dim.TLabel",
             justify="left",
         ).pack(anchor="w", pady=(6, 10))
+        if hasattr(self, "build_update_settings"):  # a0.9.2: automatic update check settings
+            self.build_update_settings(f).pack(anchor="w", fill="x", pady=(0, 10))
         ttk.Button(f, text="Close", command=top.destroy).pack(anchor="w")
         self._about = top
         return top

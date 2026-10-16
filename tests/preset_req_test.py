@@ -165,4 +165,42 @@ wait(0.5)
 check("phone ghost action sets the ghost type", code6 == 200 and app.v_ghost.get() == "Side by side", (code6, m6))
 code7, m7 = app._remote_action("ghost", {"mode": "nope"})
 check("phone ghost action: bad mode refused", code7 == 400 and app.v_ghost.get() == "Side by side", (code7, m7))
+# a0.9.2: All clips checkbox
+app.v_layout.set("All at once")
+app.cb_allclips.invoke()
+wait(0.3)
+check("All clips ticked -> Clips... greyed out + saved", app.v_allclips.get() and app.b_clips.instate(["disabled"])
+      and app.s.get("preview_all_clips") is True)
+app.preview_proc = None
+app.preview()
+wait(1)
+cmd = CMD[-1]
+check("All clips: --all_clips, no --clips, layout kept", "--all_clips" in cmd and "--clips" not in cmd
+      and cmd[cmd.index("--layout") + 1] == "grid", cmd)
+app.cb_allclips.invoke()
+wait(0.3)
+check("untick -> Clips... back", not app.v_allclips.get() and not app.b_clips.instate(["disabled"]))
+app.preview_proc = None
+ok8, m8 = app._remote_render(None, layout="seq", all_clips=True)
+wait(1)
+cmd = CMD[-1]
+check("phone All clips render", ok8 and "--all_clips" in cmd and "--clips" not in cmd and cmd[cmd.index("--layout") + 1] == "seq", cmd)
+check("update notice hidden until there is one", not app.l_update.winfo_ismapped() and app.upd_notice is None)
+app._autoupd_show(dict(version="a9.9.9", url="https://example.invalid"))
+wait(0.3)
+check("update notice shown in the Settings row", app.l_update.winfo_ismapped() and "a9.9.9" in app.l_update.cget("text"))
+ab = app.about_dialog()
+wait(0.3)
+labels = []
+def walk(w):
+    for ch in w.winfo_children():
+        try:
+            labels.append(str(ch.cget("text")))
+        except Exception:
+            pass
+        walk(ch)
+walk(ab)
+check("About has the Updates settings (auto + hours + Check now)", any("automatically" in t for t in labels)
+      and "Check now" in labels and "Updates" in labels, labels)
+ab.destroy()
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

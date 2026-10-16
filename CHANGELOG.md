@@ -3,6 +3,12 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.9.2
+
+- Phone PIN: back to **4–12 digits** (as before a0.8.2Z). PINs you already saved with 4 or 5 digits work again with no re-entry. The lockout after 20 wrong PINs per hour stays.
+- Preview: new **All clips** checkbox (PC: next to Clips...; phone: Preview options, above the clip list). When it's ticked, the render includes every clip of the training data (up to 64) in the chosen Clip layout, and the clip selector is greyed out. With All at once you get an automatic grid: ceil(sqrt(n)) columns, e.g. 31 clips → 6×6 with 320×240 tiles and a frame at most 1920 px wide. One after another and One long clip play all the clips in sequence. Progress shows in the log and on the phone.
+- Updates (A1): the launcher checks for updates automatically on launch and every 6 hours. You can turn it off or change the interval (1–168 h) under **About > Updates**, which also has a Check now button. When there's an update, a small "Update X available" notice appears in the Settings row (click it for details) and a line appears on the phone. It never installs anything by itself. The Z build uses its stored access key and signed-release check; the public build reads the public releases. When offline it stays silent and writes one log line.
+
 ## a0.9.1
 
 - Preview: new clip layout **One long clip (all animations)** (PC Clip layout list and phone Render). Renders every training clip back to back in one MP4: up to 64 clips, and if they add up to more than 15 min each clip is shortened to its share (at least 2 s). Uses the same separate preview process as before, so the running training is touched no more than a normal preview. The log and the phone show record/render progress (frame x/n).

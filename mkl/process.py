@@ -635,7 +635,7 @@ class ProcessMixin:
             return
         return self._start_preview(it, model)
 
-    def _start_preview(self, it, model, diag=False, origin="PC", clips=None, layout=None):
+    def _start_preview(self, it, model, diag=False, origin="PC", clips=None, layout=None, all_clips=None):
         """origin 'phone': rendered in the background only - never opened / played on the PC (--no_open)."""
         pdir = os.path.join(self.mk(), "output", "_launcher_preview")
         os.makedirs(pdir, exist_ok=True)
@@ -671,7 +671,9 @@ class ProcessMixin:
             )
             dev = {"Auto": "auto", "CPU only": "cpu", "GPU": "gpu"}.get(self.v_pdev.get(), "auto")
             lay = layout or CLIP_LAYOUTS.get(self.v_layout.get(), "grid")
-            if lay == "long":  # a0.9.1: every training clip back to back - the 1-4 clip choice doesn't apply
+            if all_clips is None:  # a0.9.2: 'All clips' checkbox (PC); the phone passes its own choice
+                all_clips = bool(getattr(self, "v_allclips", None) and self.v_allclips.get())
+            if lay == "long" or all_clips:  # every training clip - the 1-4 clip choice doesn't apply
                 clips = []
             cmd = [
                 self.python(),
@@ -689,7 +691,8 @@ class ProcessMixin:
                 "--out",
                 mp4,
             ] + (["--clips", ",".join(clips if clips is not None else self._chosen_clips(it))]
-                 if (clips if clips is not None else self._chosen_clips(it)) else []) + (["--no_open"] if origin != "PC" else []) + ["--"] + mk_args
+                 if (clips if clips is not None else self._chosen_clips(it)) else []) + (
+                ["--all_clips"] if all_clips else []) + (["--no_open"] if origin != "PC" else []) + ["--"] + mk_args
         logp = os.path.join(pdir, CONSOLE_FILE)
         try:
             offset = os.path.getsize(logp) if os.path.exists(logp) else 0
