@@ -113,7 +113,7 @@ e = E()
 e.widget, e.delta, e.num = child, -120, 5
 res = a._top_wheel(e)
 r.update()
-check("UX 2: wheel over a child button scrolls the top area", res == "break" and cv.yview()[0] > 0, cv.yview())
+check("UX 2: wheel over a child button scrolls the top area", cv.yview()[0] > 0, cv.yview())
 cb = ttk.Combobox(inner)
 cv.yview_moveto(0)
 e.widget = cb

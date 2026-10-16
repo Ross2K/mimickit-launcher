@@ -200,7 +200,13 @@ root.update()
 v = app._rdlg_vars
 check("dialog offers the two plain choices", v["host"].get() == "Only this PC (phone can't connect)")
 v["enabled"].set(True)
-v["port"].set("8799")
+import socket
+
+_sk = socket.socket()
+_sk.bind(("127.0.0.1", 0))  # a0.8.7 (S1): a free port, not a fixed 8799 (parallel test runs collided)
+PORT = _sk.getsockname()[1]
+_sk.close()
+v["port"].set(str(PORT))
 v["apply"]()
 root.update()
 check(
@@ -213,7 +219,8 @@ v["apply"]()
 root.update()
 check(
     "the phone choice binds all interfaces",
-    app.dash.host == "0.0.0.0" and app.s["remote"]["host"] == "0.0.0.0",
+    app.dash is not None and app.dash.host == "0.0.0.0" and app.s["remote"]["host"] == "0.0.0.0",
+    app.dash and app.dash.host,
 )
 
 # ---------- Show buttons + secrets out of exports
@@ -244,9 +251,9 @@ import urllib.request
 tok = app.s["remote"]["token"]
 time.sleep(0.3)
 body = (
-    urllib.request.urlopen("http://127.0.0.1:8799/api/status?t=" + tok, timeout=5).read().decode()
+    urllib.request.urlopen("http://127.0.0.1:%d/api/status?t=" % PORT + tok, timeout=5).read().decode()
 )
-page = urllib.request.urlopen("http://127.0.0.1:8799/?t=" + tok, timeout=5).read().decode()
+page = urllib.request.urlopen("http://127.0.0.1:%d/?t=" % PORT + tok, timeout=5).read().decode()
 check(
     "dashboard JSON/page carry no webhook or bot token",
     all(s not in body + page for s in ("SECRETPART", "secret-telegram")),
@@ -264,7 +271,8 @@ app.s.setdefault("remote", {})["host"] = "192.168.1.50"  # not offered by this v
 app.remote_dialog()
 root.update()
 check("unknown saved host falls back to 'This PC only'", app._rdlg_vars["host"].get() == "Only this PC (phone can't connect)")
-app.dash.stop()
+if app.dash is not None:
+    app.dash.stop()
 app.dash = None
 root.destroy()
 

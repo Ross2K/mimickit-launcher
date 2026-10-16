@@ -358,11 +358,11 @@ while time.time() - t0 < 4:
     time.sleep(0.01)
 stop[0] = True
 # a0.8.6 (QA R2): wall-clock gaps also grow when OTHER processes load the CPU (tests run in parallel), so allow
-# ~1 s, or a single outlier as long as every other gap stays under 0.3 s
+# ~1 s, or a single outlier (a0.8.7: still under 2 s) as long as every other gap stays under 0.3 s
 srt = sorted(gaps)
 check(
-    "GUI responsive under load (max main-loop gap < 1 s, or one outlier and the rest < 0.3 s)",
-    (srt[-1] < 1.0 or (len(srt) > 1 and srt[-2] < 0.3)) and nreq[0] > 50,
+    "GUI responsive under load (max gap < 1 s, or one outlier < 2 s and the rest < 0.3 s)",
+    srt[-1] < 2.0 and (srt[-1] < 1.0 or (len(srt) > 1 and srt[-2] < 0.3)) and nreq[0] > 50,
     "max gap %.3f s, 2nd %.3f s, %d requests" % (srt[-1], srt[-2] if len(srt) > 1 else 0, nreq[0]),
 )
 st, _, b = req(port, "/api/render", "POST", {"X-Token": tok2})

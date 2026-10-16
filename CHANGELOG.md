@@ -3,6 +3,23 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.7
+
+Two charts at 125 % + wheel and scroll polish (GUI only).
+
+- **Charts at 125 %:** the top (Settings / What to run) keeps about 260 px and the charts get at least 312 px, so
+  both charts (Return + Speed) show at 1536x864 125 % (they dropped to 199 px / one chart in a0.8.6).
+- **Mouse wheel:** drop-down lists and number boxes (Training config, num_envs) change their value with the wheel only
+  when you've clicked into them; otherwise the wheel scrolls the top area.
+- **"▾ More settings below (scroll)"** strip, 22 px at 125 % (20-24 px), bold, clickable.
+- **Chart toolbar** (Home / Save picture / Current session only / Per-step / Return-Speed) wraps onto a second row
+  instead of clipping.
+- No scrollbar when up to ~32 px would be hidden (was 20) - the space comes from the bottom half.
+- Fixes: the wheel handler matches widgets by exact path (a widget named like the top area no longer counts);
+  the top area's wheel binding is removed when the window closes (other bindings stay).
+- Tests: fixes042 uses a free port and guards a missing dashboard; "GUI responsive" also needs the largest gap under
+  2 s; tests remove leftover /tmp/mkl_test_* folders of test processes that have ended; new qa087_test.
+
 ## a0.8.6
 
 Easier-to-see scrolling at the top + review fixes (GUI only).

@@ -200,8 +200,8 @@ class MainWindowMixin:
         self._top_cv, self._top_inner = cv, inner
         self._scroll_canvases = getattr(self, "_scroll_canvases", []) + [cv]
 
-        more = tk.Label(outer, text="\u25be more (scroll)", anchor="center", cursor="hand2",
-                        font=("Segoe UI", 8), padx=0, pady=0, bd=0)
+        more = tk.Label(outer, text="\u25be More settings below (scroll)", anchor="center", cursor="hand2",
+                        font=("Segoe UI", 9, "bold"), padx=0, pady=0, bd=0)
         more.bind("<Button-1>", lambda e: cv.yview_scroll(3, "units"))
         self._top_more = more
         st = {"h": 0}
@@ -214,7 +214,9 @@ class MainWindowMixin:
                 return
             if ys.winfo_manager() and hi < 0.999:
                 more.configure(bg=T.get("sel", "#2d4f7c"), fg=T.get("fg", "#ffffff"))
-                more.place(in_=cv, relx=0, rely=1.0, relwidth=1.0, anchor="sw")
+                # a0.8.7 (UX 3): a 20-24 px strip (22 px at 125 %), easy to spot and to click
+                k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+                more.place(in_=cv, relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=max(20, min(24, int(18 * k))))
                 more.lift()
             elif more.winfo_manager():
                 more.place_forget()
@@ -231,12 +233,20 @@ class MainWindowMixin:
             winh = self.root.winfo_height()
             others = self.ban_f.winfo_height() + (self._runbar.winfo_reqheight() if hasattr(self, "_runbar") else 0)
             room = winh - others - 10  # top + bottom half share this
+            # a0.8.7 (UX 1): the bottom half must fit two charts (CHART_MIN_2, 312 px at 125 %) plus the chart
+            # box's title + toolbar; the top keeps ~260 px at 125 % (208 x scale) and only then gives way
+            ch = self.canvas.get_tk_widget() if hasattr(self, "canvas") else None
+            over = int(90 * k)
+            if ch is not None and self.prog_frame.winfo_reqheight() > ch.winfo_reqheight():
+                # title row + toolbar rows + padding (requested sizes: they don't depend on how the space is split)
+                over = self.prog_frame.winfo_reqheight() - ch.winfo_reqheight() + 8
+            # (a0.8.7: measured from the actual heights this fed back into itself and the split never settled)
+            bottom_need = int(self.CHART_MIN_2 * k) + over
             avail = room - int(self.BOTTOM_MIN * k)
-            # a0.8.6: the 400 px chart minimum gives way before the top drops below ~300 px (125 % on 864 px)
-            h = max(min(req, int(300 * k)), min(req, avail))
-            h = min(h, max(min(req, int(110 * k)), room - int(150 * k)))  # bottom half never below ~150 px
-            # a0.8.6: less than ~20 px hidden -> take it from the bottom half, no scrollbar
-            if 0 < req - h <= int(20 * k) and room - req >= int(150 * k):
+            h = max(min(req, int(208 * k)), min(req, avail))
+            h = min(h, max(min(req, int(110 * k)), room - bottom_need))  # the two charts win over the top
+            # less than ~32 px hidden -> take it from the bottom half (if two charts still fit), no scrollbar
+            if 0 < req - h <= int(32 * k) and room - req >= bottom_need:
                 h = req
             if winh <= 1:
                 h = req
@@ -259,22 +269,60 @@ class MainWindowMixin:
         inner.bind("<Configure>", lambda e: cv.after_idle(fit))
         self.root.bind("<Configure>", lambda e: cv.after_idle(fit) if e.widget is self.root else None, add="+")
 
-        # a0.8.6: the wheel scrolls the top area over ANY child widget (bind_all while the pointer is inside),
-        # except comboboxes / spinboxes, which keep their own wheel (value change). The all-binding is added
-        # once (add="+", so dialog bindings stay) and only acts while the pointer is over the top area.
+        # a0.8.6: the wheel scrolls the top area over ANY child widget (an all-binding, added once with add="+" so
+        # dialog bindings stay, that only acts while the pointer is over the top area).
+        # a0.8.7 (UX 2 / QA 1): comboboxes and spinboxes (Training config, num_envs) take the wheel only when they
+        # have the keyboard focus; otherwise a widget binding scrolls the top area and stops their class binding
+        # (which would change the value). Text and Listbox scroll their own content, so they are left alone (there
+        # are none in the top area today; tests/qa087_test.py checks the rule).
         hover = {"on": False}
-        skip = ("TCombobox", "TSpinbox", "Spinbox", "Text", "Listbox")
+        own = ("TCombobox", "TSpinbox", "Spinbox")
+        skip = own + ("Text", "Listbox")
+        o = str(outer)
+
+        def mine(w):
+            w = str(w)
+            return w == o or w.startswith(o + ".")
+
+        def step(e):
+            cv.yview_scroll(-1 if (getattr(e, "delta", 0) > 0 or getattr(e, "num", 0) == 4) else 1, "units")
 
         def wheel(e):
             if not hover["on"] or not ys.winfo_manager():
                 return
             try:
-                if e.widget.winfo_class() in skip or not str(e.widget).startswith(str(outer)):
+                if e.widget.winfo_class() in skip or not mine(e.widget):
                     return
             except (tk.TclError, AttributeError):
                 return
-            cv.yview_scroll(-1 if (getattr(e, "delta", 0) > 0 or getattr(e, "num", 0) == 4) else 1, "units")
-            return "break"
+            step(e)
+
+        def box_wheel(e):
+            """Widget binding of a combobox / spinbox in the top area (runs before its class binding)."""
+            try:
+                if self.root.focus_get() is e.widget:
+                    return None  # focused: the box changes its value
+            except (tk.TclError, KeyError):
+                pass
+            if ys.winfo_manager():
+                step(e)
+            return "break"  # not focused: never change the value
+
+        hooked = set()
+
+        def hook_boxes(_=None):
+            stack = [inner]
+            while stack:
+                w = stack.pop()
+                stack.extend(w.winfo_children())
+                if w not in hooked and w.winfo_class() in own:
+                    hooked.add(w)
+                    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                        w.bind(seq, box_wheel, add="+")
+        self._top_hook_boxes = hook_boxes
+        inner.bind("<Map>", hook_boxes, add="+")
+        inner.bind("<Configure>", hook_boxes, add="+")
+        self.root.after_idle(hook_boxes)
 
         def inside():
             x, y = self.root.winfo_pointerxy()
@@ -284,10 +332,9 @@ class MainWindowMixin:
         def enter(_=None):
             if not hover["on"]:
                 hover["on"] = True
-                if not hover.get("bound"):
-                    hover["bound"] = True
-                    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-                        self.root.bind_all(seq, wheel, add="+")
+                if not hover.get("ids"):
+                    hover["ids"] = {seq: self.root.bind_all(seq, wheel, add="+")
+                                    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>")}
 
         def leave(_=None):
             if not inside():  # <Leave> also fires when the pointer moves onto a child widget
@@ -295,7 +342,21 @@ class MainWindowMixin:
 
         outer.bind("<Enter>", enter, add="+")
         outer.bind("<Leave>", leave, add="+")
-        self._top_wheel = wheel
+        def teardown(e=None):
+            """a0.8.7 (S5): drop only OUR all-binding when the window goes (dialog bindings stay)."""
+            if e is not None and e.widget is not outer:
+                return
+            for seq, fid in (hover.pop("ids", None) or {}).items():
+                try:
+                    cur = self.root.tk.call("bind", "all", seq)
+                    keep = "\n".join(ln for ln in str(cur).split("\n") if fid not in ln)
+                    self.root.tk.call("bind", "all", seq, keep)
+                    self.root.deletecommand(fid)
+                except tk.TclError:
+                    pass
+
+        outer.bind("<Destroy>", teardown, add="+")
+        self._top_wheel, self._top_box_wheel, self._top_teardown = wheel, box_wheel, teardown
         self._top_hover = hover
         return inner
 
@@ -650,8 +711,11 @@ class MainWindowMixin:
         Tip(c, HELP["cursess"])
         Tip(self.b_home, HELP["chartnav"])
         Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
+        flow(navf)  # a0.8.7 (UX 4): the toolbar wraps onto a 2nd row instead of clipping at 125 %
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.canvas.get_tk_widget().bind("<Configure>", self._chart_resized, add="+")
+        if hasattr(self, "_top_fit"):  # a0.8.7: the chart box's toolbar may wrap -> re-split top / bottom
+            self.canvas.get_tk_widget().bind("<Configure>", lambda e: self.root.after_idle(self._top_fit), add="+")
         # chart help: '?' badge in the chart's title row, next to 'Training progress' (a0.6.1 UX item: it used to be
         # a tiny badge on the end of the Return line); hover shows the help, kept inside the window
         self.chart_help = tk.Label(right.title_row, text="?", width=2, cursor="question_arrow")
