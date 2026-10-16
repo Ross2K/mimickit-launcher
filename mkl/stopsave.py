@@ -258,7 +258,8 @@ class StopAfterSaveMixin:
                 self.root.after(100, check)
                 return
             pr = getattr(self, "proc", None)
-            if pr is None or pr.poll() is not None:
+            if pr is None or pr.pid != root_pid or pr.poll() is not None:
+                # ended on its own, or a NEW run was started while we were looking: never kill that one
                 self._append("[gui] training ended on its own while looking for it - nothing to stop\n")
                 return
             pids = res.get("pids", [])

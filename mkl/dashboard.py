@@ -278,15 +278,20 @@ class DashboardMixin:
                 self._ss_queued = True
 
             def arm():
-                self._ss_queued = False
-                if not self.stop_save:
+                with self._remote_lock:
+                    still = self._ss_queued
+                    self._ss_queued = False
+                if still and not self.stop_save:
                     self.stop_after_save("phone")
 
             self.rq.put(arm)
             return 202, "Will stop after the next save (if the PC refuses, the reason shows on the status line)."
         if action == "cancel_stop":
-            if not getattr(self, "stop_save", None):
-                return 200, "Nothing to cancel."
+            with self._remote_lock:
+                queued = getattr(self, "_ss_queued", False)
+                self._ss_queued = False  # a queued (not yet armed) stop after save is dropped: arm() sees it gone
+                if not getattr(self, "stop_save", None) and not queued:
+                    return 200, "Nothing to cancel."
             self.rq.put(lambda: self.stop_after_save("phone") if self.stop_save else None)
             return 202, "Stop after next save cancelled."
         if action == "tweaks":  # settings belong to the GUI thread: queue the change, don't touch self.s here

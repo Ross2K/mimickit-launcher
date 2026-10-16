@@ -6,6 +6,9 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # The App is split into mixins under mkl/ (core helpers, main window, processes, charts, dashboard, settings).
+import re
+import threading
+
 from mkl.core import *  # noqa: F401,F403 - re-exported: tests and tools use mimickit_launcher.<name>
 from mkl.core import __all__ as _core_names  # noqa: F401
 from mkl.window import MainWindowMixin
@@ -21,7 +24,6 @@ from mkl.plugins import PluginsMixin
 from mkl.runs import RunsMixin
 from mkl.clips import ClipsMixin
 from mkl import icon
-import re
 
 
 class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin):
@@ -32,6 +34,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         root.report_callback_exception = self._tk_callback_error
         root.title("MimicKit Launcher  %s" % VERSION)
         icon.apply_icon(root)
+        self.q = queue.Queue()  # before any worker thread (the icon shortcut check) can put into it
         self._icon_shortcut_check()
         root.deiconify()  # main() keeps it hidden until here (icon first); pop-ups below need a visible owner
         U.set_log_path(
@@ -46,7 +49,6 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         self._place_window()
         self._register_secrets()
         self.proc = None
-        self.q = queue.Queue()
         self.preview_proc = None
         self.run_dir = None
         self.run_kind = None
@@ -71,7 +73,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.dash = None
         self.rq = queue.Queue()
-        self._remote_lock = __import__("threading").Lock()  # phone check-then-set (stop now / stop after save)
+        self._remote_lock = threading.Lock()  # phone check-then-set (stop now / stop after save)
         self.snap = {}
         self.render_msg = ""
         self.notifier = R.Notifier(
@@ -157,7 +159,7 @@ def _icon_shortcut_worker(app):
         app.q.put("[gui] %s\n" % msg)  # worker thread: queue, never Tk
 
 
-App._icon_shortcut_check = lambda self: __import__("threading").Thread(
+App._icon_shortcut_check = lambda self: threading.Thread(
     target=_icon_shortcut_worker, args=(self,), daemon=True).start()
 
 

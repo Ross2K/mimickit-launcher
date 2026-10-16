@@ -85,7 +85,7 @@ class StatusMixin:
 
     def _build_console(self, parent):
         self._build_command_box(parent)
-        self.t_log = tk.Text(parent, wrap="none", width=70, font=MONO)
+        self.t_log = tk.Text(parent, wrap="none", width=70, height=8, font=MONO)
         ys = ttk.Scrollbar(parent, command=self.t_log.yview)
         self.t_log.configure(yscrollcommand=ys.set)
         ys.pack(side="right", fill="y")
@@ -151,7 +151,7 @@ class StatusMixin:
         self.v_outview.set(v)
         self._outview_changed()
 
-    def _scroll_area(self, outer):
+    def _scroll_area(self, outer, need=None):
         """a0.8.3: the Status view scrolls instead of being cut off on short screens (1080p at 125 %). The inner
         frame fills the visible height when it fits (so its log still stretches), and scrolls when it doesn't."""
         cv = tk.Canvas(outer, highlightthickness=0, bd=0, bg=T["bg"])
@@ -160,14 +160,15 @@ class StatusMixin:
         cv.pack(side="left", fill="both", expand=True)
         inner = ttk.Frame(cv)
         win = cv.create_window(0, 0, window=inner, anchor="nw")
-        self._st_canvas = cv
+        self._st_canvas = getattr(self, "_st_canvas", None) or cv
+        self._scroll_canvases = getattr(self, "_scroll_canvases", []) + [cv]
 
         def fit(_=None):
-            need = inner.winfo_reqheight()
-            h = max(cv.winfo_height(), need)
+            need_h = need() if need else inner.winfo_reqheight()
+            h = max(cv.winfo_height(), need_h)
             cv.itemconfigure(win, width=cv.winfo_width(), height=h)
             cv.configure(scrollregion=(0, 0, cv.winfo_width(), h))
-            if need > cv.winfo_height() + 2:
+            if need_h > cv.winfo_height() + 2:
                 if not ys.winfo_manager():
                     ys.pack(side="right", fill="y", before=cv)
             elif ys.winfo_manager():
@@ -206,8 +207,8 @@ class StatusMixin:
     def _status_theme(self):
         if not hasattr(self, "ban_f"):
             return
-        if getattr(self, "_st_canvas", None):
-            self._st_canvas.configure(bg=T["bg"])
+        for cv in getattr(self, "_scroll_canvases", []):
+            cv.configure(bg=T["bg"])
         for w in (self.st_events, self.st_warn):
             w.configure(
                 bg=T["log_bg"],

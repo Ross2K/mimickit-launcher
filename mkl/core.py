@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.8.3"
+VERSION = "a0.8.4"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -292,6 +292,9 @@ T = dict(THEMES["dark"])  # current colours (updated in place)
 from mkl.dialogs import DarkMessageBox, new_popup, place_popup, scroll_popup, tip_position
 
 messagebox = DarkMessageBox(T)  # dark popups; same API as tkinter.messagebox
+# what each kind of MimicKit process is called in messages (never the raw 'preview' / 'view')
+KIND_NAME = {"train": "Training", "view": "The clip viewer", "watch": "Watch", "preview": "A preview"}
+
 # dashboard bind address -> what the user picks
 BIND_LABEL = {
     "127.0.0.1": "Only this PC (phone can't connect)",

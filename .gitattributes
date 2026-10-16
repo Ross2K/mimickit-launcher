@@ -1,2 +1,3 @@
-*.bat text eol=crlf
-*.ps1 text eol=crlf
+# Windows scripts are stored with CRLF in the repo itself (cmd.exe needs CRLF; no conversion on any side)
+*.bat -text
+*.ps1 -text

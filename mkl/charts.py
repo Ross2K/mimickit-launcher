@@ -96,12 +96,49 @@ class ChartsMixin:
     def _make_axes(self):
         """2 charts (return, speed) or 3 with the per-step score chart."""
         self.fig.clear()
-        n = 3 if self.v_ps.get() else 2
+        n = 3 if self.v_ps.get() and not getattr(self, "_chart_short", False) else 2
         axes = [self.fig.add_subplot(n, 1, i + 1) for i in range(n)]
         self.ax1, self.ax2 = axes[0], axes[1]
         self.ax3 = axes[2] if n == 3 else None
         self.yman = [None] * n
         self.yfull = [None] * n
+        if getattr(self, "_chart_short", 0) >= 2:  # very short: ONE chart, picked with the Return/Speed tabs
+            show = getattr(self, "v_onechart", None)
+            hide = self.ax2 if not show or show.get() == "return" else self.ax1
+            hide.set_visible(False)
+            gs = self.fig.add_gridspec(2, 1, height_ratios=[1, 1e-3] if hide is self.ax2 else [1e-3, 1])
+            self.ax1.set_subplotspec(gs[0])
+            self.ax2.set_subplotspec(gs[1])
+
+    CHART_MIN_2 = 250  # below this only one chart (Return or Speed tab)
+    CHART_MIN_3 = 360  # px (at 96 dpi) the chart area needs for 3 charts; below it the per-step chart is hidden
+
+    def _chart_resized(self, e):
+        """a0.8.4: on a short window the three charts were squashed into unreadable strips - hide the per-step one."""
+        try:
+            k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+        except tk.TclError:
+            k = 1.0
+        short = 2 if e.height < self.CHART_MIN_2 * k else 1 if e.height < self.CHART_MIN_3 * k else 0
+        if short == getattr(self, "_chart_short", 0):
+            return
+        self._chart_short = short
+        if hasattr(self, "f_onechart"):
+            if short >= 2:
+                self.f_onechart.pack(side="left", padx=(10, 0))
+            else:
+                self.f_onechart.pack_forget()
+        if hasattr(self, "cb_ps"):
+            self.cb_ps.configure(text="Per-step (hidden)" if short and self.v_ps.get()
+                                 else "Per-step chart")
+        self._make_axes()
+        self.apply_theme()
+        self._auto_follow()
+
+    def _onechart_changed(self):
+        self._make_axes()
+        self.apply_theme()
+        self._auto_follow()
 
     def _ps_toggled(self):
         self.s["per_step_chart"] = bool(self.v_ps.get())

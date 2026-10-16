@@ -26,6 +26,52 @@ class TitleBox(ttk.LabelFrame):
         return self._title.cget("text") if key == "text" else super().cget(key)
 
 
+def flow(frame, groups=False):
+    """Re-lay the packed children of frame into as many rows as needed (a0.8.4: nothing is cut off at 125 %).
+    groups=True keeps a label together with the widget after it (e.g. 'Clip layout' + its box)."""
+    kids = [w for w in frame.pack_slaves()]
+    units, i = [], 0
+    while i < len(kids):
+        w = kids[i]
+        if groups and isinstance(w, ttk.Label) and i + 1 < len(kids) and not isinstance(kids[i + 1], ttk.Label):
+            units.append((w, kids[i + 1]))
+            i += 2
+        else:
+            units.append((w,))
+            i += 1
+    for w in kids:
+        w.pack_forget()
+    state = {"w": -1}
+    rows = []
+
+    def relayout(_=None):
+        width = frame.winfo_width()
+        if width <= 1 or width == state["w"]:
+            return
+        state["w"] = width
+        for u in units:
+            for w in u:
+                w.pack_forget()
+        for r in rows:
+            r.pack_forget()
+        n, used = 0, 0
+        for u in units:
+            need = sum(w.winfo_reqwidth() + 6 for w in u)
+            if used and used + need > width:
+                n, used = n + 1, 0
+            while len(rows) <= n:
+                rows.append(ttk.Frame(frame))
+            for w in u:
+                w.pack(in_=rows[n], side="left", padx=3, pady=1)
+                w.lift(rows[n])
+            used += need
+        for r in rows[: n + 1]:
+            r.pack(side="top", anchor="w", fill="x")
+
+    frame.bind("<Configure>", relayout, add="+")
+    frame.after_idle(relayout)
+
+
 class MainWindowMixin:
     """Main window: layout, theme, dialogs, log panel, GPU/VRAM meter, closing."""
 
@@ -40,8 +86,17 @@ class MainWindowMixin:
         self._build_job(top)
         mid = ttk.Panedwindow(self.root, orient="horizontal")
         mid.pack(fill="both", expand=True, padx=6, pady=4)
-        left = ttk.Frame(mid)
-        mid.add(left, weight=2)  # a0.8.3: left 2 : charts 3
+        lo = ttk.Frame(mid)
+        mid.add(lo, weight=2)  # a0.8.3: left 2 : charts 3
+
+        def left_need():  # a0.8.4: Status + cards + at least ~150 px of Output, else the whole column scrolls
+            k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+            h = self._stf.winfo_reqheight() + int(150 * k) + 40
+            if hasattr(self, "cards_f") and self.cards_f.winfo_manager():
+                h += self.cards_f.winfo_reqheight()
+            return h
+
+        left = self._scroll_area(lo, need=left_need)
         self._build_status(left)
         self._build_cards(left)
         self._build_output(left)
@@ -158,37 +213,38 @@ class MainWindowMixin:
         ttk.Button(job, text="Browse...", command=self._browse_model).grid(
             row=4, column=4, sticky="w", padx=6
         )
+        # a0.8.4: the run/stop buttons have their own row (STOP always visible at 125 %); the rest wraps below
         bf = ttk.Frame(job)
         bf.grid(row=5, column=0, columnspan=6, sticky="w", pady=(6, 0))
-        for key, txt, fn in (
-            ("view", "View clip", self.view),
-            ("train", "Start training", self.train),
-            ("resume", "Resume training", self.resume),
-            ("continue", "Continue from run...", self.continue_from),
-            ("watch", "Watch latest", self.watch),
-            ("preview", "Render MP4", self.preview),
-            ("stopsave", "Stop after next save", self.stop_after_save),
-            ("stop", "STOP", self.stop),
+        bf2 = ttk.Frame(job)
+        bf2.grid(row=6, column=0, columnspan=6, sticky="we", pady=(4, 0))
+        bfa = ttk.Frame(bf2)  # other run buttons + args/settings buttons (+ profile ACTIONS), wraps
+        bfa.pack(side="top", fill="x")
+        for key, txt, fn, parent in (
+            ("train", "Start training", self.train, bf),
+            ("resume", "Resume training", self.resume, bf),
+            ("stopsave", "Stop after next save", self.stop_after_save, bf),
+            ("stop", "STOP", self.stop, bf),
+            ("view", "View clip", self.view, bfa),
+            ("continue", "Continue from run...", self.continue_from, bfa),
+            ("watch", "Watch latest", self.watch, bfa),
+            ("preview", "Render MP4", self.preview, bfa),
         ):
             b = ttk.Button(
-                bf,
+                parent,
                 text=txt,
                 command=fn,
                 width=max(10, len(txt) + 2),
                 style="Stop.TButton" if key == "stop" else "TButton",
             )
-            b.pack(side="left", padx=3)
+            b.pack(side="left", padx=(3, 3) if key != "stop" else (24, 3))
             Tip(b, HELP[key])
             self.run_btns = getattr(self, "run_btns", {})
             self.run_btns[key] = b
             if key == "stopsave":
                 self.b_stopsave = b
-        bf2 = ttk.Frame(job)
-        bf2.grid(row=6, column=0, columnspan=6, sticky="w", pady=(4, 0))
-        bfa = ttk.Frame(bf2)  # args/settings buttons (+ profile ACTIONS)
-        bfa.pack(side="top", anchor="w")
-        bfb = ttk.Frame(bf2)  # preview options on their own line so nothing is clipped at 1280 px
-        bfb.pack(side="top", anchor="w", pady=(4, 0))
+        bfb = ttk.Frame(bf2)  # preview options on their own line(s), wraps too
+        bfb.pack(side="top", fill="x", pady=(4, 0))
         b = ttk.Button(bfa, text="Rescan args", command=self.rescan)
         b.pack(side="left", padx=3)
         Tip(b, "Re-read MimicKit's args folder.")
@@ -200,7 +256,7 @@ class MainWindowMixin:
         Tip(b, HELP["tsettings"])
         self._build_actions(bfa)  # launcher_profile.py ACTIONS (none in the public build)
         # 'Stop after next save' status / refusal, right under the run buttons (a0.8.0: refusals are visible here)
-        self.l_stopsave = ttk.Label(bfa, text="", style="Dim.TLabel")
+        self.l_stopsave = ttk.Label(bf, text="", style="Dim.TLabel")
         self.l_stopsave.pack(side="left", padx=(12, 0))
         self.l_stopsave.pack_forget()
         ttk.Label(bfb, text="Preview device").pack(side="left", padx=(3, 4))
@@ -256,6 +312,8 @@ class MainWindowMixin:
         b.pack(side="left", padx=(12, 3))
         Tip(b, HELP["pdiag"])
         ttk.Label(bfb, text="Hover = help", style="Dim.TLabel").pack(side="left", padx=8)
+        flow(bfa)
+        flow(bfb, groups=True)
         self.custom = list(self.s.get("custom_args", []))
         self.rescan()
 
@@ -273,6 +331,7 @@ class MainWindowMixin:
         """Status text, progress target, GPU/VRAM meter."""
         stf = ttk.LabelFrame(left, text="Status", padding=4)
         stf.pack(fill="x")
+        self._stf = stf
         self.l_status = ttk.Label(
             stf,
             text="Idle.",
@@ -383,11 +442,19 @@ class MainWindowMixin:
             navf, text="Per-step chart", variable=self.v_ps, command=self._ps_toggled
         )
         c2.pack(side="left")
+        self.cb_ps = c2
+        # a0.8.4: on a very short window only one chart fits - these tabs pick which (hidden otherwise)
+        self.f_onechart = ttk.Frame(navf)
+        self.v_onechart = tk.StringVar(value="return")
+        for lab, val in (("Return", "return"), ("Speed", "speed")):
+            ttk.Radiobutton(self.f_onechart, text=lab, value=val, variable=self.v_onechart, style="Toolbutton",
+                            command=self._onechart_changed).pack(side="left", padx=1)
         Tip(c2, HELP["perstep"])
         Tip(c, HELP["cursess"])
         Tip(self.b_home, HELP["chartnav"])
         Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.canvas.get_tk_widget().bind("<Configure>", self._chart_resized, add="+")
         # chart help: '?' badge in the chart's title row, next to 'Training progress' (a0.6.1 UX item: it used to be
         # a tiny badge on the end of the Return line); hover shows the help, kept inside the window
         self.chart_help = tk.Label(right.title_row, text="?", width=2, cursor="question_arrow")
@@ -680,21 +747,24 @@ class MainWindowMixin:
                 except Exception as e:
                     txt = "GPU: nvidia-smi not available (%s)" % type(e).__name__
                     vr = (None, None)
-                try:
-                    self.root.after(0, lambda v=vr: self._set_vram(*v))
-                    self.root.after(0, lambda t=txt: self.l_gpu.configure(text=t))
-                except (RuntimeError, tk.TclError):
-                    return  # window closed / main loop gone: just end this poll thread
+                if getattr(self, "_closed", False):
+                    return  # window closed: just end this poll thread
+                # worker thread: never call Tk here - the GUI thread runs these from rq
+                self.rq.put(lambda v=vr, t=txt: (self._set_vram(*v), self.l_gpu.configure(text=t)))
                 time.sleep(5)
 
         threading.Thread(target=loop, daemon=True).start()
 
-    def _on_close(self):
+    def _close_save(self):
+        """Right before the window goes (after the 'training is running' prompt): size/position + stop workers."""
+        self._closed = True
         try:
             self._save_window_state()
             self._save_settings_only()
         except Exception as e:
             U.log_exc("window: save size", e)
+
+    def _on_close(self):
         if self.proc and self.proc.poll() is None:
             a = self.choose(
                 "Training is still running",
@@ -718,6 +788,7 @@ class MainWindowMixin:
                 self._plugin_call("closing")
                 if self.dash:
                     self.dash.stop()
+                self._close_save()
                 self.root.destroy()
                 return  # it keeps running; the next launcher window reattaches
             self.stop()
@@ -725,6 +796,7 @@ class MainWindowMixin:
         self._plugin_call("closing")
         if self.dash:
             self.dash.stop()
+        self._close_save()
         self.root.destroy()
 
     def _tk_callback_error(self, exc, val, tb):

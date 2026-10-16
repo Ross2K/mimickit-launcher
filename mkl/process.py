@@ -237,7 +237,11 @@ class ProcessMixin:
 
     def _check(self, kind):
         if self.proc and self.proc.poll() is None:
-            messagebox.showwarning("Busy", "Something is already running. Press STOP first.")
+            what = KIND_NAME.get(getattr(self, "run_kind", "") or "", "Something")
+            msg = ("%s is running. Press STOP first." % what) if what == "Training" else (
+                "%s is running. Close it first (or press STOP)." % what)
+            self._append("[gui] refused: %s\n" % msg)
+            messagebox.showwarning("Busy", msg)
             return False
         if not os.path.exists(os.path.join(self.mk(), "mimickit", "run.py")):
             self._append("[gui] MimicKit not found: no mimickit/run.py in %s\n" % self.mk())
@@ -931,7 +935,7 @@ class ProcessMixin:
                 st["exit_code"] = proc.returncode
                 write_run_state(state_path, st)
         ended = "[gui] %sprocess ended (exit code %s)\n" % (
-            "%s " % kind if kind else "",
+            "%s " % KIND_NAME.get(kind, kind).lower() if kind else "",
             proc.returncode,
         )
         self.q.put(ended)

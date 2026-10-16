@@ -3,6 +3,23 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.4
+
+PC layout at 125 % scaling + review fixes (GUI only).
+
+- **Run buttons:** Start / Resume / Stop after next save / STOP have their own row - STOP is always visible. The other
+  buttons and the preview options wrap onto more lines instead of running off the window.
+- **Charts on short windows:** below ~360 px the per-step chart is hidden; below ~250 px one chart is shown with
+  Return / Speed tabs - no more squashed strips.
+- **Left column:** Status + Output scroll together when the window is short; Output always keeps ~150 px.
+- **Phone confirms:** Cancel left, Yes right, same size, 16 px apart. Red only for Stop / Revert / Replace, blue for
+  Start / Continue / Install / Resume. Resume and the parallel-sims change have Cancel too. Theme toggle is 44 px.
+- Messages name what is running ("A preview is running. Close it first.") instead of "Something is already running"
+  or raw "(preview)". "loading…" / "Rendering…".
+- Fixes: the stop-after-save retry never touches a new run started while it was searching; no Tk calls from the GPU
+  poll thread; the log queue exists before the first worker starts; cancelling a just-queued phone "stop after save"
+  really cancels it; window size is saved after the close prompt; .bat / .ps1 stored with CRLF.
+
 ## a0.8.3
 
 Small phone/wording polish (GUI only, no training or patch files changed).

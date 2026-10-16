@@ -284,8 +284,8 @@ h1{font-size:16px;margin:0}.card{background:var(--panel);margin:10px;padding:10p
 canvas{width:100%;height:190px;touch-action:pan-y;display:block}video{width:100%;border-radius:8px;background:#000}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;width:100%}
 button{min-height:44px}#ctlbtn,#theme,.seg button,.pvrow button,.bgrid button{min-height:44px}button:disabled{opacity:.5}button{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
-.stoprow{display:flex;justify-content:space-between;gap:24px;margin:22px 0 6px;padding-top:12px;border-top:1px dashed var(--b)}.stoprow button.small{width:auto;font-size:13px;padding:6px 12px}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
-#theme{display:inline-block;min-width:32px;min-height:32px;line-height:32px;text-align:center;padding:0 6px}#ctlbtn{width:auto;padding:6px 10px;font-size:13px;margin-right:8px}#ctlbtn.off{background:var(--b);color:var(--dim)}
+.yesno{display:grid;grid-template-columns:1fr 1fr;gap:16px}.stoprow{display:flex;justify-content:space-between;gap:24px;margin:22px 0 6px;padding-top:12px;border-top:1px dashed var(--b)}.stoprow button.small{width:auto;font-size:13px;padding:6px 12px}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
+#theme{display:inline-block;min-width:44px;min-height:44px;line-height:44px;text-align:center;padding:0 6px}#ctlbtn{width:auto;padding:6px 10px;font-size:13px;margin-right:8px}#ctlbtn.off{background:var(--b);color:var(--dim)}
 #pending{color:#e6bd66;font-weight:600}#pending:empty{display:none}
 details.sec{border-top:1px solid var(--b);padding:6px 0}details.sec summary{font-weight:600;cursor:pointer;padding:4px 0}
 .cnt{color:var(--dim);font-weight:400}.bgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}
@@ -323,10 +323,10 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <details class="sec" id="s_patch"><summary>MimicKit patches <span class="cnt" id="n_patch"></span></summary><div id="plist"></div><small id="patchmsg"></small></details>
 </div><p><small id="ctlmsg"></small></p></div>
 <div class="modal" id="modal"><div class="mbox"><b id="m_title">Stop training now?</b><p><small id="m_text"></small></p>
-<div class="bgrid"><button id="m_keep">Keep training</button><button class="sec2" id="m_alt">Stop after next save</button></div>
-<button class="danger" id="m_hold" disabled><span id="m_holdt">Yes, stop now</span></button>
+<button class="sec2" id="m_alt" style="margin-bottom:10px">Stop after next save</button>
+<div class="yesno"><button class="sec2" id="m_keep">Cancel</button><button class="danger" id="m_hold" disabled><span id="m_holdt">Yes, stop now</span></button></div>
 <p><small id="m_msg"></small></p></div></div>
-<div class="card"><div id="state">loading...</div><div id="pending"></div>
+<div class="card"><div id="state">loading\u2026</div><div id="pending"></div>
 <div class="row"><span class="k">Session</span><span class="v" id="session_time"></span></div>
 <div class="row"><span class="k">Total training</span><span class="v" id="total_time"></span></div>
 <div class="row"><span class="k">Samples</span><span class="v" id="samples"></span></div>
@@ -441,7 +441,7 @@ function rProg(){const r=(S&&S.render)||{};const on=r.active||(r.stage&&r.elapse
  q('rprog').style.display=(r.active||r.stage)?'':'none';q('rbar').style.width=(r.pct||0)+'%';
  q('rstage').textContent=r.stage?(r.stage+(r.active?' \u00b7 '+fmt(r.elapsed||0)+' so far':'')+(r.origin?' \u00b7 started on the '+(r.origin==='phone'?'phone':'PC'):'')):'';
  if(r.active&&!window.RFAST){window.RFAST=setTimeout(()=>{window.RFAST=0;tick()},2500)}
- q('render').disabled=!!r.active;q('render').textContent=r.active?'Rendering... ('+(r.pct||0)+'%)':'Render new preview'}
+ q('render').disabled=!!r.active;q('render').textContent=r.active?'Rendering\u2026 ('+(r.pct||0)+'%)':'Render new preview'}
 q('render').onclick=async()=>{const C=S&&S.clips,sel=C?[...q('pv_clips').selectedOptions].map(o=>o.value):null;if(sel&&(sel.length<1||sel.length>4)){q('rmsg').textContent='Pick 1 to 4 clips under Preview options.';return}
  q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(sel?{clips:sel}:{})});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
  setTimeout(tick,1500)};
@@ -470,17 +470,22 @@ function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: of
  q('tweakmsg').textContent=nt?'Pending until next resume: '+Object.entries(tw).map(([k,v])=>(k==='num_envs'?'parallel sims':k)+' = '+v).join(', '):'';}
 q('pinok').onclick=async()=>{const [c,j]=await cpost('login',{pin:q('pin').value});q('pin').value='';
  if(c===200){SES=j.session;localStorage.mkSes=SES;q('pinmsg').textContent=''}else q('pinmsg').textContent=j.error||('refused ('+c+')');updCtl()};
-function modal(o){q('m_title').textContent=o.title;q('m_text').textContent=o.text||'';q('m_msg').textContent='';q('m_alt').textContent=o.alt?'Stop after next save':'Cancel';
- q('m_hold').style.display=o.hold?'':'none';HOLDTXT=o.holdText||'stop now';q('m_alt').style.display=(o.hold&&!o.alt)?'none':'';q('m_keep').textContent=o.keep||'Keep training';q('modal').classList.add('on');MODAL=o;
- if(o.hold){const h=q('m_hold');h.disabled=true;clearTimeout(MODAL_T);clearInterval(MODAL_I);let left=Math.round((o.timeout||(o.onhold?15000:5000))/1000);
-  const lab=()=>q('m_holdt').textContent='Yes, '+HOLDTXT+' ('+left+' s)';lab();MODAL_T=setTimeout(()=>{h.disabled=false},400);
-  MODAL_I=setInterval(()=>{left--;if(left<=0){closeModal();q('ctlmsg').textContent='Cancelled (no answer).'}else lab()},1000)}}
+function modal(o){q('m_title').textContent=o.title;q('m_text').textContent=o.text||'';q('m_msg').textContent='';
+ // a0.8.4: Cancel left, Yes right, same size, 16 px apart; red only for stop / revert / replace, blue otherwise
+ const stop=!o.onhold&&!o.ok,h=q('m_hold');MODAL=o;HOLDTXT=o.holdText||'stop now';
+ q('m_alt').textContent='Stop after next save';q('m_alt').style.display=o.alt?'':'none';
+ q('m_keep').textContent=o.hold?(o.keep&&o.keep!=='Confirm'?o.keep:'Cancel'):'Cancel';
+ h.className=(stop||o.danger)?'danger':'';q('modal').classList.add('on');
+ clearTimeout(MODAL_T);clearInterval(MODAL_I);h.disabled=true;MODAL_T=setTimeout(()=>{h.disabled=false},400);
+ if(!o.hold){q('m_holdt').textContent=o.keep||'Confirm';return}
+ let left=Math.round((o.timeout||(o.onhold?15000:5000))/1000);const lab=()=>q('m_holdt').textContent='Yes, '+HOLDTXT+' ('+left+' s)';lab();
+ MODAL_I=setInterval(()=>{left--;if(left<=0){closeModal();q('ctlmsg').textContent='Cancelled (no answer).'}else lab()},1000)}
 let HOLDTXT='stop now',MODAL=null,MODAL_T=0,MODAL_I=0;const closeModal=()=>{q('modal').classList.remove('on');clearTimeout(MODAL_T);clearInterval(MODAL_I);MODAL=null};
 document.addEventListener('contextmenu',e=>{if(e.target.closest&&e.target.closest('button'))e.preventDefault()});
-q('m_keep').onclick=()=>{if(MODAL&&MODAL.ok&&!MODAL.hold){const o=MODAL;closeModal();o.ok()}else closeModal()};
+q('m_keep').onclick=()=>closeModal();
 q('m_alt').onclick=()=>{const a=MODAL&&MODAL.alt;closeModal();if(a)act('stop_after_save',{},null,q('a_stopsave'))};
 // a0.8.3: tap + confirm (hold-to-confirm failed on Android: long-press opens a system gesture)
-q('m_hold').onclick=()=>{if(q('m_hold').disabled||!MODAL)return;const f=MODAL.onhold;closeModal();if(f)f();else act('stop_now',{},null,q('a_stopnow'))};
+q('m_hold').onclick=()=>{if(q('m_hold').disabled||!MODAL)return;const f=MODAL.onhold||MODAL.ok;closeModal();if(f)f();else act('stop_now',{},null,q('a_stopnow'))};
 q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save is lost. Stop after next save keeps it.',alt:true,hold:true});
 q('a_stopsave').onclick=()=>{const c=S&&S.stop_save;modal({title:c?'Cancel the stop after next save?':'Stop after the next save?',text:c?'Training keeps going.':'Training stops right after its next save - nothing is lost.',keep:'Cancel',hold:true,holdText:c?'cancel it':'stop after save',timeout:5000,onhold:()=>act(c?'cancel_stop':'stop_after_save',{},null,q('a_stopsave'))})};
 q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
@@ -501,10 +506,10 @@ function runsTick(){clipsTick();const R=S&&S.runs_ui;if(!R)return;const sig=JSON
  const ps=JSON.stringify(P)+!!S.running;if(ps!==q('plist').dataset.sig){q('plist').dataset.sig=ps;
   const whyOff=(p,op)=>S.running?'Off while training runs (patches change MimicKit files).':p.status==='missing'?'MimicKit folder not found on the PC.':p.status==='unknown'?'The PC could not read this patch\u2019s state (see the PC log).':op==='apply'&&p.status==='applied'?'Already applied.':op==='revert'&&!p.can_revert?'This one cannot be reverted.':op==='revert'&&p.status==='not applied'?'Not applied, nothing to revert.':'';
   q('plist').innerHTML=P.map(p=>{const wa=whyOff(p,'apply'),wr=whyOff(p,'revert'),w=wa&&wr?(wa===wr?wa:wa+' '+wr):'';return '<div class="row"><span class="k">'+esc(p.title)+'</span><span class="v">'+esc(p.status)+'</span></div><div class="bgrid"><button class="sec2" data-p="'+esc(p.name)+'" data-op="apply"'+(wa?' disabled title="'+esc(wa)+'"':'')+'>Apply</button><button class="sec2" data-p="'+esc(p.name)+'" data-op="revert"'+(wr?' disabled title="'+esc(wr)+'"':'')+'>Revert</button></div>'+((wa||wr)&&!S.running?'<small>'+esc(w||wa||wr)+'</small>':'')}).join('')+(S.running?'<small>Training is running: patches change MimicKit files, so they are off until it stops.</small>':'');
-  for(const b of q('plist').querySelectorAll('button'))b.onclick=()=>{const p=P.find(x=>x.name===b.dataset.p),op=b.dataset.op;modal({title:(op==='apply'?'Apply':'Revert')+' "'+p.title+'"?',text:p.why+' Runs started afterwards use it.',keep:'Cancel',hold:true,holdText:op,onhold:()=>act('patch',{name:p.name,op},q('patchmsg'))})}}}
+  for(const b of q('plist').querySelectorAll('button'))b.onclick=()=>{const p=P.find(x=>x.name===b.dataset.p),op=b.dataset.op;modal({danger:op==='revert',title:(op==='apply'?'Apply':'Revert')+' "'+p.title+'"?',text:p.why+' Runs started afterwards use it.',keep:'Cancel',hold:true,holdText:op,onhold:()=>act('patch',{name:p.name,op},q('patchmsg'))})}}}
 q('r_envs').oninput=()=>{try{runsTick()}catch(e){}};
 q('a_start').onclick=()=>{const n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim(),w=q('r_ovw').checked;
- modal({title:'Start a new training run?',text:c+' \u00b7 '+n+' parallel sims \u2192 '+o+(w?' (REPLACES an earlier run there)':''),keep:'Cancel',hold:true,holdText:'start',onhold:()=>act('start_train',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,overwrite:w},q('runmsg'))})};
+ modal({danger:w,title:'Start a new training run?',text:c+' \u00b7 '+n+' parallel sims \u2192 '+o+(w?' (REPLACES an earlier run there)':''),keep:'Cancel',hold:true,holdText:'start',onhold:()=>act('start_train',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,overwrite:w},q('runmsg'))})};
 q('a_cont').onclick=()=>{const R=S.runs_ui,r=R.runs.find(x=>x.key===q('r_src').value),n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim();if(!r)return;
  modal({title:'Continue from '+r.name+'?',text:'New run of '+c+' into '+o+' (a new numbered folder if that one is used), from its newest saved progress. Carries '+r.total+' of training.',keep:'Cancel',hold:true,holdText:'continue',onhold:()=>act('continue_run',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,src:r.key},q('runmsg'))})};
 /*EXTRA_JS*/
