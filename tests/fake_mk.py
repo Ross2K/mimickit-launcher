@@ -3,32 +3,51 @@ temp dir and never into the repo (tests/fake_mimickit/output).
 a0.8.7 (S4): each copy records its owner pid; a new copy first removes /tmp/mkl_test_* folders whose owner is gone
 (a test killed by a timeout or ended with os._exit never runs its atexit cleanup)."""
 
-import atexit, glob, os, shutil, tempfile, time
+import atexit, glob, os, shutil, sys, tempfile, time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+if os.path.dirname(_HERE) not in sys.path:
+    sys.path.insert(0, os.path.dirname(_HERE))
 _mk = None
 
 
 def _alive(pid):
+    """a0.8.8 (T1): liveness through mkl.core.proc_info - OpenProcess/GetExitCodeProcess on Windows (never os.kill,
+    which there sends CTRL_C_EVENT and could Ctrl+C a training sim), /proc on Linux. Unknown -> alive (keep it)."""
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
+        from mkl.core import proc_info
+    except Exception:
         return True
-    return True
+    try:
+        i = proc_info(pid)
+    except Exception:
+        return True
+    return bool(i and i.get("alive"))
+
+
+def _pids(d):
+    """Owner (test process) + any fake sims (sim.<pid>.pid, written by fake_mimickit/mimickit/run.py) of a folder."""
+    out = []
+    for f in [os.path.join(d, "owner.pid")] + glob.glob(os.path.join(d, "sim.*.pid")):
+        try:
+            out.append(int(open(f).read().strip()))
+        except (OSError, ValueError):
+            pass
+    return out
 
 
 def sweep():
-    """Remove leftover mkl_test_* folders of test processes that no longer run. Returns the removed paths."""
+    """Remove leftover mkl_test_* folders whose owner AND fake sims have all ended. Never touches a folder whose
+    owner or a sim still runs (a sim orphaned by a test timeout ends itself once its owner is gone, see run.py).
+    Folders without an owner.pid (made before a0.8.7) only when older than a day. Returns the removed paths."""
     gone = []
     for d in glob.glob(os.path.join(tempfile.gettempdir(), "mkl_test_*")):
-        try:
-            pid = int(open(os.path.join(d, "owner.pid")).read().strip())
-            dead = pid != os.getpid() and not _alive(pid)
-        except (OSError, ValueError):  # no pid file (made before a0.8.7): only when clearly stale
+        pids = _pids(d)
+        if os.path.isfile(os.path.join(d, "owner.pid")):
+            dead = bool(pids) and os.getpid() not in pids and not any(_alive(p) for p in pids)
+        else:
             try:
-                dead = time.time() - os.path.getmtime(d) > 3600
+                dead = not pids and time.time() - os.path.getmtime(d) > 86400
             except OSError:
                 dead = False
         if dead:
@@ -48,3 +67,16 @@ def fake_mk():
         _mk = os.path.join(d, "fake_mimickit")
         shutil.copytree(os.path.join(_HERE, "fake_mimickit"), _mk, ignore=shutil.ignore_patterns("output", "__pycache__"))
     return _mk
+
+
+def hard_kill(pid, group=False):
+    """a0.8.8 (T1): kill a test's process (and its group/tree) the way that's safe on each OS: Windows taskkill
+    /F (/T for the tree) - never os.kill, which sends CTRL_C_EVENT for signal 0/2; POSIX SIGKILL (killpg for group)."""
+    if os.name == "nt":
+        import subprocess
+
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"] + (["/T"] if group else []), capture_output=True)
+        return
+    import signal
+
+    (os.killpg if group else os.kill)(pid, signal.SIGKILL)

@@ -5,7 +5,7 @@ Stop kills the saved PID's whole process tree, 'keep running' on close, and PID-
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
+from fake_mk import fake_mk, hard_kill  # noqa: E402 - temp copy: test output never lands in the repo
 import json, os, shutil, signal, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,7 +58,7 @@ root.after(1500, go); root.mainloop()
 line = gui.stdout.readline()
 pid = int(line.split()[1]) if line.startswith("STARTED") else -1
 time.sleep(4)
-os.kill(gui.pid, signal.SIGKILL)
+hard_kill(gui.pid)
 gui.wait()
 t_kill = time.time()
 import tkinter as tk, mimickit_launcher as G

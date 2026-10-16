@@ -380,7 +380,7 @@ app.choose(
 )
 check(
     "themed dialog runs (dark bg)",
-    G.T["bg"].lower() in ("#1e1e1e", "#121212", "#202020") or not app.v_light.get(),
+    G.T["bg"].lower() in ("#000000", "#1e1e1e", "#121212", "#202020") or not app.v_light.get(),
     G.T["bg"],
 )
 app.proc = None

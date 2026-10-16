@@ -126,6 +126,10 @@ def flow(frame, groups=False):
                     changed = True
         if changed:
             relayout(force=True)
+            try:  # a0.8.8: tell the window its widgets were re-laid out (top area re-hooks new boxes)
+                frame.winfo_toplevel().event_generate("<<FlowRebuilt>>", when="tail")
+            except tk.TclError:
+                pass
         for r in rows:
             if r not in hooked:
                 hooked.add(r)
@@ -216,7 +220,7 @@ class MainWindowMixin:
                 more.configure(bg=T.get("sel", "#2d4f7c"), fg=T.get("fg", "#ffffff"))
                 # a0.8.7 (UX 3): a 20-24 px strip (22 px at 125 %), easy to spot and to click
                 k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
-                more.place(in_=cv, relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=max(20, min(24, int(18 * k))))
+                more.place(in_=cv, relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=strip_h(k))
                 more.lift()
             elif more.winfo_manager():
                 more.place_forget()
@@ -226,6 +230,39 @@ class MainWindowMixin:
             show_more()
 
         cv.configure(yscrollcommand=yset)
+
+        def strip_h(k):
+            return max(20, min(24, int(18 * k)))
+
+        def cuts():
+            """y positions (inside the top area) that cut no control in half: below every widget that starts
+            above them. Leaf widgets only (frames are containers)."""
+            boxes, stack = [], list(inner.winfo_children())
+            while stack:
+                w = stack.pop()
+                try:
+                    kids = w.winfo_children()
+                    if not w.winfo_ismapped():
+                        continue
+                    if kids and w.winfo_class() in ("TFrame", "Frame", "TLabelframe", "Labelframe"):
+                        stack.extend(kids)
+                        continue
+                    y = w.winfo_rooty() - inner.winfo_rooty()
+                    boxes.append((y, y + w.winfo_height()))
+                except tk.TclError:
+                    continue
+            ends = sorted({b for _, b in boxes})
+            return [e for e in ends if not any(t < e < b for t, b in boxes)]
+
+        def snap(h, sh):
+            """Largest whole-row cut c with c + strip <= h -> visible height c + strip (never more than h)."""
+            ok = [c for c in cuts() if c + sh <= h]
+            if not ok:
+                return h
+            c = max(ok)
+            return c + sh if h - (c + sh) < int(80 * max(1.0, self.root.winfo_fpixels("1i") / 96.0)) else h
+
+        self._top_cuts = cuts
 
         def fit(_=None):
             k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
@@ -250,6 +287,8 @@ class MainWindowMixin:
                 h = req
             if winh <= 1:
                 h = req
+            if req > h + 1:  # a0.8.8: end the visible part (above the 'more' strip) at the last whole row
+                h = snap(h, strip_h(k))
             if int(cv.cget("height")) != h:
                 cv.configure(height=h)
             cv.itemconfigure(win, width=max(1, cv.winfo_width()))
@@ -308,20 +347,28 @@ class MainWindowMixin:
                 step(e)
             return "break"  # not focused: never change the value
 
-        hooked = set()
+        import weakref
+
+        hooked = weakref.WeakSet()  # a0.8.8 (T2): destroyed boxes drop out on their own
 
         def hook_boxes(_=None):
             stack = [inner]
             while stack:
                 w = stack.pop()
-                stack.extend(w.winfo_children())
-                if w not in hooked and w.winfo_class() in own:
+                try:
+                    stack.extend(w.winfo_children())
+                    cls = w.winfo_class()
+                except tk.TclError:  # destroyed meanwhile
+                    continue
+                if w not in hooked and cls in own:
                     hooked.add(w)
                     for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
                         w.bind(seq, box_wheel, add="+")
-        self._top_hook_boxes = hook_boxes
+        self._top_hook_boxes, self._top_hooked = hook_boxes, hooked
+        # a0.8.8 (T2): on <Map> and after a rebuild (flow() re-layout / an explicit self._top_hook_boxes() call),
+        # not on every resize
         inner.bind("<Map>", hook_boxes, add="+")
-        inner.bind("<Configure>", hook_boxes, add="+")
+        self.root.bind("<<FlowRebuilt>>", hook_boxes, add="+")
         self.root.after_idle(hook_boxes)
 
         def inside():

@@ -202,13 +202,25 @@ check("dialog offers the two plain choices", v["host"].get() == "Only this PC (p
 v["enabled"].set(True)
 import socket
 
-_sk = socket.socket()
-_sk.bind(("127.0.0.1", 0))  # a0.8.7 (S1): a free port, not a fixed 8799 (parallel test runs collided)
-PORT = _sk.getsockname()[1]
-_sk.close()
-v["port"].set(str(PORT))
-v["apply"]()
-root.update()
+
+def free_port():
+    sk = socket.socket()
+    sk.bind(("127.0.0.1", 0))  # a0.8.7 (S1): a free port, not a fixed 8799 (parallel test runs collided)
+    try:
+        return sk.getsockname()[1]
+    finally:
+        sk.close()
+
+
+# a0.8.8 (T3): the port can be taken between free_port() and the dashboard's bind -> retry with a new one
+for _try in range(5):
+    PORT = free_port()
+    v["port"].set(str(PORT))
+    v["apply"]()
+    root.update()
+    if app.dash is not None:
+        break
+    time.sleep(0.2)
 check(
     "new install binds 127.0.0.1",
     app.dash is not None and app.dash.host == "127.0.0.1",

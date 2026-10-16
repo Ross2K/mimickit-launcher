@@ -4,7 +4,7 @@ xvfb-run -a python tests/time_test.py"""
 import result_exit  # noqa: F401 - non-zero exit on any FAIL / incomplete RESULT
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-from fake_mk import fake_mk  # noqa: E402 - temp copy: test output never lands in the repo
+from fake_mk import fake_mk, hard_kill  # noqa: E402 - temp copy: test output never lands in the repo
 import json, os, shutil, signal, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -85,7 +85,7 @@ def steps():
         str(j),
     )
     wait(3)
-    os.killpg(app.proc.pid, signal.SIGKILL)
+    hard_kill(app.proc.pid, group=True)
     wait(2)  # child dies on its own (crash / closed console)
     s2 = J(r1)["seconds"]
     check("killed child: reader saved final", s1 + 3 <= s2 <= s1 + 5.5, "%.1f s" % s2)
@@ -98,7 +98,7 @@ def steps():
     wait(2)
     app.tt_save_backup = app._tt_save
     app._tt_save = lambda final=False: None  # simulate GUI dying: no more saves
-    os.killpg(app.proc.pid, signal.SIGKILL)
+    hard_kill(app.proc.pid, group=True)
     wait(1.5)
     real = s2 + 5
     saved = J(r2)["seconds"]

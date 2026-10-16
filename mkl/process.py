@@ -34,6 +34,8 @@ def proc_tree(root):
 
 def kill_and_verify(pids, timeout=3.0):
     """SIGKILL every pid, then wait until all are gone (zombies count as gone). Returns the survivors."""
+    if IS_WIN:  # a0.8.8: POSIX only (signal.SIGKILL doesn't exist there; Windows uses taskkill /T /F)
+        raise RuntimeError("kill_and_verify is POSIX-only")
     for p in pids:
         try:
             os.kill(p, signal.SIGKILL)

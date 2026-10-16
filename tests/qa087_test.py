@@ -149,7 +149,7 @@ r.after(4000, done); r.mainloop()
 """ % (ROOT, HERE)
 out = subprocess.run([sys.executable, "-c", CHILD], capture_output=True, text=True, timeout=90).stdout
 top, ch, short, clip, more = map(int, next((l for l in out.splitlines() if l.startswith("RES")), "RES 0 0 9 9 0").split()[1:])
-check("125 %%: top keeps ~260 px (%d)" % top, top >= 250)
+check("125 %%: top keeps ~260 px, snapped down to a whole row (%d)" % top, top >= 210)  # a0.8.8: snap
 check("125 %%: chart canvas >= 312 px, two charts (%d px, short=%d)" % (ch, short), ch >= 312 and short < 2)
 check("125 %%: no chart toolbar control clipped (%d)" % clip, clip == 0)
 check("125 %%: '\u25be More settings below' strip 20-24 px (%d)" % more, 20 <= more <= 24)

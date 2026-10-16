@@ -9,6 +9,65 @@ def get(k, d=""):
     return args[args.index("--" + k) + 1] if "--" + k in args else d
 
 
+
+
+def _alive(pid):
+    """Liveness without os.kill on Windows (there it sends CTRL_C_EVENT)."""
+    if os.name == "nt":
+        import ctypes
+
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return k.GetLastError() == 5  # access denied = it exists
+        try:
+            code = ctypes.c_ulong()
+            return bool(k.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            k.CloseHandle(h)
+    try:
+        os.kill(int(pid), 0)  # POSIX only: signal 0 just checks
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+# a0.8.8: inside a test's temp copy (tests/fake_mk.py: <tmp>/mkl_test_*/owner.pid next to fake_mimickit/), say we
+# run (sim.<pid>.pid, so the leftover sweep never deletes the folder under us) and end ourselves (and the worker
+# child) when the test that owns the copy is gone - e.g. killed by a timeout - instead of running on for minutes.
+_root = os.path.dirname(os.path.abspath(os.getcwd()))
+_owner = os.path.join(_root, "owner.pid")
+_mine = os.path.join(_root, "sim.%d.pid" % os.getpid())
+_kids = []
+if os.path.isfile(_owner):
+    import atexit, threading
+
+    try:
+        _opid = int(open(_owner).read().strip())
+    except (OSError, ValueError):
+        _opid = None
+    open(_mine, "w").write(str(os.getpid()))
+    atexit.register(lambda: os.path.exists(_mine) and os.remove(_mine))
+
+    def _watch():
+        while True:
+            time.sleep(2)
+            if _opid and not _alive(_opid):
+                for c in _kids:
+                    try:
+                        c.kill()
+                    except Exception:
+                        pass
+                try:
+                    os.remove(_mine)
+                except OSError:
+                    pass
+                os._exit(3)
+
+    threading.Thread(target=_watch, daemon=True).start()
+
 print("stub run.py args:", " ".join(args), flush=True)
 if get("mode", "train") == "test":
     print("test mode: would open a viewer window", flush=True)
@@ -38,6 +97,7 @@ if os.environ.get(
 child = subprocess.Popen(
     [sys.executable, "-c", "import time; time.sleep(600)"]
 )  # like a worker process
+_kids.append(child)
 n = int(get("num_envs", "1024"))
 cols = ["Iteration", "Wall_Time", "Samples", "Test_Return", "Train_Return"]
 # STUB_AMP=1: an AMP task run (e.g. steering): extra discriminator / exploration rows in between, an env info key,

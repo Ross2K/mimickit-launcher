@@ -141,9 +141,10 @@ r.after(4000, done); r.mainloop()
 out = subprocess.run([sys.executable, "-c", CHILD], capture_output=True, text=True, timeout=90).stdout
 line = next((l for l in out.splitlines() if l.startswith("RES")), "RES 0 1 0 0 9999 0").split()
 mid, need, toph, topreq, stopb, winh = map(int, line[1:])
-# a0.8.7 (UX 1): the top keeps ~260 px at 125 % (208 x scale) and two charts fit below (qa087_test checks those)
-check("125 %% 1536x816: top keeps ~260 px or all of it (%d of %d px, need %d)" % (toph, topreq, min(topreq, need * 208 // 360) - 2),
-      toph >= min(topreq, need * 208 // 360) - 2)
+# a0.8.7 (UX 1): the top keeps ~260 px at 125 % (208 x scale) and two charts fit below (qa087_test checks those);
+# a0.8.8: snapped down to the last whole row (up to one row less)
+check("125 %% 1536x816: top keeps ~260 px or all of it (%d of %d px, need %d)" % (toph, topreq, min(topreq, need * 208 // 360) - 50),
+      toph >= min(topreq, need * 208 // 360) - 50)
 check("125 %% 1536x816: charts box keeps >= ~150 px (%d px)" % mid, mid >= need * 150 // 360)
 check("125 %%: the top section is the one that scrolls (shown %d of %d px)" % (toph, topreq), toph < topreq)
 check("125 %: STOP still inside the window", 0 < stopb <= winh, (stopb, winh))

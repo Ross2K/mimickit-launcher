@@ -212,7 +212,7 @@ def chart_png(snap, width=7.0, height=5.6, dpi=90, dark=True):
     from matplotlib.backends.backend_agg import FigureCanvasAgg
 
     bg, fg, field, grid = (
-        ("#1e1e1e", "#d0d0d0", "#1a1a1a", "#3a3a3a")
+        ("#0d0d0d", "#d0d0d0", "#000000", "#2a2a2a")  # a0.8.8: OLED, matches the desktop charts
         if dark
         else ("#f5f5f5", "#1a1a1a", "#ffffff", "#cccccc")
     )

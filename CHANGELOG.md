@@ -3,6 +3,21 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.8
+
+True-black dark mode + safer tests (GUI only).
+
+- **OLED dark mode:** the dark look is now true black (#000 background, #0d0d0d panels), like the phone page; the
+  charts match (black plots on #0d0d0d), on the PC and in the phone's chart picture.
+- **Whole rows at the cut:** when Settings / What to run scrolls, the visible part ends after the last whole row,
+  so the "▾ More settings below" strip never cuts a row in half.
+- The drop-down / number box wheel rule (a0.8.7) is set up when the area appears or is re-laid out, not on every
+  resize.
+- Tests (Windows safety): the test helpers check whether a process runs with OpenProcess/GetExitCodeProcess on
+  Windows (never os.kill, which there sends Ctrl+C and could stop a training run) and kill with taskkill there;
+  leftover test folders are only removed when their test and its fake sim have ended; a fake sim left behind by a
+  timed-out test ends itself; fixes042 retries with another port if the dashboard can't bind.
+
 ## a0.8.7
 
 Two charts at 125 % + wheel and scroll polish (GUI only).

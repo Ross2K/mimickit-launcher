@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.8.7"
+VERSION = "a0.8.8"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -234,26 +234,27 @@ if os.path.exists(os.path.join(HERE, "launcher_profile.py")):
             globals()[_k] = getattr(_P, _k)
 
 THEMES = {
+    # a0.8.8: true-black OLED dark theme, same colours as the phone page (--bg #000, --panel #0d0d0d, --b #333)
     "dark": dict(
-        bg="#121212",
-        panel="#1e1e1e",
-        field="#1a1a1a",
+        bg="#000000",
+        panel="#0d0d0d",
+        field="#000000",
         fg="#d0d0d0",
         dim="#8a8a8a",
         accent="#5b8db8",
         border="#333333",
         sel="#2f4f6f",
-        btn="#262626",
-        btn_act="#333333",
-        log_bg="#0d0d0d",
+        btn="#1a1a1a",
+        btn_act="#2a2a2a",
+        log_bg="#000000",
         log_fg="#c8c8c8",
-        tip_bg="#2a2a2a",
+        tip_bg="#1a1a1a",
         tip_fg="#e0e0e0",
         stop="#7a2a2a",
         stop_act="#943434",
         stop_fg="#f0d0d0",
         good="#7fb38a",
-        grid="#3a3a3a",
+        grid="#2a2a2a",
         line1="#6ea8d8",
         line2="#d8a05e",
         line3="#7fb38a",
@@ -640,7 +641,7 @@ def proc_info(pid):
         except (OSError, ValueError, IndexError, StopIteration):
             return None
     try:
-        os.kill(pid, 0)
+        os.kill(pid, 0)  # POSIX only (Windows returned above): on Windows os.kill(pid, 0) sends CTRL_C_EVENT
     except ProcessLookupError:
         return None
     except OSError:
