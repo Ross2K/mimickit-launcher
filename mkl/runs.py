@@ -218,12 +218,12 @@ class RunsMixin:
         finally:
             self._phone_start_pending = False
 
-    def _patch_refusal(self):
+    def _patch_refusal(self, need_mk=True):
         """Same rule on the PC and the phone: MimicKit files are not changed while training runs."""
         if self._training_running():
             return ("Training is running - patches change MimicKit's files, so stop it first "
                     "(or use Stop after next save), then apply or revert.")
-        if not self.mk() or not os.path.isfile(os.path.join(self.mk(), "mimickit", "run.py")):
+        if need_mk and not self.mk() or need_mk and not os.path.isfile(os.path.join(self.mk(), "mimickit", "run.py")):
             return "MimicKit folder not set (no mimickit/run.py)."
         return None
 
