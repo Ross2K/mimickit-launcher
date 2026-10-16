@@ -104,8 +104,13 @@ def _place_window(self):
     st = self.s.get("window") or {}
     g = st.get("geometry", "")
     m = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$", g or "")
-    if m and int(m.group(1)) <= aw + 16 and int(m.group(2)) <= ah + 16 and \
-            x0 - 50 <= int(m.group(3)) < x0 + aw - 100 and y0 - 50 <= int(m.group(4)) < y0 + ah - 100:
+    fits = False
+    if m:
+        w0, h0, gx, gy = (int(v) for v in m.groups())
+        # the WHOLE window must be on today's work area (monitor unplugged, resolution / DPI changed -> default)
+        fits = (min(1100, aw) <= w0 <= aw + 16 and min(720, ah) <= h0 <= ah + 16
+                and gx >= x0 - 16 and gy >= y0 - 16 and gx + w0 <= x0 + aw + 16 and gy + h0 <= y0 + ah + 16)
+    if fits:
         root.geometry(g)
         zoom = bool(st.get("zoomed"))
     else:

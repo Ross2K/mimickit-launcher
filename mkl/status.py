@@ -592,7 +592,10 @@ class StatusMixin:
         self._close_card(cid)
 
     # ------------------------------------------------------------------ looks trained
-    def _check_looks_trained(self, d, e, running):
+    LOOKS_MIN_S = 2 * 3600  # a0.8.3: no 'looks trained' for a plateau before 2 h of total training (it fired at 30 min)
+    LOOKS_FLAT_S = 45 * 60  # ... and the plateau must hold this long (training time) before it is shown
+
+    def _check_looks_trained(self, d, e, running, tot=None):
         hit = (
             e
             and e.get("pct") is not None
@@ -602,6 +605,13 @@ class StatusMixin:
             )
         )
         key = self._chain_key(d)
+        if hit and e.get("kind") == "plateau" and tot is not None:
+            flat = getattr(self, "_looks_flat", None)
+            if not flat or flat[0] != key or tot < flat[1]:
+                self._looks_flat = flat = (key, tot)
+            hit = tot >= self.LOOKS_MIN_S and tot - flat[1] >= self.LOOKS_FLAT_S
+        elif not hit:
+            self._looks_flat = None
         self._looks_now = bool(hit and running and self.run_kind == "train")
         if not hit or not running or self.run_kind != "train" or self._looks == key:
             return

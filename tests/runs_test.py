@@ -110,7 +110,7 @@ check("training started with the phone's choices", app._training_running() and a
       and int(app.v_envs.get()) == 256 and app.v_train.get() == cfg)
 check("no PC dialog popped up", not DLG, DLG)
 r = phone("start_train", dict(config=cfg, num_envs=256, out="output/ph2"), session=SES)
-check("second start while running refused", r[0] == 409 and "already running" in r[1]["error"], r)
+check("second start while running refused", r[0] == 409 and "is running" in r[1]["error"] and "refused" in r[1]["error"], r)
 check("refusal logged", "start_train -> 409" in app.t_log.get("1.0", "end") or "refused" in app.t_log.get("1.0", "end"))
 ui = refresh()
 check("phone sees busy", ui["busy"])

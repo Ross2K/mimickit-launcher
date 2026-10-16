@@ -437,6 +437,12 @@ app.notifier.targets = lambda: ["discord"]
 app.s["notify"] = dict(send_trained=True)
 run()
 d = app.outdir_abs()
+app._check_looks_trained(d, dict(kind="plateau", pct=97, a=0.7), True, 1800)
+check("plateau after only 30 min of training: no 'looks trained'", "looks_trained" not in app.cards and not app._looks_now)
+app._looks_flat = None
+app._check_looks_trained(d, dict(kind="plateau", pct=97, a=0.7), True, 3 * 3600)
+check("3 h but the plateau only just began: still no prompt", "looks_trained" not in app.cards)
+app._looks_flat = None
 app._check_looks_trained(d, dict(kind="plateau", pct=80, a=0.7), True)
 check("not yet at 80%", "looks_trained" not in app.cards)
 app._check_looks_trained(d, dict(kind="plateau", pct=96, a=0.712), True)

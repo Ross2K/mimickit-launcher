@@ -735,7 +735,7 @@ class ChartsMixin:
                     )
                     txt = re.sub(r"~?\d+%", "~%d%%" % round(shown), txt, count=1)
                 lines.append(txt)
-                self._check_looks_trained(d, e, running)
+                self._check_looks_trained(d, e, running, tot)
         except Exception as ex:
             lines.append("Progress estimate unavailable (%s)" % ex)
 
