@@ -1,6 +1,6 @@
 # Watching training from your phone (Tailscale)
 
-The launcher can serve a small **read-only** dashboard (status, session/total time, speed, VRAM, progress estimate,
+The launcher can serve a small dashboard (**read-only** unless *Allow control from phone* is on: then Stop / Resume need a PIN session + per-tap confirmation) (status, session/total time, speed, VRAM, progress estimate,
 both charts with touch zoom, the newest preview video, and a rate-limited *Render preview* button). Training can't be
 started or stopped from the web. It is **off by default**.
 

@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.6.0"
+VERSION = "a0.7.0"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -972,6 +972,33 @@ def _eta_text(samples_left, rate):
     return "about %.0f h left" % h if h >= 3 else "about %.1f h left" % h
 
 
+def _recent_slowdown(X, Y, rate, hours=10.0):
+    """Compare the score gain of the last `hours` of training with the run's average pace. -> text or None."""
+    if rate <= 0 or len(X) < 20:
+        return None
+    win = rate * hours
+    if X[-1] - X[0] < 2.5 * win:
+        return None
+    med = lambda v: sorted(v)[len(v) // 2]
+    recent = [y for x, y in zip(X, Y) if x >= X[-1] - win]
+    before = [y for x, y in zip(X, Y) if X[-1] - 2 * win <= x < X[-1] - win]
+    if len(recent) < 5 or len(before) < 5:
+        return None
+    k = max(5, len(Y) // 20)
+    total = med(Y[-k:]) - med(Y[:k])
+    if total <= 0:
+        return None
+    gain = med(recent[-max(3, len(recent) // 3):]) - med(before)
+    avg = total * win / (X[-1] - X[0])  # gain per window at the run's average pace
+    ratio = gain / avg if avg > 0 else 1.0
+    if ratio < 0.25:
+        return "Plateau estimate: plateaued - about %+.3g in the last %d h" % (gain, hours)
+    if ratio < 0.6:
+        return "Plateau estimate: slowing down - about %+.3g in the last %d h (%d%% of the earlier pace)" % (
+            gain, hours, round(100 * ratio))
+    return None
+
+
 def estimate_progress(segs, rate, target=None):
     """-> dict(text, pct or None, kind). segs as in _prep_points; rate in samples/hour; target = dict(kind 'samples'|'score', value)."""
     X, Y = _prep_points(segs)
@@ -1035,6 +1062,9 @@ def estimate_progress(segs, rate, target=None):
             text="Plateau estimate: no clear improvement in the data (flat or noisy) - can't estimate",
         )
     if f["at_edge"]:
+        slow = _recent_slowdown(X, Y, rate)  # the fit says 'linear' but the recent hours say otherwise
+        if slow:
+            return dict(kind="plateau", pct=None, text=slow)
         return dict(
             kind="plateau",
             pct=None,
@@ -1045,6 +1075,9 @@ def estimate_progress(segs, rate, target=None):
     k = int(len(X) * 0.85)
     g = fit_plateau(X[:k], Y[:k])
     if not g or g["at_edge"] or g["b"] <= 0 or abs(_plateau_pct(g, xnow) - pct) > 25:
+        slow = _recent_slowdown(X, Y, rate)
+        if slow:
+            return dict(kind="plateau", pct=None, text=slow)
         return dict(
             kind="plateau", pct=None, text="Plateau estimate: not enough data yet (fit not stable)"
         )

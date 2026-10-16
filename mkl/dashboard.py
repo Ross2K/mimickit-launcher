@@ -39,7 +39,7 @@ class DashboardMixin:
             state=lines[0] if lines else "",
             running=running,
             session_time=grab(r"Running for (\S+) \(this session") or grab(r"session time (\S+)"),
-            total_time=grab(r"Running for (\S+) \(total") or grab(r"Total training time (\S+)"),
+            total_time=grab(r"Running for (.+?) \(total") or grab(r"Total training time (.+?) \(this run"),
             samples=grab(r"samples ([\d,]+(?: \([\d,]+ in all sessions\))?)"),
             rate=grab(r"speed ([\d.]+ M samples/hour)"),
             estimate=next((l for l in lines if l.startswith(("Plateau estimate", "Target"))), ""),
@@ -50,6 +50,9 @@ class DashboardMixin:
             per_step=grab(r"Avg reward per step: ([^\n]+)"),
             updated=time.time(),
             render_msg=self.render_msg,
+            pending=self._pending_text(),
+            stop_save=bool(getattr(self, "stop_save", None)),
+            tweaks=dict(self._remote_cfg().get("tweaks") or {}),
         )
         v = getattr(self, "vram", None)
         if v:
@@ -100,6 +103,7 @@ class DashboardMixin:
                     host,
                     port,
                     on_render=self._remote_render,
+                    control=self._control(),
                     log=lambda m: self.q.put("[remote] %s\n" % m),
                 ).start()
                 self.dash.set_snapshot(self.snap)
@@ -110,6 +114,96 @@ class DashboardMixin:
                 self._append(
                     "[remote] could not start the dashboard on %s:%d (%s)\n" % (host, port, e)
                 )
+
+    # ---------------------------------------------------------- phone control (a0.7.0)
+    def _control(self):
+        if not getattr(self, "ctl", None):
+            self.ctl = R.Control(
+                self._remote_cfg, self._remote_action, log=lambda m: self.q.put("[remote] %s\n" % m)
+            )
+        return self.ctl
+
+    def _pending_text(self):
+        """Pending / in-progress action for the status line (desktop + phone)."""
+        ph = getattr(self, "remote_phase", "")
+        if ph:
+            return ph
+        if getattr(self, "stop_save", None):
+            return "Will stop after next save"
+        return ""
+
+    def _save_in_progress(self):
+        """model.pt written in the last 3 s or still growing = a save is under way."""
+        m = os.path.join(self.run_dir or "", "model.pt")
+        try:
+            st = os.stat(m)
+        except OSError:
+            return False
+        last = getattr(self, "_mp_size", None)
+        self._mp_size = st.st_size
+        return time.time() - st.st_mtime < 3 or (last is not None and last != st.st_size)
+
+    def _remote_action(self, action, params):
+        """Server thread: decide with thread-safe reads, queue GUI work. Idempotent: a repeat is a no-op."""
+        running = self._training_running()
+        if action == "resume":
+            if running or (self.proc and self.proc.poll() is None):
+                return 409, "Training is already running - resume refused."
+            self.rq.put(self._remote_resume_gui)
+            return 202, "Resuming training on the PC."
+        if action in ("stop_now", "stop_after_save", "cancel_stop") and not running:
+            if getattr(self, "remote_phase", ""):
+                return 200, "Already stopping."
+            return 409, "No training is running."
+        if action == "stop_now":
+            if getattr(self, "remote_phase", ""):
+                return 200, "Already stopping (counted once)."
+            self.remote_phase = "Stopping..."
+            self.rq.put(self._remote_stop_gui)
+            return 202, "Stopping training."
+        if action == "stop_after_save":
+            if getattr(self, "stop_save", None):
+                return 200, "Already set: will stop after next save."
+            self.rq.put(lambda: None if self.stop_save else self.stop_after_save())
+            return 202, "Will stop after the next save."
+        if action == "cancel_stop":
+            if not getattr(self, "stop_save", None):
+                return 200, "Nothing to cancel."
+            self.rq.put(lambda: self.stop_after_save() if self.stop_save else None)
+            return 202, "Stop after next save cancelled."
+        if action == "tweaks":
+            c = self._remote_cfg()
+            c["tweaks"] = dict(c.get("tweaks") or {}, **params)
+            self.rq.put(self._save_settings_only)
+            return 200, "Queued for the next resume: %s" % ", ".join("%s = %s" % kv for kv in params.items())
+        return 400, "Unknown action."
+
+    def _remote_stop_gui(self):
+        if not self._training_running():
+            self.remote_phase = ""
+            return
+        if self._save_in_progress():
+            self.remote_phase = "Waiting for the save to finish..."
+            self.root.after(1000, self._remote_stop_gui)
+            return
+        self.remote_phase = "Stopping..."
+        self._append("[remote] stop now (from phone)\n")
+        if getattr(self, "stop_save", None):
+            self._stopsave_done("[gui] stop after next save replaced by stop now\n")
+        self.stop()
+        self.remote_phase = ""
+
+    def _remote_resume_gui(self):
+        if self._training_running():
+            self._append("[remote] resume refused: training is already running\n")
+            return
+        tw = self._remote_cfg().pop("tweaks", None) or {}
+        if "num_envs" in tw:
+            self.v_envs.set(int(tw["num_envs"]))
+            self._append("[remote] next-resume tweak applied: num_envs = %d\n" % tw["num_envs"])
+        self._save_settings_only()
+        self._append("[remote] resume (from phone)\n")
+        self.resume()
 
     def _remote_render(self):
         """Called from the web server thread: never touches Tk, only queues work for the GUI thread."""
@@ -191,6 +285,40 @@ class DashboardMixin:
 
         v_host.trace_add("write", upd_warn)
         upd_warn()
+        cf = ttk.Frame(f)
+        cf.grid(row=16, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        v_ctl = tk.BooleanVar(value=bool(c.get("allow_control")))
+        ttk.Checkbutton(
+            cf, text="Allow control from phone (stop / resume; off by default; needs a PIN)", variable=v_ctl
+        ).grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(cf, text="PIN (4-12 digits)").grid(row=1, column=0, sticky="w")
+        v_pin = tk.StringVar()
+        ttk.Entry(cf, textvariable=v_pin, width=14, show="*").grid(row=1, column=1, sticky="w")
+        ctl_msg = ttk.Label(cf, style="Dim.TLabel", wraplength=520, justify="left")
+        ctl_msg.grid(row=2, column=0, columnspan=3, sticky="w")
+        ctl_msg.configure(
+            text="PIN is set." if c.get("pin_hash") else "No PIN set yet - control stays off until you set one."
+        )
+
+        def collect_ctl():
+            pin = v_pin.get().strip()
+            revoke = None
+            if pin:
+                if not (pin.isdigit() and 4 <= len(pin) <= 12):
+                    ctl_msg.configure(text="PIN must be 4-12 digits - not changed.")
+                else:
+                    c["pin_hash"] = R.hash_pin(pin)
+                    v_pin.set("")
+                    revoke = "PIN changed"
+                    ctl_msg.configure(text="PIN changed - every phone must sign in again.")
+            want = bool(v_ctl.get())
+            if bool(c.get("allow_control")) and not want:
+                revoke = "control turned off"
+            c["allow_control"] = want
+            if revoke:
+                self._control().revoke_all(revoke)
+
+        self._rdlg_ctl = dict(allow=v_ctl, pin=v_pin, collect=collect_ctl, msg=ctl_msg)
         urlf = ttk.Frame(f)
         urlf.grid(row=5, column=0, columnspan=3, sticky="we", pady=4)
         qr = tk.Canvas(f, width=180, height=180, bg="white", highlightthickness=0)
@@ -316,6 +444,7 @@ class DashboardMixin:
                 n["every_hours"] = 3.0
             n["send_preview"] = bool(v_sp.get())
             n["send_trained"] = bool(v_lt.get())
+            collect_ctl()
             self._register_secrets()
             self._save_settings_only()
 
@@ -338,7 +467,7 @@ class DashboardMixin:
             ).start()
 
         bf = ttk.Frame(f)
-        bf.grid(row=15, column=0, columnspan=4, sticky="e", pady=(10, 0))
+        bf.grid(row=17, column=0, columnspan=4, sticky="e", pady=(10, 0))
         ttk.Button(bf, text="Send test", command=test).pack(side="left", padx=4)
         ttk.Button(bf, text="Apply", command=apply_).pack(side="left", padx=4)
         ttk.Button(bf, text="Close", command=lambda: (apply_(), top.destroy())).pack(

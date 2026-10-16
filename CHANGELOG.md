@@ -3,6 +3,42 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.7.0
+
+### Added
+- **Phone Controls panel**: a *Controls* button in the dashboard header opens one collapsible panel (closed by
+  default; open/closed and each section remembered on the phone). Sections with counts: *Training* (Stop after next
+  save, Stop now, Resume; *Save checkpoint* is shown disabled - MimicKit saves on its own interval),
+  *Next-resume tweaks* (num_envs, shown as pending until the next resume) and *Previews (MP4)* (the former preview card).
+- **Stop now confirm box** in the dashboard style: *Keep training* is the primary button, *Stop after next save*
+  beside it; stopping now needs a 2-second hold that unlocks 3 seconds after the box opens.
+- The status line (phone) shows the pending / in-progress action: *Will stop after next save*, *Stopping...*,
+  *Waiting for the save to finish...*.
+- **Safety, all enforced on the PC**: *Allow control from phone* (Settings -> Phone + notifications) is off by
+  default and needs a PIN (stored only as a salted hash). The phone enters the PIN once for a 12-hour session
+  (kept in the phone's storage, never in the URL or the view link); every action also needs a fresh one-time nonce
+  from the confirm box. 5 wrong PINs lock sign-in for 5 minutes (time shown). Turning control off or changing the
+  PIN revokes every session. Repeated taps count once; a stop during a save waits for the save; Resume is refused
+  while anything is running; tweaks are type- and range-checked; every remote action and refusal is logged to the
+  Console; refusals return plain-language reasons. Control off: the button reads *Controls: off* (greyed) and the
+  panel says *Turned off on the PC*.
+
+### Changed
+- *What to run* cleanup (first step of the UX proposal): run buttons are state-aware (Start / Resume / Continue
+  dim while something runs, STOP / Stop after next save dim when idle); shorter chart panel title.
+
+### Fixed
+- Phone *Total training* showed "-" once the total passed a day (`1 day, 2:03:04` didn't match); it now shows the
+  summed time over all sessions.
+- Plateau estimate no longer says *still improving steadily, no plateau in sight* when the last 10 hours gained
+  far less than the run's average pace: it says *slowing down* or *plateaued* with the 10-hour gain.
+
+### Not in this release (hidden, not half-working)
+- Alerts list and *Stop when...* rules, Live 3D view (Phase 1 replay) and the *New checkpoint ready* card: not
+  shipped; see `docs/PHONE_3D_VIEW.md` for the plan. Running the policy on the phone (Phase 2) stays gated on a
+  parity test.
+- *Save checkpoint* (forced save) needs a MimicKit hook; the button is disabled.
+
 ## a0.6.0
 
 ### Added

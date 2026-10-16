@@ -285,9 +285,37 @@ h1{font-size:16px;margin:0}.card{background:var(--panel);margin:10px;padding:10p
 canvas{width:100%;height:190px;touch-action:pan-y;display:block}video{width:100%;border-radius:8px;background:#000}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;width:100%}
 button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
+#ctlbtn{width:auto;padding:6px 10px;font-size:13px;margin-right:8px}#ctlbtn.off{background:var(--b);color:var(--dim)}
+#pending{color:#e6bd66;font-weight:600}#pending:empty{display:none}
+details.sec{border-top:1px solid var(--b);padding:6px 0}details.sec summary{font-weight:600;cursor:pointer;padding:4px 0}
+.cnt{color:var(--dim);font-weight:400}.bgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}
+button.sec2{background:var(--b);color:var(--fg)}button.danger{background:#b23b3b}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:9}
+.modal.on{display:flex}.mbox{background:var(--panel);border:1px solid var(--b);border-radius:12px;padding:14px;width:min(92vw,380px)}
+.hold{position:relative;overflow:hidden}.hold>i{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.25)}
+input{background:var(--bg);color:var(--fg);border:1px solid var(--b);border-radius:8px;padding:8px;font-size:15px;width:100%}
 </style></head><body>
-<header><h1 id="title">MimicKit</h1><small><a href="#" id="theme">light</a> · <span id="age"></span></small></header>
-<div class="card"><div id="state">loading...</div>
+<header><h1 id="title">MimicKit</h1><span><button id="ctlbtn" class="off">Controls: off</button><small><a href="#" id="theme">light</a> · <span id="age"></span></small></span></header>
+<div class="card" id="panel" style="display:none"><b>Controls</b> <small id="ctlnote"></small>
+<div id="ctloff" style="display:none"><p>Turned off on the PC.</p><small>Enable "Allow control from phone" in the launcher (Settings &rarr; Phone + notifications) and set a PIN.</small></div>
+<div id="ctlon">
+<div id="pinbox" style="display:none"><p><small>Enter the PIN set on the PC (once; you stay signed in for 12 h on this phone).</small></p>
+<input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN"><p></p><button id="pinok">Sign in</button><p><small id="pinmsg"></small></p></div>
+<details class="sec" id="s_train"><summary>Training <span class="cnt" id="n_train"></span></summary><div class="bgrid">
+<button class="sec2" id="a_save" disabled title="Not available yet: MimicKit saves on its own interval">Save checkpoint</button>
+<button class="sec2" id="a_stopsave">Stop after next save</button>
+<button class="danger" id="a_stopnow">Stop now</button><button id="a_resume">Resume</button></div>
+<small>Save checkpoint is not available yet (MimicKit saves on its own interval).</small></details>
+<details class="sec" id="s_tweak"><summary>Next-resume tweaks <span class="cnt" id="n_tweak"></span></summary>
+<p><small>Applied the next time training is resumed.</small></p><div class="bgrid"><input id="t_envs" type="number" min="1" max="65536" placeholder="num_envs">
+<button class="sec2" id="a_tweak">Queue for next resume</button></div><small id="tweakmsg"></small></details>
+<details class="sec" id="s_prev"><summary>Previews (MP4) <span class="cnt" id="n_prev"></span></summary><div id="prevslot"></div></details>
+</div><p><small id="ctlmsg"></small></p></div>
+<div class="modal" id="modal"><div class="mbox"><b id="m_title">Stop training now?</b><p><small id="m_text"></small></p>
+<div class="bgrid"><button id="m_keep">Keep training</button><button class="sec2" id="m_alt">Stop after next save</button></div>
+<button class="danger hold" id="m_hold" disabled><i id="m_bar"></i><span id="m_holdt">Hold to stop now (unlocks in 3 s)</span></button>
+<p><small id="m_msg"></small></p></div></div>
+<div class="card"><div id="state">loading...</div><div id="pending"></div>
 <div class="row"><span class="k">Session</span><span class="v" id="session_time"></span></div>
 <div class="row"><span class="k">Total training</span><span class="v" id="total_time"></span></div>
 <div class="row"><span class="k">Samples</span><span class="v" id="samples"></span></div>
@@ -298,9 +326,9 @@ button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color
 <div class="card"><small>Return - drag sideways to pan, pinch to zoom time, double-tap to reset</small><canvas id="c1"></canvas>
 <small>M samples / hour</small><canvas id="c2"></canvas>
 <div id="psw" style="display:none"><small>Avg reward per step (%)</small><canvas id="c3"></canvas></div></div>
-<div class="card"><div id="pv"><small>No preview yet.</small></div><p></p>
+<div class="card" id="prevcard"><div id="pv"><small>No preview yet.</small></div><p></p>
 <button id="render">Render preview</button><p><small id="rmsg"></small></p></div>
-<div class="card"><small>Read-only dashboard: training can't be started or stopped from here. Updates every 10 s.</small></div>
+<div class="card"><small>Controls are off unless allowed on the PC (PIN required). Updates every 10 s.</small></div>
 <script>
 const T=new URLSearchParams(location.search).get('t')||'';const H={'X-Token':T};let S=null,view=null,pvKey='',hov=null;
 const COL={cur1:'#6ea8d8',cur2:'#d8a05e',cur3:'#7fb38a',earlier:'#8a8a8a',bridge:'#8a8a8a'};
@@ -370,9 +398,45 @@ async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
  q('age').textContent=new Date().toLocaleTimeString();draw();
  const p=S.preview;if(p&&p.key!==pvKey){pvKey=p.key;q('pv').innerHTML='<small>'+p.name+'</small><video controls playsinline preload="metadata" src="/preview.mp4?t='+encodeURIComponent(T)+'&k='+encodeURIComponent(p.key)+'"></video>'}
- if(S.render_msg)q('rmsg').textContent=S.render_msg}catch(e){q('state').textContent='offline - retrying'}}
+ if(S.render_msg)q('rmsg').textContent=S.render_msg;q('pending').textContent=S.pending||'';CTL=!!S.control;updCtl()}catch(e){q('state').textContent='offline - retrying'}}
 q('render').onclick=async()=>{q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:H});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
  setTimeout(()=>q('render').disabled=false,3000)};
+
+// ---- Controls panel (a0.7.0). Session token lives in localStorage, never in the URL; every action needs a fresh nonce.
+let SES=localStorage.mkSes||'',CTL=false;
+const panelOpen=()=>localStorage.mkCtlOpen==='1';
+function showPanel(){q('panel').style.display=panelOpen()?'':'none'}
+q('ctlbtn').onclick=()=>{localStorage.mkCtlOpen=panelOpen()?'0':'1';showPanel()};
+for(const d of document.querySelectorAll('details.sec')){d.open=localStorage['mkSec_'+d.id]==='1';d.addEventListener('toggle',()=>localStorage['mkSec_'+d.id]=d.open?'1':'0')}
+async function cpost(what,body){const r=await fetch('/api/control/'+what,{method:'POST',headers:Object.assign({'Content-Type':'application/json','X-Session':SES},H),body:JSON.stringify(body||{})});
+ let j={};try{j=await r.json()}catch(e){}if(r.status===401){SES='';localStorage.mkSes='';updCtl()}return [r.status,j]}
+async function act(action,params,msgEl){const [c1,n]=await cpost('nonce');if(c1!==200){(msgEl||q('ctlmsg')).textContent=n.error||('refused ('+c1+')');return}
+ const [c,j]=await cpost(action,{nonce:n.nonce,params});(msgEl||q('ctlmsg')).textContent=j.message||j.error||('status '+c);setTimeout(tick,500)}
+function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: off';b.classList.toggle('off',!CTL);
+ q('ctloff').style.display=CTL?'none':'';q('ctlon').style.display=CTL?'':'none';q('pinbox').style.display=CTL&&!SES?'':'none';
+ for(const id of ['s_train','s_tweak'])q(id).style.display=SES?'':'none';
+ const run=S&&S.running;q('a_resume').disabled=!!run;q('a_stopnow').disabled=!run;q('a_stopsave').disabled=!run;
+ q('a_stopsave').textContent=S&&S.stop_save?'Cancel stop after save':'Stop after next save';
+ q('n_train').textContent='(3 of 4)';const tw=(S&&S.tweaks)||{};const nt=Object.keys(tw).length;q('n_tweak').textContent=nt?'('+nt+' pending)':'(0)';
+ q('tweakmsg').textContent=nt?'Pending until next resume: '+Object.entries(tw).map(([k,v])=>k+' = '+v).join(', '):'';q('n_prev').textContent=S&&S.preview?'(1)':'(0)'}
+q('prevslot').appendChild(q('prevcard'));q('prevcard').className='';
+q('pinok').onclick=async()=>{const [c,j]=await cpost('login',{pin:q('pin').value});q('pin').value='';
+ if(c===200){SES=j.session;localStorage.mkSes=SES;q('pinmsg').textContent=''}else q('pinmsg').textContent=j.error||('refused ('+c+')');updCtl()};
+function modal(o){q('m_title').textContent=o.title;q('m_text').textContent=o.text||'';q('m_msg').textContent='';q('m_alt').textContent=o.alt?'Stop after next save':'Cancel';
+ q('m_hold').style.display=o.hold?'':'none';q('m_keep').textContent=o.keep||'Keep training';q('modal').classList.add('on');MODAL=o;
+ if(o.hold){const h=q('m_hold');h.disabled=true;q('m_holdt').textContent='Hold to stop now (unlocks in 3 s)';clearTimeout(MODAL_T);MODAL_T=setTimeout(()=>{h.disabled=false;q('m_holdt').textContent='Hold 2 s to stop now'},3000)}}
+let MODAL=null,MODAL_T=0,HOLD=0,HOLD_T0=0;const closeModal=()=>{q('modal').classList.remove('on');clearTimeout(MODAL_T);MODAL=null};
+q('m_keep').onclick=()=>{if(MODAL&&MODAL.ok&&!MODAL.hold){const o=MODAL;closeModal();o.ok()}else closeModal()};
+q('m_alt').onclick=()=>{const a=MODAL&&MODAL.alt;closeModal();if(a)act('stop_after_save')};
+function holdEnd(){cancelAnimationFrame(HOLD);HOLD=0;q('m_bar').style.width='0'}
+function holdStep(){const p=Math.min(1,(Date.now()-HOLD_T0)/2000);q('m_bar').style.width=(p*100)+'%';if(p>=1){holdEnd();closeModal();act('stop_now')}else HOLD=requestAnimationFrame(holdStep)}
+q('m_hold').addEventListener('pointerdown',e=>{if(q('m_hold').disabled)return;e.preventDefault();HOLD_T0=Date.now();HOLD=requestAnimationFrame(holdStep)});
+for(const ev of ['pointerup','pointerleave','pointercancel'])q('m_hold').addEventListener(ev,holdEnd);
+q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save (model.pt) is lost. Stop after next save keeps it.',alt:true,hold:true});
+q('a_stopsave').onclick=()=>modal({title:S&&S.stop_save?'Cancel the stop after next save?':'Stop after the next save?',keep:'Confirm',ok:()=>act(S&&S.stop_save?'cancel_stop':'stop_after_save')});
+q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
+q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);modal({title:'Queue num_envs = '+v+' for the next resume?',keep:'Confirm',ok:()=>act('tweaks',{num_envs:Number.isInteger(n)?n:v},q('tweakmsg'))})};
+showPanel();
 tick();setInterval(tick,10000);window.addEventListener('resize',draw);
 </script></body></html>"""
 
@@ -386,8 +450,10 @@ class Dashboard:
         on_render=None,
         log=None,
         min_interval=RENDER_MIN_INTERVAL,
+        control=None,
     ):
         self.token, self.host, self.port = token, host, int(port)
+        self.control = control  # Control or None (= no control endpoints answer anything but 'off')
         self.on_render = on_render
         self.log = log or (lambda m: None)
         self.min_interval = min_interval
@@ -474,11 +540,18 @@ class Dashboard:
             def do_POST(self):
                 dash.requests += 1
                 n = int(self.headers.get("Content-Length") or 0)
-                if n:
-                    self.rfile.read(min(n, 65536))
+                raw = self.rfile.read(min(n, 65536)) if n else b""
                 if not self._authed():
                     return self._send(403, '{"error": "token required"}')
-                if urllib.parse.urlparse(self.path).path != "/api/render":
+                path = urllib.parse.urlparse(self.path).path
+                if path.startswith("/api/control/"):
+                    try:
+                        data = json.loads(raw or b"{}")
+                        data = data if isinstance(data, dict) else {}
+                    except ValueError:
+                        data = {}
+                    return self._send(*dash.control_request(path[13:], data, self.headers.get("X-Session", "")))
+                if path != "/api/render":
                     return self._send(404, '{"error": "not found"}')
                 code, msg = dash.request_render()
                 return self._send(code, json.dumps({"message": msg}))
@@ -543,8 +616,24 @@ class Dashboard:
             self.httpd = None
             threading.Thread(target=lambda: (h.shutdown(), h.server_close()), daemon=True).start()
 
+    def control_request(self, what, data, session):
+        """-> (code, json text). Every refusal carries a plain-language 'error'."""
+        c = self.control
+        if c is None or not c.enabled():
+            code, body = 403, {"error": "Turned off on the PC. Enable 'Allow control from phone' in the launcher's Phone settings."}
+            if c is not None:
+                c.log("control: refused %s - control is off" % what)
+        elif what == "login":
+            code, body = c.login(str(data.get("pin", "")))
+        elif what == "nonce":
+            code, body = c.new_nonce(session)
+        else:
+            code, body = c.act(session, data.get("nonce"), what, data.get("params"))
+        return code, json.dumps(body)
+
     def public_snapshot(self):
         s = self.snapshot()
+        s["control"] = bool(self.control and self.control.enabled())
         p = s.get("preview")
         if p:
             s["preview"] = {k: p[k] for k in ("name", "key") if k in p}  # never the local path
@@ -710,3 +799,147 @@ class Notifier:
             png = None
             self.log("[notify] chart failed: %s" % e)
         return self.send(status_text(snap), png=png, kind=kind)
+
+
+# ---------------------------------------------------------------- phone control (a0.7.0)
+SESSION_HOURS = 12
+NONCE_TTL = 120  # s a confirm-box nonce stays valid
+MAX_PIN_FAILS = 5
+LOCKOUT_S = 300
+ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks")
+TWEAK_RULES = {"num_envs": (int, 1, 65536)}  # name -> (type, min, max); applied on the next resume
+
+
+def hash_pin(pin, salt=None):
+    salt = salt or secrets.token_hex(8)
+    import hashlib
+
+    return salt + "$" + hashlib.pbkdf2_hmac("sha256", str(pin).encode(), salt.encode(), 100000).hex()
+
+
+def check_pin(pin, stored):
+    if not stored or "$" not in stored:
+        return False
+    return hmac.compare_digest(hash_pin(pin, stored.split("$", 1)[0]), stored)
+
+
+def validate_tweaks(p):
+    """-> (clean dict, None) or (None, plain-language reason)."""
+    if not isinstance(p, dict) or not p:
+        return None, "No changes were sent."
+    out = {}
+    for k, v in p.items():
+        if k not in TWEAK_RULES:
+            return None, "'%s' can't be changed from the phone." % k
+        typ, lo, hi = TWEAK_RULES[k]
+        if isinstance(v, bool) or not isinstance(v, typ):
+            return None, "%s must be a whole number." % k
+        if not lo <= v <= hi:
+            return None, "%s must be between %d and %d." % (k, lo, hi)
+        out[k] = v
+    return out, None
+
+
+class Control:
+    """PC-side gate for every phone control request. Thread-safe; never touches Tk.
+    cfg_get() -> dict with allow_control (bool) and pin_hash; on_action(name, params) -> (http code, message)
+    runs in the server thread and must only queue GUI work. Every decision is logged via log()."""
+
+    def __init__(self, cfg_get, on_action, log=None, now=time.time):
+        self.cfg_get, self.on_action, self.log, self.now = cfg_get, on_action, log or (lambda m: None), now
+        self._lock = threading.Lock()
+        self.sessions = {}  # token -> expiry
+        self.nonces = {}  # nonce -> (session, expiry)
+        self.used = {}  # nonce -> (code, body) : a repeated tap returns the first answer
+        self.fails, self.lock_until = 0, 0.0
+
+    def enabled(self):
+        c = self.cfg_get() or {}
+        return bool(c.get("allow_control")) and bool(c.get("pin_hash"))
+
+    def revoke_all(self, why=""):
+        with self._lock:
+            n = len(self.sessions)
+            self.sessions.clear()
+            self.nonces.clear()
+        self.log("control: all phone sessions revoked%s (%d)" % (" - " + why if why else "", n))
+
+    def _off(self):
+        return 403, {"error": "Turned off on the PC. Enable 'Allow control from phone' in the launcher's Phone settings."}
+
+    def login(self, pin):
+        if not self.enabled():
+            return self._off()
+        with self._lock:
+            t = self.now()
+            if t < self.lock_until:
+                left = int(self.lock_until - t) + 1
+                return 429, {"error": "Too many wrong PINs. Locked for %d more seconds." % left, "locked_s": left}
+            if not check_pin(pin, (self.cfg_get() or {}).get("pin_hash")):
+                self.fails += 1
+                if self.fails >= MAX_PIN_FAILS:
+                    self.fails = 0
+                    self.lock_until = t + LOCKOUT_S
+                    self.log("control: %d wrong PINs - locked for %d s" % (MAX_PIN_FAILS, LOCKOUT_S))
+                    return 429, {"error": "Too many wrong PINs. Locked for %d seconds." % LOCKOUT_S, "locked_s": LOCKOUT_S}
+                self.log("control: wrong PIN (%d of %d)" % (self.fails, MAX_PIN_FAILS))
+                return 403, {"error": "Wrong PIN (%d tries left)." % (MAX_PIN_FAILS - self.fails)}
+            self.fails = 0
+            tok = secrets.token_urlsafe(24)
+            self.sessions[tok] = t + SESSION_HOURS * 3600
+        self.log("control: phone signed in (session valid %d h)" % SESSION_HOURS)
+        return 200, {"session": tok, "hours": SESSION_HOURS}
+
+    def _session_ok(self, s):
+        exp = self.sessions.get(s or "")
+        if exp and exp > self.now():
+            return True
+        self.sessions.pop(s or "", None)
+        return False
+
+    def new_nonce(self, session):
+        if not self.enabled():
+            return self._off()
+        with self._lock:
+            if not self._session_ok(session):
+                return 401, {"error": "Please enter the PIN again (session missing or expired)."}
+            n = secrets.token_urlsafe(16)
+            t = self.now()
+            self.nonces = {k: v for k, v in self.nonces.items() if v[1] > t}
+            self.nonces[n] = (session, t + NONCE_TTL)
+        return 200, {"nonce": n, "ttl": NONCE_TTL}
+
+    def act(self, session, nonce, action, params=None):
+        if not self.enabled():
+            self.log("control: refused %s - control is off" % action)
+            return self._off()
+        with self._lock:
+            if not self._session_ok(session):
+                self.log("control: refused %s - no valid session" % action)
+                return 401, {"error": "Please enter the PIN again (session missing or expired)."}
+            if nonce and nonce in self.used:
+                code, body = self.used[nonce]
+                return code, dict(body, repeat=True)
+            ent = self.nonces.pop(nonce or "", None)
+            if not ent or ent[0] != session or ent[1] < self.now():
+                self.log("control: refused %s - missing or stale confirmation" % action)
+                return 403, {"error": "This tap wasn't confirmed (or the confirm box expired). Open it again."}
+            if action not in ACTIONS:
+                return 400, {"error": "Unknown action '%s'." % action}
+            if action == "tweaks":
+                params, why = validate_tweaks(params)
+                if why:
+                    self.log("control: refused tweaks - %s" % why)
+                    self.used[nonce] = (400, {"error": why})
+                    return 400, {"error": why}
+            try:
+                code, msg = self.on_action(action, params or {})
+            except Exception as e:
+                log_exc("control action")
+                code, msg = 500, "The PC couldn't do that (%s)." % e
+            body = {"message": msg} if code < 400 else {"error": msg}
+            self.used[nonce] = (code, body)
+            if len(self.used) > 500:
+                self.used = dict(list(self.used.items())[-200:])
+        self.log("control: %s -> %d %s" % (action, code, msg))
+        return code, body

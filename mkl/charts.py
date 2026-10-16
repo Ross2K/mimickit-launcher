@@ -391,6 +391,7 @@ class ChartsMixin:
     def _progress_sources(self):
         """Which run to show, its log rows (live console or log.txt) and the earlier sessions of its chain."""
         running = self.proc is not None and self.proc.poll() is None
+        self._sync_run_buttons(running)
         d = self.run_dir or self.outdir_abs()
         lines = ["%s  -  %s" % ("RUNNING (%s)" % self.run_kind if running else "Not running", d)]
         same = bool(self.live_dir) and os.path.normcase(

@@ -125,11 +125,81 @@ check(
 )
 check("render without token refused", req(P, "/api/render", "POST")[0] == 403 and len(calls) == 1)
 check(
-    "no start/stop endpoints",
+    "old-style start/stop paths still do not exist",
     all(
         req(P, p + "?t=" + tok, "POST")[0] == 404 for p in ("/api/start", "/api/stop", "/api/train")
     ),
 )
+# ---- a0.7.0 phone control: deliberately replaces the old "no control endpoints" check
+import json as _j
+
+def cpost(port, what, body=None, ses="", t=tok):
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    h = {"Content-Type": "application/json", "X-Session": ses}
+    if t:
+        h["X-Token"] = t
+    c.request("POST", "/api/control/" + what, body=_j.dumps(body or {}), headers=h)
+    r = c.getresponse()
+    b = r.read()
+    c.close()
+    try:
+        return r.status, _j.loads(b)
+    except ValueError:
+        return r.status, {}
+
+check("control off (no Control): stop refused with a reason",
+      cpost(P, "stop_now")[0] == 403 and "Turned off" in cpost(P, "stop_now")[1].get("error", ""))
+ccfg = {"allow_control": False, "pin_hash": R.hash_pin("2468")}
+acts, clog, clock = [], [], [1000.0]
+
+def on_action(a, p):
+    acts.append((a, p))
+    return 202, "ok " + a
+
+ctl = R.Control(lambda: ccfg, on_action, log=clog.append, now=lambda: clock[0])
+d3 = R.Dashboard(tok, "127.0.0.1", 0, control=ctl).start()
+P3 = d3.port
+check("off by default: login refused", cpost(P3, "login", {"pin": "2468"})[0] == 403 and not acts)
+ccfg["allow_control"] = True
+check("bare curl stop (view token, no session/nonce) refused", cpost(P3, "stop_now")[0] == 401 and not acts)
+check("no view token: refused", cpost(P3, "login", {"pin": "2468"}, t="")[0] == 403)
+st, j = cpost(P3, "login", {"pin": "2468"})
+ses = j.get("session", "")
+check("correct PIN -> 12 h session", st == 200 and ses and j.get("hours") == 12)
+check("session but no nonce: refused", cpost(P3, "stop_now", {}, ses)[0] == 403 and not acts)
+n1 = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+r1 = cpost(P3, "stop_now", {"nonce": n1}, ses)
+r2 = cpost(P3, "stop_now", {"nonce": n1}, ses)
+check("double tap with the same nonce is idempotent (one action)",
+      r1[0] == 202 and r2[0] == 202 and r2[1].get("repeat") and len(acts) == 1, str((r1, r2, acts)))
+n2 = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+clock[0] += R.NONCE_TTL + 1
+check("stale nonce refused", cpost(P3, "stop_now", {"nonce": n2}, ses)[0] == 403 and len(acts) == 1)
+for bad in ({"num_envs": "4096"}, {"num_envs": 0}, {"num_envs": 10**7}, {"num_envs": True}, {"rm": 1}):
+    n = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+    st, j = cpost(P3, "tweaks", {"nonce": n, "params": bad}, ses)
+    check("tweak %r refused (type/range) with a reason" % (bad,), st == 400 and j.get("error"), str(j))
+n = cpost(P3, "nonce", {}, ses)[1]["nonce"]
+check("valid tweak accepted", cpost(P3, "tweaks", {"nonce": n, "params": {"num_envs": 4096}}, ses)[0] == 202
+      and acts[-1] == ("tweaks", {"num_envs": 4096}))
+ctl.revoke_all("PIN changed")
+check("revocation: old session refused", cpost(P3, "nonce", {}, ses)[0] == 401)
+codes = [cpost(P3, "login", {"pin": "0000"})[0] for _ in range(5)]
+st, j = cpost(P3, "login", {"pin": "2468"})
+check("5 wrong PINs -> lockout (even the right PIN), time shown",
+      codes[:4] == [403] * 4 and codes[4] == 429 and st == 429 and "seconds" in j.get("error", ""), str((codes, j)))
+clock[0] += R.LOCKOUT_S + 1
+st, j = cpost(P3, "login", {"pin": "2468"})
+ses2 = j.get("session", "")
+check("lockout ends", st == 200)
+ccfg["allow_control"] = False
+check("turned off: valid session refused", cpost(P3, "nonce", {}, ses2)[0] == 403)
+check("every decision logged", any("refused" in m for m in clog) and any("stop_now ->" in m for m in clog))
+clock[0] += 13 * 3600
+ccfg["allow_control"] = True
+check("session expires after 12 h", cpost(P3, "nonce", {}, ses2)[0] == 401)
+check("PIN never in the page URL logic", "pin=" not in R.PAGE and "localStorage.mkSes" in R.PAGE)
+d3.stop()
 d2 = R.Dashboard(tok, "127.0.0.1", 0, on_render=lambda: (False, "busy")).start()
 check(
     "a refused render does not use up the rate limit",

@@ -148,6 +148,8 @@ class MainWindowMixin:
             )
             b.pack(side="left", padx=3)
             Tip(b, HELP[key])
+            self.run_btns = getattr(self, "run_btns", {})
+            self.run_btns[key] = b
             if key == "stopsave":
                 self.b_stopsave = b
         bf2 = ttk.Frame(job)
@@ -275,11 +277,25 @@ class MainWindowMixin:
         self.vram = None
         self.root.after(10, self._draw_vram)
 
+    def _sync_run_buttons(self, running):
+        """a0.7.0 cleanup: state-aware enabling. Training: start/resume/continue dim, stop buttons live; idle: reverse."""
+        for k, b in (getattr(self, "run_btns", None) or {}).items():
+            if k in ("train", "resume", "continue"):
+                on = not running
+            elif k in ("stop", "stopsave"):
+                on = running
+            else:
+                continue
+            try:
+                b.state(["!disabled"] if on else ["disabled"])
+            except tk.TclError:
+                pass
+
     def _build_charts(self, mid):
         """Training progress charts with navigation buttons."""
         right = ttk.LabelFrame(
             mid,
-            text="Training progress (live from console output; log.txt as fallback; refreshed every 10 s)",
+            text="Training progress (refreshed every 10 s)",
             padding=4,
         )
         mid.add(right, weight=1)

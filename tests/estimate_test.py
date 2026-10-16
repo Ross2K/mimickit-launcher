@@ -88,6 +88,20 @@ check(
     r["pct"] is None and ("no plateau in sight" in r["text"] or "not stable" in r["text"]),
     r["text"],
 )
+# 5b) a0.7.0: long linear-ish growth that slowed to ~2 points in 10 h must not claim 'no plateau in sight'
+H = RATE  # samples per hour
+slowc = lambda x: (x / H) * 1.0 if x < 60 * H else 60 + (x / H - 60) * 0.2
+r = G.estimate_progress(curve(400, 120 * H, slowc, noise=0.2), RATE)
+check(
+    "slowed down: says slowing / plateaued",
+    "no plateau in sight" not in r["text"] and ("slowing" in r["text"] or "plateau" in r["text"].lower()),
+    r["text"],
+)
+X5 = [120 * H * (i + 1) / 400 for i in range(400)]
+t = G._recent_slowdown(X5, [slowc(x) for x in X5], RATE)
+check("slowdown helper: 'slowing' or 'plateaued' with the 10 h gain", bool(t) and "last 10 h" in t, str(t))
+X6 = [100 * H * (i + 1) / 400 for i in range(400)]
+check("slowdown helper: steady linear growth -> None", G._recent_slowdown(X6, [x / H for x in X6], RATE) is None)
 # 6) too little data
 r = G.estimate_progress(curve(10, 1e8, sat(c)), RATE)
 check(
