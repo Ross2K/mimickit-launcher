@@ -150,12 +150,19 @@ check(
     "train 50.0%" in l2 and "test 50.0%" in l2 and "from log.txt" in l2,
     l2,
 )
+app._chart_short = 0  # tall chart (a0.8.4 hides per-step when short)
+app._make_axes()
 check(
     "third chart present (per-step) and toggleable",
     app.ax3 is not None
     and (app.v_ps.set(False), app._ps_toggled(), app.ax3 is None)[2]
     and (app.v_ps.set(True), app._ps_toggled(), app.ax3 is not None)[2],
 )
+app._chart_short = 1
+app._make_axes()
+check("per-step hidden when chart is short (<360px)", app.ax3 is None)
+app._chart_short = 0
+app._make_axes()
 app.patch_dialog()
 root.update()
 app.v_mk.set(mk)
