@@ -22,8 +22,15 @@ def set_app_id(app_id=APP_ID):
     try:
         import ctypes
 
-        return ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id) == 0
-    except Exception:
+        f = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        f.argtypes = [ctypes.c_wchar_p]
+        f.restype = ctypes.c_long  # HRESULT
+        hr = f(app_id)
+        if hr != 0:
+            log_exc("icon: SetCurrentProcessExplicitAppUserModelID", OSError("HRESULT 0x%08x" % (hr & 0xFFFFFFFF)))
+        return hr == 0
+    except Exception as e:
+        log_exc("icon: SetCurrentProcessExplicitAppUserModelID", e)
         return False
 
 
@@ -48,16 +55,49 @@ def prepare_process():
     set_app_id()
 
 
+START_LNK = "MimicKit Launcher.lnk"
+
+
+def _start_menu_lnk():
+    return os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", START_LNK)
+
+
+def ensure_start_menu_shortcut(log=None):
+    """Windows only, call from a worker thread. Root cause of 'taskbar still shows Python's icon' (a0.8.0Z): the
+    taskbar takes the icon AND the relaunch command of a pinned button from a Start-menu shortcut carrying the same
+    AppUserModelID. Without one (user never ran 'Create desktop shortcut.bat', or started via the .exe / launch.bat)
+    a pin falls back to pythonw.exe with its icon. So: if the Start-menu shortcut is missing, (re)create it - Start
+    menu only, no Desktop clutter - with our icon + AppUserModelID. Returns a plain-language result or ''."""
+    if sys.platform != "win32":
+        return ""
+    lnk = _start_menu_lnk()
+    if os.path.isfile(lnk) and os.path.getmtime(lnk) >= os.path.getmtime(ICON_ICO if os.path.isfile(ICON_ICO) else lnk):
+        return ""
+    exe = sys.executable
+    if exe.lower().endswith("python.exe") and os.path.isfile(exe[:-10] + "pythonw.exe"):
+        exe = exe[:-10] + "pythonw.exe"
+    ps1 = os.path.join(os.path.dirname(ASSETS), "tools", "make_shortcut.ps1")
+    if not os.path.isfile(ps1):
+        return ""
+    try:
+        import subprocess
+
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1, "-Pythonw", exe,
+                            "-StartMenuOnly"], capture_output=True, text=True, timeout=60, creationflags=0x08000000)
+        msg = (r.stdout + r.stderr).strip()
+        if r.returncode:
+            log_exc("icon: Start-menu shortcut", RuntimeError(msg[-400:]))
+            return "Couldn't create the Start-menu shortcut (taskbar icon may show Python's). Details: " + msg[-200:]
+        return "Created the Start-menu shortcut so the taskbar shows the launcher icon."
+    except Exception as e:
+        log_exc("icon: Start-menu shortcut", e)
+        return "Couldn't create the Start-menu shortcut: %s" % e
+
+
 def apply_icon(root):
     """Set the icon of root and (default) every later Toplevel. Each step is independent, so one failing (old Tk,
     missing file) doesn't skip the others. Returns True if at least one icon was set."""
     done = False
-    if sys.platform == "win32" and os.path.isfile(ICON_ICO):
-        try:
-            root.iconbitmap(default=ICON_ICO)  # .ico (BMP entries, 16-256 px): Windows picks the size per place
-            done = True
-        except Exception as e:
-            log_exc("icon: iconbitmap", e)
     if os.path.isfile(ICON_PNG):
         try:
             import tkinter as tk
@@ -70,4 +110,11 @@ def apply_icon(root):
             done = True
         except Exception as e:
             log_exc("icon: iconphoto", e)
+    # .ico LAST on Windows: its real 16/24/32/48/256 entries win over the scaled PNGs (taskbar, Alt-Tab)
+    if sys.platform == "win32" and os.path.isfile(ICON_ICO):
+        try:
+            root.iconbitmap(default=ICON_ICO)  # .ico (BMP entries, 16-256 px): Windows picks the size per place
+            done = True
+        except Exception as e:
+            log_exc("icon: iconbitmap", e)
     return done

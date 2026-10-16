@@ -17,4 +17,4 @@ if not defined PY (
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\make_shortcut.ps1" -Pythonw "%PY%"
 echo.
 echo Done. Start the launcher from the new "MimicKit Launcher" shortcut.
-pause
+if /i not "%~1"=="nopause" pause

@@ -56,13 +56,68 @@ class SaveWatch:
         return False
 
 
-def find_run_pids(run_dir):
-    """PIDs of python processes whose command line runs mimickit/run.py into run_dir (the folder name is enough:
-    each run has its own). Used only when the normal stop didn't end training."""
-    name = os.path.basename(os.path.normpath(run_dir or ""))
-    if not name:
-        return []
+def _norm(p):
+    return os.path.normcase(os.path.abspath(os.path.normpath(p)))
+
+
+def _out_dir_of(cmd):
+    """The --out_dir value from a command line (quoted or not), or ''."""
+    import shlex
+
+    try:
+        toks = shlex.split(cmd, posix=(os.name != "nt"))
+    except ValueError:
+        toks = cmd.split()
+    for i, t in enumerate(toks):
+        t = t.strip('"')
+        if t == "--out_dir" and i + 1 < len(toks):
+            return toks[i + 1].strip('"')
+        if t.startswith("--out_dir="):
+            return t.split("=", 1)[1].strip('"')
+    return ""
+
+
+def cmd_matches_run(cmd, run_dir, mk_dir=""):
+    """True only if cmd runs MimicKit's run.py with --out_dir EXACTLY run_dir (after normalizing; a relative
+    --out_dir is taken relative to the MimicKit folder). 'output/a' no longer matches 'output/a_resume2'."""
+    if "run.py" not in cmd:
+        return False
+    od = _out_dir_of(cmd)
+    if not od or not run_dir:
+        return False
+    want = _norm(run_dir)
+    if os.path.isabs(od):
+        return _norm(od) == want
+    return any(_norm(os.path.join(base, od)) == want for base in filter(None, (mk_dir, os.getcwd())))
+
+
+def _linux_children(pid):
+    kids = {}
+    for p in glob.glob("/proc/[0-9]*/stat"):
+        try:
+            f = open(p).read().rsplit(")", 1)[1].split()
+            kids.setdefault(int(f[1]), []).append(int(p.split("/")[2]))
+        except (OSError, IndexError, ValueError):
+            continue
+    out, todo = [], [pid]
+    while todo:
+        for k in kids.get(todo.pop(), []):
+            out.append(k)
+            todo.append(k)
+    return out
+
+
+def find_run_pids(run_dir, mk_dir="", root_pid=None):
+    """PIDs of training processes for exactly this run: the launcher's own training PID (and its children) plus any
+    python process running run.py with --out_dir == run_dir. Slow on Windows (PowerShell) - call from a worker
+    thread, never from the Tk thread. Used only when the normal stop didn't end training."""
     out = []
+    if root_pid:
+        out.append(int(root_pid))
+        if os.name != "nt":
+            out += _linux_children(int(root_pid))
+    if not run_dir:
+        return sorted(set(out))
     if os.name == "nt":
         import subprocess
 
@@ -75,20 +130,21 @@ def find_run_pids(run_dir):
             rows = r.stdout.splitlines()
         except Exception as e:
             log_exc("stopsave: listing processes", e)
-            return []
+            return sorted(set(out))
         for row in rows:
             pid, _, cmd = row.partition("\t")
-            if "run.py" in cmd and name in cmd and pid.strip().isdigit():
+            if pid.strip().isdigit() and cmd_matches_run(cmd, run_dir, mk_dir):
                 out.append(int(pid))
-        return out
+        return sorted(set(out))
     for p in glob.glob("/proc/[0-9]*/cmdline"):
         try:
-            cmd = open(p, "rb").read().replace(b"\0", b" ").decode("utf-8", "replace")
+            raw = open(p, "rb").read().split(b"\0")
         except OSError:
             continue
-        if "mimickit/run.py" in cmd and name in cmd and "--out_dir" in cmd:
+        cmd = " ".join(__import__("shlex").quote(x.decode("utf-8", "replace")) for x in raw if x)
+        if "mimickit" in cmd.replace("\\", "/") and cmd_matches_run(cmd, run_dir, mk_dir):
             out.append(int(p.split("/")[2]))
-    return out
+    return sorted(set(out))
 
 
 class StopAfterSaveMixin:
@@ -171,7 +227,37 @@ class StopAfterSaveMixin:
         if not self._stop_retried:
             self._stop_retried = True
             self._stop_deadline = time.time() + self.STOP_VERIFY_S
-            pids = find_run_pids(self.run_dir)
+            self._stopsave_find_kill()
+            return True
+        msg = "Training did not stop after the save. Press STOP (details in the log)."
+        self._stopsave_done("[gui] %s\n" % msg)
+        self._stopsave_refuse(msg, log=False)
+        return False
+
+    def _stopsave_find_kill(self):
+        """Retry: list the run's processes in a worker thread (PowerShell can take seconds - the window must not
+        freeze), then stop + kill on the Tk thread."""
+        import threading
+
+        root_pid = getattr(getattr(self, "proc", None), "pid", None)
+        mk = getattr(self, "_mk_cache", "") or ""
+        res = {}
+
+        def work():
+            try:
+                res["pids"] = find_run_pids(self.run_dir, mk, root_pid)
+            except Exception as e:
+                log_exc("stop after save: listing processes", e)
+                res["pids"] = [root_pid] if root_pid else []
+
+        t = threading.Thread(target=work, daemon=True, name="stopsave-pids")
+        t.start()
+
+        def check():
+            if t.is_alive():
+                self.root.after(100, check)
+                return
+            pids = res.get("pids", [])
             self._append("[gui] training still running %d s after the stop - stopping again (PIDs %s)\n"
                          % (self.STOP_VERIFY_S, ", ".join(map(str, pids)) or "-"))
             self.stop()
@@ -180,11 +266,8 @@ class StopAfterSaveMixin:
                     self._kill(p, "")
                 except Exception as e:
                     log_exc("stop after save: retry kill", e)
-            return True
-        msg = "Training did not stop after the save. Press STOP (details in the log)."
-        self._stopsave_done("[gui] %s\n" % msg)
-        self._stopsave_refuse(msg, log=False)
-        return False
+
+        self.root.after(50, check)
 
     # ---------------------------------------------------------------- state / display
     def _stopsave_refuse(self, msg, log=True):

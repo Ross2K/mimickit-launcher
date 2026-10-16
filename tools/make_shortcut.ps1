@@ -2,7 +2,7 @@
 # window), show assets\icon.ico, and carry the same AppUserModelID the launcher sets for itself
 # (MimicKitLauncher.Launcher), so a pinned taskbar icon and the running window are one button with our icon.
 # Called by "Create desktop shortcut.bat" - double-click that file instead of running this directly.
-param([Parameter(Mandatory=$true)][string]$Pythonw, [string]$AppId = "MimicKitLauncher.Launcher")
+param([Parameter(Mandatory=$true)][string]$Pythonw, [string]$AppId = "MimicKitLauncher.Launcher", [switch]$StartMenuOnly)
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $script = Join-Path $here "mimickit_launcher.py"
@@ -35,7 +35,8 @@ public static class MkAumid {
 "@
 Add-Type -TypeDefinition $code
 $shell = New-Object -ComObject WScript.Shell
-$targets = @([Environment]::GetFolderPath("Desktop"), (Join-Path ([Environment]::GetFolderPath("Programs")) ""))
+$targets = @((Join-Path ([Environment]::GetFolderPath("Programs")) ""))
+if (-not $StartMenuOnly) { $targets += [Environment]::GetFolderPath("Desktop") }
 foreach ($dir in $targets) {
   $lnk = Join-Path $dir "MimicKit Launcher.lnk"
   $s = $shell.CreateShortcut($lnk)

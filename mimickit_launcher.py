@@ -31,6 +31,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         root.report_callback_exception = self._tk_callback_error
         root.title("MimicKit Launcher  %s" % VERSION)
         icon.apply_icon(root)
+        self._icon_shortcut_check()
         root.deiconify()  # main() keeps it hidden until here (icon first); pop-ups below need a visible owner
         # DPI awareness is on: scale the 96-dpi base size, clamped to the screen
         try:
@@ -97,6 +98,16 @@ def _wait_for_pid(argv):
     t0 = time.time()
     while time.time() - t0 < 30 and proc_info(pid) and proc_info(pid).get("alive"):
         time.sleep(0.25)
+
+
+def _icon_shortcut_worker(app):
+    msg = icon.ensure_start_menu_shortcut()
+    if msg:
+        app.root.after(0, lambda: app._append("[gui] %s\n" % msg))
+
+
+App._icon_shortcut_check = lambda self: __import__("threading").Thread(
+    target=_icon_shortcut_worker, args=(self,), daemon=True).start()
 
 
 def main():

@@ -186,6 +186,14 @@ Linux: `./launch.sh`. If `launch.bat` picks the wrong Python, run it directly wi
 **Desktop shortcut:** double-click `Create desktop shortcut.bat` once. You get a *MimicKit Launcher* shortcut on the
 Desktop and in the Start menu, with the launcher icon and no console window. Pin it to the taskbar if you like.
 
+**Taskbar still shows Python's icon?** (one-time fix) Windows takes a pinned button's icon from a Start-menu shortcut
+with the launcher's taskbar ID, and caches old pins. Since a0.8.2 the launcher creates that Start-menu shortcut by
+itself on first start. Old pins keep the cached Python icon, so once:
+1. Double-click **Fix taskbar icon.bat** (recreates the shortcuts, refreshes the icon cache).
+2. Right-click the old button on the taskbar - **Unpin from taskbar**.
+3. Start the launcher from the new "MimicKit Launcher" shortcut, right-click its taskbar button - **Pin to taskbar**.
+If the icon is still old, sign out of Windows and back in (Explorer reloads its icon cache).
+
 On first start, choose your MimicKit folder (the one containing `mimickit\run.py` and `args\`).
 The launcher runs MimicKit with the venv Python it finds (you can change it in **Settings**).
 
