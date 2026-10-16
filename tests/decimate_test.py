@@ -64,6 +64,12 @@ root = tk.Tk()
 root.geometry("1280x880")
 app = G.App(root)
 root.update()
+# a0.9.3: let the start-up layout settle and the first progress refresh (after 1 s) run before drawing test data -
+# that refresh redraws the charts from the log and would wipe the test lines if it fired mid-test
+t_end = time.time() + 1.5
+while time.time() < t_end:
+    root.update()
+    time.sleep(0.05)
 app.CHART_MIN_2, app.CHART_MIN_3 = 0, 10**6  # pin the 2-chart layout (Return + Speed) whatever the height (Z adds rows)
 app._chart_short = 1
 app._make_axes()

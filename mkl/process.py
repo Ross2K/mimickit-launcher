@@ -2,6 +2,7 @@
 # Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
 from mkl.core import *  # noqa: F401,F403 - shared helpers/constants
 from mkl.core import __all__ as _core_names  # noqa: F401
+import tempfile
 
 
 def _stat(pid):
@@ -617,7 +618,7 @@ class ProcessMixin:
         """Render preview MP4 (or run the preview diagnostics) in a separate detached process (never touches training)."""
         if self.preview_proc and self.preview_proc.poll() is None:
             if messagebox.askyesno("Preview running", "A preview is being rendered. Cancel it?"):
-                self._kill(self.preview_proc.pid, "preview")
+                self.stop_render()
             return
         if not os.path.exists(os.path.join(self.mk(), "mimickit", "run.py")):
             self._append("[gui] MimicKit not found: no mimickit/run.py in %s\n" % self.mk())
@@ -635,8 +636,18 @@ class ProcessMixin:
             return
         return self._start_preview(it, model)
 
-    def _start_preview(self, it, model, diag=False, origin="PC", clips=None, layout=None, all_clips=None):
-        """origin 'phone': rendered in the background only - never opened / played on the PC (--no_open)."""
+    def _start_preview(self, it, model, diag=False, origin="PC", clips=None, layout=None, all_clips=None, pause=None):
+        """origin 'phone': rendered in the background only - never opened / played on the PC (--no_open).
+        pause (a0.9.3): 'Pause training for preview' - None = the PC checkbox for PC previews; the phone passes True
+        only through its PIN-gated control."""
+        if not diag and not getattr(self, "_pp_bypass", False):
+            if getattr(self, "pp", None):
+                self._append("[gui] a preview is already waiting for training to pause - not started again\n")
+                return False
+            if pause is None:
+                pause = origin == "PC" and bool(getattr(self, "v_pause", None) and self.v_pause.get())
+            if pause and self._training_running():
+                return self._pp_begin(it, model, origin, clips, layout, all_clips)
         pdir = os.path.join(self.mk(), "output", "_launcher_preview")
         os.makedirs(pdir, exist_ok=True)
         view = self._view_env(it, "preview")
@@ -694,6 +705,8 @@ class ProcessMixin:
                  if (clips if clips is not None else self._chosen_clips(it)) else []) + (
                 ["--all_clips"] if all_clips else []) + (["--no_open"] if origin != "PC" else []) + ["--"] + mk_args
         logp = os.path.join(pdir, CONSOLE_FILE)
+        self._preview_out = None if diag else mp4  # a0.9.3: Cancel render removes this run's partial files
+        self._preview_started = time.time()
         try:
             offset = os.path.getsize(logp) if os.path.exists(logp) else 0
             self.preview_proc = self._spawn_detached(
@@ -728,13 +741,108 @@ class ProcessMixin:
         )
         if not diag:
             self._preview_progress("", origin=origin)
+        self._sync_run_buttons(self._training_running())
         threading.Thread(
             target=self._reader,
             args=(self.preview_proc, logp, offset, None, "preview"),
             daemon=True,
         ).start()
 
+    # ---------------------------------------------------------------- a0.9.3: Cancel render (preview only, never training)
+    def _training_pids(self):
+        """PIDs of the training / view run (and, on Linux, its whole tree) - Cancel render must never touch these."""
+        p = getattr(self, "proc", None)
+        try:
+            if not p or p.poll() is not None:
+                return set()
+            pid = int(p.pid)
+        except Exception:
+            return set()
+        return {pid} if IS_WIN else set(proc_tree(pid)) | {pid}
+
+    def _preview_identity(self, pid):
+        """(ok, why): pid is the launcher's own preview process - alive, not the training, running mimickit_preview.py."""
+        if pid in self._training_pids():
+            return False, "PID %d belongs to the training run" % pid
+        info = proc_info(pid)
+        if not info or not info.get("alive"):
+            return False, "the render already ended"
+        cmd = info.get("cmd") or ""
+        if cmd and "mimickit_preview.py" not in cmd:
+            return False, "PID %d is not the preview process (%s)" % (pid, cmd[:80])
+        return True, ""
+
+    def _kill_preview_tree(self, pid):
+        """Kill the preview's own tree (record/render workers, ffmpeg). Windows: taskkill /PID <preview> /T /F."""
+        keep = self._training_pids()
+        if IS_WIN:
+            r = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True,
+                               creationflags=NO_WINDOW)
+            self._append("[gui] taskkill render: %s%s\n" % (r.stdout.strip(), r.stderr.strip()))
+            return []
+        tree = [x for x in proc_tree(pid) if x not in keep]  # never the training, even if it shared a group
+        left = kill_and_verify(tree)
+        if left:
+            self._append("[gui] render: still running after stop: pid %s\n" % ", ".join(map(str, left)))
+        return left
+
+    def _render_partial_files(self):
+        """Files this render left behind: its mp4 (only if written by this run), the .npz, mk_preview_* temp dirs."""
+        t0 = getattr(self, "_preview_started", None) or time.time()
+        out = []
+        mp4 = getattr(self, "_preview_out", None)
+        if mp4:
+            for f in (mp4, os.path.splitext(mp4)[0] + ".npz"):
+                try:
+                    if os.path.getmtime(f) >= t0 - 1:  # an older finished preview with the same name is kept
+                        out.append(f)
+                except OSError:
+                    pass
+        tmp = tempfile.gettempdir()
+        try:
+            for n in os.listdir(tmp):
+                p = os.path.join(tmp, n)
+                if n.startswith("mk_preview_") and os.path.isdir(p) and os.path.getmtime(p) >= t0 - 1:
+                    out.append(p)
+        except OSError:
+            pass
+        return out
+
+    def stop_render(self, origin="PC"):
+        """GUI thread. Stops ONLY the running preview render/record process tree. -> (ok, message)."""
+        p = getattr(self, "preview_proc", None)
+        if not p or p.poll() is not None:
+            return False, "No render is running."
+        pid = int(p.pid)
+        ok, why = self._preview_identity(pid)
+        if not ok:
+            self._append("[gui] Cancel render refused: %s\n" % why)
+            return False, "Not stopped: %s." % why
+        self._render_stop_pid = pid
+        self._kill_preview_tree(pid)
+        try:
+            p.wait(timeout=5)
+        except Exception as e:
+            log_exc("cancel render: waiting for the preview to exit", e)
+        removed = []
+        for f in self._render_partial_files():
+            try:
+                shutil.rmtree(f) if os.path.isdir(f) else os.remove(f)
+                removed.append(os.path.basename(f))
+            except OSError as e:
+                log_exc("cancel render: removing %s" % f, e)
+        rp = dict(getattr(self, "render_prog", None) or {})
+        self.render_prog = dict(active=False, pct=0, stage="Render cancelled", origin=origin,
+                                elapsed=int(time.time() - rp.get("started", time.time())))
+        self.render_msg = "Render cancelled."
+        self._append("[gui] Render cancelled (%s): preview PID %d and its child processes; training untouched%s\n" % (
+            origin, pid, ("; removed " + ", ".join(removed)) if removed else ""))
+        self._sync_run_buttons(self._training_running())
+        return True, "Render cancelled."
+
     def stop(self):
+        if hasattr(self, "_pp_user_stop"):
+            self._pp_user_stop()  # a0.9.3: a STOP pressed by you is never auto-resumed after a paused preview
         if not self.proc or self.proc.poll() is not None:
             self._append("[gui] nothing is running\n")
             return
@@ -950,10 +1058,14 @@ class ProcessMixin:
         self.q.put(ended)
         if kind is None:
             self.sm_q.put(ended)
+        elif kind == "preview" and proc.pid == getattr(self, "_render_stop_pid", None):
+            pass  # a0.9.3: cancelled on purpose (Cancel render) - progress already says 'Render cancelled', no failure card
         elif kind == "preview" and proc.returncode not in (0, None):
             self.sm_q.put(("preview_end", proc.returncode, logp))
             self._render_prog_done(proc.returncode)
-        if kind == "preview" and proc.returncode == 0:
+        if kind == "preview":
+            self.rq.put(lambda: self._sync_run_buttons(self._training_running()))
+        if kind == "preview" and proc.returncode == 0 and proc.pid != getattr(self, "_render_stop_pid", None):
             self.rq.put(self._preview_finished)  # GUI thread: it reads Tk variables
 
     def _ovr(self, it, agent_only=False):

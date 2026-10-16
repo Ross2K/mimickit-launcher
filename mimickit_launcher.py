@@ -24,10 +24,11 @@ from mkl.plugins import PluginsMixin
 from mkl.runs import RunsMixin
 from mkl.clips import ClipsMixin
 from mkl.updatecheck import AutoUpdateMixin
+from mkl.pausepreview import PausePreviewMixin
 from mkl import icon
 
 
-class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin, AutoUpdateMixin):
+class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin, AutoUpdateMixin, PausePreviewMixin):
     def __init__(self, root):
         self.root = root
         # Tk callback errors used to go to stderr - invisible under pythonw.exe. Now: launcher_errors.log + log panel
@@ -66,6 +67,7 @@ class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMi
         self._status_init()
         self._envswitch_init()
         self._stopsave_init()
+        self.pp = None  # a0.9.3: pause-for-preview state (None = idle)
         self._build()
         self.root.after(400, self._first_run)
         self.root.after(600, self._reattach)

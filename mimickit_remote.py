@@ -349,9 +349,11 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <div class="row"><span class="k">Speed</span><span class="seg" id="pv_rate"><button data-r="0.25">0.25&times;</button><button data-r="0.5">0.5&times;</button><button data-r="1">1&times;</button></span></div>
 <div class="row"><span class="k">Loop</span><label><input type="checkbox" id="pv_loop"> play again from the start</label></div>
 <div class="row"><span class="k">File</span><a id="pv_dl" href="#">Download MP4</a></div>
-<div id="pv_clipbox" style="display:none"><div class="row"><span class="k">All clips</span><label><input type="checkbox" id="pv_all"> render every clip <small id="pv_alln"></small></label></div><div class="row"><span class="k">Clips for a new render</span><small id="pv_clipn"></small></div><select id="pv_clips" multiple size="5" style="width:100%;max-width:100%"></select><small>Up to 4. Default = the PC's choice.</small></div></details></div><p></p>
+<div id="pv_clipbox" style="display:none"><div class="row"><span class="k">All clips</span><label><input type="checkbox" id="pv_all"> render every clip <small id="pv_alln"></small></label></div><div class="row"><span class="k">Clips for a new render</span><small id="pv_clipn"></small></div><select id="pv_clips" multiple size="5" style="width:100%;max-width:100%"></select><small>Up to 4. Default = the PC's choice.</small></div>
+<div class="row"><span class="k">Pause training</span><label><input type="checkbox" id="pv_pause"> pause training for preview <small id="pv_pauseh"></small></label></div></details></div><p></p>
 <div class="row"><span class="k">Clip layout</span><select id="r_layout"><option value="">PC's choice</option><option value="grid">All at once</option><option value="seq">One after another</option><option value="long">One long clip (all animations)</option></select></div>
-<button id="render">Render new preview</button><div id="rprog" style="display:none;margin-top:6px"><div class="bar"><div id="rbar" style="background:var(--acc)"></div></div><small id="rstage"></small></div><p><small id="rmsg"></small></p></div>
+<div id="ppline" style="display:none;margin:4px 0"><small id="ppmsg"></small></div><button id="render">Render new preview</button><div id="rprog" style="display:none;margin-top:6px"><div class="bar"><div id="rbar" style="background:var(--acc)"></div></div><small id="rstage"></small></div>
+<div class="stoprow" id="rstoprow" style="display:none"><small id="rstoph">Cancels only the preview - training keeps running.</small><button class="danger small" id="r_stop">Cancel render</button></div><p><small id="rmsg"></small></p></div>
 <!--EXTRA_HTML-->
 <div class="card"><small>Controls are off unless allowed on the PC (PIN required). Updates every 10 s.</small></div>
 <script>
@@ -447,11 +449,18 @@ function rProg(){const r=(S&&S.render)||{};const on=r.active||(r.stage&&r.elapse
  q('rprog').style.display=(r.active||r.stage)?'':'none';q('rbar').style.width=(r.pct||0)+'%';
  q('rstage').textContent=r.stage?(r.stage+(r.active?' \u00b7 '+fmt(r.elapsed||0)+' so far':'')+(r.origin?' \u00b7 started on the '+(r.origin==='phone'?'phone':'PC'):'')):'';
  if(r.active&&!window.RFAST){window.RFAST=setTimeout(()=>{window.RFAST=0;tick()},2500)}
+ const PP=S&&S.pause_preview;const ppOn=PP&&(PP.phase||(PP.msg&&Date.now()/1000-(PP.at||0)<900));q('ppline').style.display=ppOn?'':'none';
+ if(ppOn){q('ppmsg').textContent=(PP.phase==='saving'?'Waiting for the next save to pause training\u2026 ':'')+(PP.msg||'');q('ppmsg').style.color=PP.error?'#e6bd66':''}
+ q('pv_pauseh').textContent=(CTL&&SES)?'':'(needs Controls sign-in)';
+ q('rstoprow').style.display=r.active?'':'none';q('r_stop').disabled=!(CTL&&SES);q('rstoph').textContent=(CTL&&SES)?'Cancels only the preview - training keeps running.':'Sign in under Controls to cancel the render.';
  q('render').disabled=!!r.active;q('render').textContent=r.active?'Rendering\u2026 ('+(r.pct||0)+'%)':'Render new preview'}
+q('pv_pause').checked=localStorage.mkPvPause==='1';q('pv_pause').onchange=()=>{localStorage.mkPvPause=q('pv_pause').checked?'1':'0'};
 q('pv_all').checked=localStorage.mkPvAll==='1';function pvAll(){q('pv_clips').disabled=q('pv_all').checked;q('pv_clips').style.opacity=q('pv_all').checked?'.45':''}pvAll();
 q('pv_all').onchange=()=>{localStorage.mkPvAll=q('pv_all').checked?'1':'0';pvAll()};
 q('render').onclick=async()=>{const lay=q('r_layout').value;const C=S&&S.clips,all=!!(C&&q('pv_all').checked),sel=C&&lay!=='long'&&!all?[...q('pv_clips').selectedOptions].map(o=>o.value):null;if(sel&&(sel.length<1||sel.length>4)){q('rmsg').textContent='Pick 1 to 4 clips under Preview options (or tick All clips).';return}
  const bd=Object.assign(sel?{clips:sel}:{},lay?{layout:lay}:{},all?{all_clips:true}:{});
+ if(q('pv_pause').checked){if(!(CTL&&SES)){q('rmsg').textContent='Sign in under Controls to pause training for a preview (or untick it).';return}
+  act('render_pause',bd,q('rmsg'),q('render'));return}
  q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(bd)});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
  setTimeout(tick,1500)};
 
@@ -496,6 +505,7 @@ q('m_keep').onclick=()=>closeModal();
 q('m_alt').onclick=()=>{const a=MODAL&&MODAL.alt;closeModal();if(a)act('stop_after_save',{},null,q('a_stopsave'))};
 // a0.8.3: tap + confirm (hold-to-confirm failed on Android: long-press opens a system gesture)
 q('m_hold').onclick=()=>{if(q('m_hold').disabled||!MODAL)return;const f=MODAL.onhold||MODAL.ok;closeModal();if(f)f();else act('stop_now',{},null,q('a_stopnow'))};
+q('r_stop').onclick=()=>modal({title:'Cancel the render?',text:'Only the preview stops - training keeps running. The unfinished video is removed.',keep:'Keep rendering',hold:true,holdText:'cancel render',timeout:15000,danger:true,onhold:()=>act('stop_render',{},q('rmsg'),q('r_stop'))});
 q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save is lost. Stop after next save keeps it.',alt:true,hold:true});
 q('a_stopsave').onclick=()=>{const c=S&&S.stop_save;modal({title:c?'Cancel the stop after next save?':'Stop after the next save?',text:c?'Training keeps going.':'Training stops right after its next save - nothing is lost.',keep:'Cancel',hold:true,holdText:c?'cancel it':'stop after save',timeout:5000,onhold:()=>act(c?'cancel_stop':'stop_after_save',{},null,q('a_stopsave'))})};
 q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
@@ -947,7 +957,7 @@ MAX_PIN_LEN = 12
 PIN_RULES_MSG = "Set a 4\u201312 digit PIN on the PC."
 LOCKDOWN_MSG = "Phone control turned off after too many wrong PINs. Turn it back on from the PC."
 ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch",
-           "ghost")
+           "ghost", "stop_render", "render_pause")
 GHOST_CHOICES = ("Off", "Side by side", "Overlay")  # = mkl.core.GHOST_MODES keys (tests check)
 RENDER_LAYOUTS = ("grid", "seq", "long")
 TWEAK_RULES = {"num_envs": (int, 1, 65536)}

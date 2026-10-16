@@ -82,6 +82,8 @@ class DashboardMixin:
             self._runs_snapshot(snap)
         except Exception as e:
             log_exc("phone runs list", e)
+        if hasattr(self, "_pp_snapshot"):
+            self._pp_snapshot(snap)  # a0.9.3: pause-for-preview state + notices for the phone
         if hasattr(self, "_autoupd_snapshot"):
             self._autoupd_snapshot(snap)  # a0.9.2: update notice for the phone
         self._plugin_call("snapshot", snap)
@@ -282,6 +284,32 @@ class DashboardMixin:
 
             self.rq.put(apply_ghost)
             return 200, "Preview ghost: %s (used by the next preview)." % mode
+        if action == "render_pause":  # a0.9.3: render with 'Pause training for preview' - PIN session + nonce only
+            pr = params if isinstance(params, dict) else {}
+            lay = pr.get("layout") if pr.get("layout") in CLIP_LAYOUTS.values() else None
+            ok, msg = self._remote_render(pr.get("clips"), lay, bool(pr.get("all_clips") is True), pause=True)
+            if ok and self._training_running():
+                msg = "Training stops after its next save, the preview renders, then training resumes."
+            return (202 if ok else 409), msg
+        if action == "stop_render":  # a0.9.3: the preview process tree only - never the training
+            pp = self.preview_proc
+            if not pp or pp.poll() is not None:
+                return 409, "No render is running."
+            box, ev = {}, threading.Event()
+
+            def job():
+                try:
+                    box["r"] = self.stop_render("phone")
+                except Exception as e:  # noqa: BLE001 - reported to the phone, logged here
+                    log_exc("cancel render (phone)", e)
+                    box["r"] = (False, "Cancel render failed: %s" % e)
+                ev.set()
+
+            self.rq.put(job)
+            if not ev.wait(15):
+                return 202, "Stopping the render\u2026"
+            ok, msg = box["r"]
+            return (200 if ok else 409), msg
         if action == "resume":
             if running or (self.proc and self.proc.poll() is None):
                 return 409, "Training is already running - resume refused."
@@ -368,7 +396,7 @@ class DashboardMixin:
         self._append("[remote] resume (from phone)\n")
         self.resume()
 
-    def _remote_render(self, clips=None, layout=None, all_clips=False):
+    def _remote_render(self, clips=None, layout=None, all_clips=False, pause=False):
         """Called from the web server thread: never touches Tk, only queues work for the GUI thread.
         layout (a0.9.1): optional 'grid' / 'seq' / 'long' for this render only; 'long' ignores the clip choice."""
         if self.preview_proc and self.preview_proc.poll() is None:
@@ -383,14 +411,16 @@ class DashboardMixin:
                     or any(not isinstance(c, str) or c not in known for c in clips)):
                 self.q.put("[remote] refused preview: clip choice %r is not 1-4 clips of this config\n" % (clips,))
                 return False, "Pick 1 to 4 clips from the list."
-        self.rq.put(lambda: self._remote_render_gui(clips, layout, bool(all_clips)))
+        if pause and getattr(self, "pp", None):
+            return False, "A preview is already waiting for training to pause."
+        self.rq.put(lambda: self._remote_render_gui(clips, layout, bool(all_clips), bool(pause)))
         self.render_msg = "Preview requested from the phone - rendering in the background."
         return (
             True,
             "Preview started - it appears here when it is done (usually under a minute or two).",
         )
 
-    def _remote_render_gui(self, clips=None, layout=None, all_clips=False):
+    def _remote_render_gui(self, clips=None, layout=None, all_clips=False, pause=False):
         it = self._item("train")
         model = self.v_model.get().strip() or self._latest_model()
         if not it or not model:
@@ -399,7 +429,8 @@ class DashboardMixin:
             return
         self._append("[remote] preview requested from the dashboard (renders in the background; it is not "
                      "opened on this PC)\n")
-        self._start_preview(it, model, origin="phone", clips=clips, layout=layout, all_clips=bool(all_clips))
+        self._start_preview(it, model, origin="phone", clips=clips, layout=layout, all_clips=bool(all_clips),
+                            pause=bool(pause))
 
     def _preview_finished(self):
         self.render_msg = "Preview finished."

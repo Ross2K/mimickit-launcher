@@ -169,6 +169,8 @@ class MainWindowMixin:
         self._runbar.pack(fill="x")
         self._build_settings(top)
         self._build_job(top)
+        self._build_preview_box(self._jobrow)  # a0.9.3: right of 'What to run' (wraps below it when narrow)
+        self.rescan()
         mid = ttk.Panedwindow(self.root, orient="horizontal")
         mid.pack(fill="both", expand=True, padx=6, pady=(2, 4))
         lo = ttk.Frame(mid)
@@ -481,22 +483,28 @@ class MainWindowMixin:
 
     def _build_job(self, top):
         """'What to run': configs, num_envs, output folder, run buttons, preview options."""
-        job = ttk.LabelFrame(top, text="What to run", padding=(6, 2, 6, 4))
-        job.pack(fill="x", pady=(3, 0))
+        # a0.9.3: 'What to run' on the left, the 'Preview' box beside it on the right (stacked when too narrow)
+        row = ttk.Frame(top)
+        row.pack(fill="x", pady=(3, 0))
+        self._jobrow = row
+        job = ttk.LabelFrame(row, text="What to run", padding=(6, 2, 6, 4))
+        self._jobbox = job
         self.v_train = tk.StringVar()
         self.v_view = tk.StringVar()
         ttk.Label(job, text="Training config").grid(row=0, column=0, sticky="w")
-        self.cb_train = ttk.Combobox(job, textvariable=self.v_train, state="readonly", width=40)
+        self.cb_train = ttk.Combobox(job, textvariable=self.v_train, state="readonly", width=29)
         self.cb_train.grid(row=0, column=1, sticky="w")
         self.cb_train.bind("<<ComboboxSelected>>", self._train_changed)
         Tip(self.cb_train, HELP["trainsel"])
         ttk.Label(job, text="View config").grid(row=0, column=2, sticky="e", padx=(12, 0))
-        self.cb_view = ttk.Combobox(job, textvariable=self.v_view, state="readonly", width=34)
+        self.cb_view = ttk.Combobox(job, textvariable=self.v_view, state="readonly", width=26)
         self.cb_view.grid(row=0, column=3, sticky="w")
         self.cb_view.bind("<<ComboboxSelected>>", self._view_changed)
         Tip(self.cb_view, HELP["viewsel"])
-        self.l_preset_help = ttk.Label(job, text="", style="Dim.TLabel", wraplength=1100)
+        self.l_preset_help = ttk.Label(job, text="", style="Dim.TLabel", wraplength=640)  # a0.9.3: narrower (Preview box beside it)
         self.l_preset_help.grid(row=1, column=0, columnspan=6, sticky="w")
+        # a0.9.3: wrap at the box's own width (it shares the row with the Preview box), never forcing it wider
+        job.bind("<Configure>", lambda e: self._wrap_preset_help(e.width), add="+")
         ttk.Label(job, text="num_envs").grid(row=2, column=0, sticky="w")
         self.v_envs = tk.IntVar(value=DEFAULT_ENVS)
         sp = ttk.Spinbox(job, from_=1, to=65536, increment=512, textvariable=self.v_envs, width=8)
@@ -519,7 +527,7 @@ class MainWindowMixin:
         self.l_envswitch.grid_remove()  # takes no room until there is something to say
         ttk.Label(job, text="Output folder").grid(row=2, column=2, sticky="e")
         self.v_out = tk.StringVar()
-        e = ttk.Entry(job, textvariable=self.v_out, width=36)
+        e = ttk.Entry(job, textvariable=self.v_out, width=27)
         e.grid(row=2, column=3, sticky="w", padx=4)
         Tip(e, HELP["out"])
         self.v_newton = tk.BooleanVar(value=bool(self.s.get("force_newton", True)))
@@ -556,13 +564,12 @@ class MainWindowMixin:
             ("view", "View clip", self.view, bfa),
             ("continue", "Continue from run...", self.continue_from, bfa),
             ("watch", "Watch latest", self.watch, bfa),
-            ("preview", "Render MP4", self.preview, bfa),
         ):
             b = ttk.Button(
                 parent,
                 text=txt,
                 command=fn,
-                width=max(10, len(txt) + 2),
+                width=max(10, len(txt) + (2 if parent is bf else 0)),  # a0.9.3: tighter wrap row (Preview fits beside)
                 style="Stop.TButton" if key == "stop" else "TButton",
             )
             b.pack(side="left", padx=(3, 3) if key != "stop" else (24, 3))
@@ -571,8 +578,6 @@ class MainWindowMixin:
             self.run_btns[key] = b
             if key == "stopsave":
                 self.b_stopsave = b
-        bfb = ttk.Frame(bf2)  # preview options on their own line(s), wraps too
-        bfb.pack(side="top", fill="x", pady=(2, 0))
         b = ttk.Button(bfa, text="Rescan args", command=self.rescan)
         b.pack(side="left", padx=3)
         Tip(b, "Re-read MimicKit's args folder.")
@@ -587,57 +592,29 @@ class MainWindowMixin:
         self.l_stopsave = ttk.Label(bf, text="", style="Dim.TLabel")
         self.l_stopsave.pack(side="left", padx=(12, 0))
         self.l_stopsave.pack_forget()
-        ttk.Label(bfb, text="Preview device").pack(side="left", padx=(3, 4))
-        self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
-        cb = ttk.Combobox(
-            bfb,
-            textvariable=self.v_pdev,
-            values=["Auto", "CPU only", "GPU"],
-            state="readonly",
-            width=9,
-        )
-        cb.pack(side="left")
-        Tip(cb, HELP["pdevice"])
-        cb.bind(
-            "<<ComboboxSelected>>",
-            lambda _=None: (
-                self.s.__setitem__("preview_device", self.v_pdev.get()),
-                self._save_settings_only(),
-            ),
-        )
-        ttk.Label(bfb, text="Reference ghost").pack(side="left", padx=(12, 4))
-        self.v_ghost = tk.StringVar(value=self.s.get("preview_ghost", "Overlay"))
-        cb = ttk.Combobox(
-            bfb, textvariable=self.v_ghost, values=list(GHOST_MODES), state="readonly", width=12
-        )
-        cb.pack(side="left")
-        Tip(cb, HELP["ghost"])
-        cb.bind(
-            "<<ComboboxSelected>>",
-            lambda _=None: (
-                self.s.__setitem__("preview_ghost", self.v_ghost.get()),
-                self._save_settings_only(),
-            ),
-        )
-        ttk.Label(bfb, text="Clip layout").pack(side="left", padx=(12, 4))
-        self.v_layout = tk.StringVar(value=self.s.get("preview_layout", "All at once"))
-        cb = ttk.Combobox(
-            bfb, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=28
-        )
-        cb.pack(side="left")
-        Tip(cb, HELP["layout"])
-        cb.bind(
-            "<<ComboboxSelected>>",
-            lambda _=None: (
-                self.s.__setitem__("preview_layout", self.v_layout.get()),
-                self._save_settings_only(),
-            ),
-        )
-        b = ttk.Button(bfb, text="Clips...", command=self.clips_dialog)
-        b.pack(side="left", padx=(6, 0))
-        Tip(b, "Which motion clips the MP4 preview shows (up to 4), saved per training config.")
+        flow(bfa)
+        self.custom = list(self.s.get("custom_args", []))  # rescan() runs once the Preview box exists (_build)
+
+    def _build_preview_box(self, row):
+        """a0.9.3: every preview control in its own 'Preview' box, right of 'What to run' (below it when the window is
+        too narrow). Two columns: (Choose clips... + All clips | Clip layout), (Reference ghost | Preview device), then
+        Pause, the buttons (Cancel render set apart on the right) and the progress bar + status line (render stage and
+        pause notices, red for failures)."""
+        pv = ttk.LabelFrame(row, text="Preview", padding=(10, 2, 10, 6))
+        self.preview_box = pv
+        PAD = dict(padx=(0, 8), pady=3)
+
+        def save_on_select(cb, key, var):
+            cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__(key, var.get()), self._save_settings_only()))
+
+        cf = ttk.Frame(pv)
+        cf.grid(row=0, column=0, columnspan=2, sticky="w", **PAD)
+        b = ttk.Button(cf, text="Choose clips...", command=self.clips_dialog)
+        b.pack(side="left")
+        Tip(b, "Which motion clips the MP4 preview shows (up to 4), saved per training config. Greyed out while "
+               "All clips is ticked.")
         self.b_clips = b
-        # a0.9.2: 'All clips' - every renderable clip (up to 64) in the chosen layout; greys out Clips... while ticked
+        # a0.9.2: 'All clips' - every renderable clip (up to 64) in the chosen layout; greys out the clip choice
         self.v_allclips = tk.BooleanVar(value=bool(self.s.get("preview_all_clips", False)))
 
         def allclips_changed():
@@ -645,18 +622,172 @@ class MainWindowMixin:
             self._save_settings_only()
             self.b_clips.state(["disabled"] if self.v_allclips.get() else ["!disabled"])
 
-        self.cb_allclips = ttk.Checkbutton(bfb, text="All clips", variable=self.v_allclips, command=allclips_changed)
-        self.cb_allclips.pack(side="left", padx=(6, 0))
+        self.cb_allclips = ttk.Checkbutton(cf, text="All clips", variable=self.v_allclips, command=allclips_changed)
+        self.cb_allclips.pack(side="left", padx=(12, 0))
         Tip(self.cb_allclips, HELP["allclips"])
         if self.v_allclips.get():
             self.b_clips.state(["disabled"])
-        b = ttk.Button(bfb, text="Preview diagnostics", command=self.preview_diag)
-        b.pack(side="left", padx=(12, 3))
+        l_layout = ttk.Label(pv, text="Clip layout")
+        self.v_layout = tk.StringVar(value=self.s.get("preview_layout", "All at once"))
+        cb = ttk.Combobox(pv, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=28)
+        cb_layout = cb
+        Tip(cb, HELP["layout"])
+        save_on_select(cb, "preview_layout", self.v_layout)
+        l_ghost = ttk.Label(pv, text="Reference ghost")
+        self.v_ghost = tk.StringVar(value=self.s.get("preview_ghost", "Overlay"))
+        cb = ttk.Combobox(pv, textvariable=self.v_ghost, values=list(GHOST_MODES), state="readonly", width=13)
+        cb_ghost = cb
+        Tip(cb, HELP["ghost"])
+        save_on_select(cb, "preview_ghost", self.v_ghost)
+        l_dev = ttk.Label(pv, text="Preview device")
+        self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
+        cb = ttk.Combobox(pv, textvariable=self.v_pdev, values=["Auto", "CPU only", "GPU"], state="readonly", width=13)
+        cb_dev = cb
+        Tip(cb, HELP["pdevice"])
+        save_on_select(cb, "preview_device", self.v_pdev)
+        self.v_pause = tk.BooleanVar(value=bool(self.s.get("preview_pause_training", False)))
+        cbp = ttk.Checkbutton(pv, text="Pause training for preview", variable=self.v_pause, command=lambda: (
+            self.s.__setitem__("preview_pause_training", bool(self.v_pause.get())), self._save_settings_only()))
+        Tip(cbp, HELP["pausepreview"])
+        pv.columnconfigure(4, weight=1)
+        act = ttk.Frame(pv)
+        b = ttk.Button(act, text="Render MP4", command=self.preview, width=12)
+        b.pack(side="left")
+        Tip(b, HELP["preview"])
+        self.run_btns = getattr(self, "run_btns", {})
+        self.run_btns["preview"] = b
+        b = ttk.Button(act, text="Preview diagnostics", command=self.preview_diag)
+        b.pack(side="left", padx=(10, 0))
+        self.b_pdiag = b
         Tip(b, HELP["pdiag"])
-        flow(bfa)
-        flow(bfb, groups=True)
-        self.custom = list(self.s.get("custom_args", []))
-        self.rescan()
+        # Cancel render: set apart on the far right - only the preview, never the training
+        self.b_stoprender = ttk.Button(act, text="Cancel render", command=self._stop_render_click, width=14)
+        self.b_stoprender.pack(side="right", padx=(40, 0))
+        Tip(self.b_stoprender, HELP["stoprender"])
+        self.b_stoprender.state(["disabled"])
+        prog = ttk.Frame(pv)
+        self.pv_bar = ttk.Progressbar(prog, mode="determinate", maximum=100, length=150)
+        self.pv_bar.pack(side="left", padx=(0, 10))
+        # one status line: render stage and the 'Pause training for preview' notices (red for failures)
+        self.l_pvprog = ttk.Label(prog, text="No render running.", style="Dim.TLabel", justify="left")
+        self.l_pvprog.pack(side="left", fill="x", expand=True)
+        self.l_pause = self.l_pvprog
+        prog.bind("<Configure>", lambda e: self.l_pvprog.configure(wraplength=max(160, e.width - 175)), add="+")
+        self._pvw = dict(cf=cf, l_layout=l_layout, cb_layout=cb_layout, l_ghost=l_ghost, cb_ghost=cb_ghost, l_dev=l_dev,
+                         cb_dev=cb_dev, pause=cbp, act=act, prog=prog)
+        # requested widths of both inner layouts (two columns / one column), measured once; 'What to run' is measured
+        # before the config hint gets its text (that hint wraps to whatever width the box gets)
+        self._jobbox.update_idletasks()
+        self._job_basew = self._jobbox.winfo_reqwidth()
+        self._pv_widths = {}
+        for m in ("narrow", "wide"):
+            self._pv_regrid(m)
+            pv.update_idletasks()
+            self._pv_widths[m] = pv.winfo_reqwidth()
+        row.bind("<Configure>", lambda e: self._jobrow_layout(), add="+")
+        self._jobrow_mode = None
+        self._jobrow_layout()
+        self.root.after(1000, self._pv_tick)
+
+    def _wrap_preset_help(self, width):
+        wl = max(400, int(width) - 20)
+        try:
+            if abs(int(str(self.l_preset_help.cget("wraplength")) or 0) - wl) > 4:
+                self.l_preset_help.configure(wraplength=wl)
+        except (tk.TclError, ValueError):
+            return
+
+    def _pv_regrid(self, mode):
+        """Inner layout of the Preview box: 'wide' = two columns, 'narrow' = one setting per row (used when it sits
+        beside 'What to run' in a narrower window)."""
+        w, PAD = self._pvw, dict(padx=(0, 8), pady=3)
+        if getattr(self, "_pv_mode", None) == mode:
+            return
+        self._pv_mode = mode
+        w["cf"].grid(row=0, column=0, columnspan=2, sticky="w", **PAD)
+        if mode == "wide":
+            w["l_layout"].grid(row=0, column=2, sticky="w", padx=(16, 8), pady=3)
+            w["cb_layout"].grid(row=0, column=3, sticky="w", **PAD)
+            w["l_ghost"].grid(row=1, column=0, sticky="w", **PAD)
+            w["cb_ghost"].grid(row=1, column=1, sticky="w", **PAD)
+            w["l_dev"].grid(row=1, column=2, sticky="w", padx=(16, 8), pady=3)
+            w["cb_dev"].grid(row=1, column=3, sticky="w", **PAD)
+            r = 2
+            w["cb_layout"].configure(width=28)
+        else:
+            for i, (l, c) in enumerate((("l_layout", "cb_layout"), ("l_ghost", "cb_ghost"), ("l_dev", "cb_dev"))):
+                w[l].grid(row=1 + i, column=0, sticky="w", **PAD)
+                w[c].grid(row=1 + i, column=1, columnspan=3, sticky="w", **PAD)
+            r = 4
+            w["cb_layout"].configure(width=24)
+        w["pause"].grid(row=r, column=0, columnspan=4, sticky="w", **PAD)
+        w["act"].grid(row=r + 1, column=0, columnspan=5, sticky="we", pady=(6, 2))
+        w["prog"].grid(row=r + 2, column=0, columnspan=5, sticky="we", pady=(4, 0))
+        self.b_stoprender.pack_configure(padx=(40, 0) if mode == "wide" else (16, 0))
+        self.b_pdiag.configure(text="Preview diagnostics" if mode == "wide" else "Diagnostics")
+
+    def _jobrow_layout(self):
+        """Preview beside 'What to run' when both fit side by side, else below it (narrow window / big scaling).
+        Decided from the row width and the boxes' requested widths only, so it can't flip back and forth."""
+        row, job, pv = self._jobrow, self._jobbox, self.preview_box
+        try:
+            w = row.winfo_width()
+            if w <= 1:
+                w = row.winfo_reqwidth()
+            jw = getattr(self, "_job_basew", 0) or job.winfo_reqwidth()
+            jw += 8
+        except tk.TclError:
+            return
+        pw = getattr(self, "_pv_widths", {})
+        mode = ("side" if w >= jw + pw.get("wide", 0) else "side1" if w >= jw + pw.get("narrow", 0) else "stack")
+        if mode == self._jobrow_mode:
+            return
+        self._jobrow_mode = mode
+        self._pv_regrid("narrow" if mode == "side1" else "wide")
+        if mode in ("side", "side1"):
+            self._wrap_preset_help(jw - 8)  # back to the box's own width (it was wider when stacked)
+            job.grid(row=0, column=0, sticky="nsew")
+            pv.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=0)
+            row.columnconfigure(0, weight=0)
+            row.columnconfigure(1, weight=1)
+        else:
+            job.grid(row=0, column=0, sticky="nsew")
+            pv.grid(row=1, column=0, sticky="nsew", padx=0, pady=(6, 0))
+            row.columnconfigure(0, weight=1)
+            row.columnconfigure(1, weight=0)
+        if hasattr(self, "_top_hook_boxes"):
+            try:
+                self._top_hook_boxes()
+            except Exception as e:
+                log_exc("preview box: re-layout", e)
+
+    def _pv_tick(self):
+        """Preview box: progress bar + status line, Cancel render enabled only while a render runs (every second)."""
+        try:
+            rp = getattr(self, "render_prog", None) or {}
+            running = self._preview_alive() if hasattr(self, "_preview_alive") else False
+            self.pv_bar.configure(value=rp.get("pct", 0) if (rp.get("active") or running) else 0)
+            stage = rp.get("stage") or ""
+            pm = getattr(self, "pp_msg", None) or {}
+            err = False
+            if running:
+                txt = "Rendering: %s (%d%%)" % (stage or "starting", rp.get("pct", 0))
+                if getattr(self, "pp", None):
+                    txt += " - training paused, resumes after the render"
+            elif pm and (getattr(self, "pp", None) or time.time() - pm.get("at", 0) < 900):
+                txt, err = pm.get("text", ""), bool(pm.get("error"))
+            else:
+                txt = stage if stage in ("Render cancelled", "Done") or stage.startswith("Failed") else "No render running."
+                err = stage.startswith("Failed")
+            style = "Err.TLabel" if err else "Dim.TLabel"
+            if self.l_pvprog.cget("text") != txt or str(self.l_pvprog.cget("style")) != style:
+                self.l_pvprog.configure(text=txt, style=style)
+            self.b_stoprender.state(["!disabled"] if running else ["disabled"])
+        except tk.TclError:
+            return  # window closing
+        except Exception as e:
+            log_exc("preview box tick", e)
+        self.root.after(1000, self._pv_tick)
 
     def _build_command_box(self, parent):
         """The exact command being run (copyable)."""
@@ -742,6 +873,20 @@ class MainWindowMixin:
                 b.state(["!disabled"] if on else ["disabled"])
             except tk.TclError:
                 pass
+        sr = getattr(self, "b_stoprender", None)
+        if sr is not None:
+            pp = getattr(self, "preview_proc", None)
+            try:
+                sr.state(["!disabled"] if pp is not None and pp.poll() is None else ["disabled"])
+            except tk.TclError:
+                pass
+
+    def _stop_render_click(self):
+        if messagebox.askyesno("Cancel render", "Cancel the running preview render?\n\nOnly the preview stops - training "
+                               "keeps running. The unfinished video is removed."):
+            ok, msg = self.stop_render("PC")
+            if not ok:
+                self._append("[gui] %s\n" % msg)
 
     def _build_charts(self, mid):
         """Training progress charts with navigation buttons."""

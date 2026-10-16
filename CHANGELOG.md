@@ -3,6 +3,15 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.9.3
+
+- Preview: new **Cancel render** button. On the phone it's a small button below the render progress, shown while a render runs. It's PIN-protected like the other controls: one tap, then Yes/Keep rendering, and the prompt closes by itself after 15 s. On the PC it sits next to Render MP4 and is greyed out when nothing renders.
+- It stops only the preview's own process tree (record, render workers, ffmpeg) and never the training. Before stopping, it checks that the process is the launcher's preview (`mimickit_preview.py`) and not the training. On Windows it runs `taskkill /PID <preview> /T /F` on the preview's PID only.
+- It removes the unfinished MP4, its .npz and the temporary render folders. An older finished preview is kept. The progress goes back to idle and says "Render cancelled", with no failure message.
+- Preview: new opt-in **Pause training for preview** checkbox (PC preview row and phone Preview options; off by default). When it's ticked and a preview starts while training runs, training stops right after its next save (the existing Stop after next save path), the preview renders with the GPU free, and training then resumes from that save in the same run chain (the existing Resume, a new _resumeN folder). If the render is cancelled or fails, training still resumes. If you press STOP yourself (PC or phone), training is not resumed. If the save or the resume fails, a red notice appears in the PC preview row, in the log and on the phone, so training is never left stopped silently. On the phone, pausing only works when signed in to Controls (PIN), through the new `render_pause` control. A render started without signing in never pauses training.
+- PC: all preview controls are now in their own **Preview** box, to the right of "What to run" (above the training charts). In a narrower window it stays beside "What to run" with one setting per row, and it moves below "What to run" only when even that does not fit. It has two columns: Choose clips... (renamed from Clips..., greyed out while All clips is ticked) and All clips next to Clip layout, then Reference ghost next to Preview device. Below them are Pause training for preview, then Render MP4 and Preview diagnostics with Cancel render set apart on the right, then a progress bar with one status line. That line shows the render stage and the pause notices, in red for failures. Status and Output in the left column are fully visible again. The phone layout is unchanged.
+- No change to PIN, sign-in or lockout rules.
+
 ## a0.9.2
 
 - Phone PIN: back to **4–12 digits** (as before a0.8.2Z). PINs you already saved with 4 or 5 digits work again with no re-entry. The lockout after 20 wrong PINs per hour stays.

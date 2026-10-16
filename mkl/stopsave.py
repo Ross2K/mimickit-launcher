@@ -216,7 +216,11 @@ class StopAfterSaveMixin:
             self._stopsave_status("Saved - stopping training...")
             self._stop_deadline = time.time() + self.STOP_VERIFY_S
             self._stop_retried = False
-            self.stop()
+            self._stop_from_save = True  # a0.9.3: tells 'Pause training for preview' this stop is the save path's
+            try:
+                self.stop()
+            finally:
+                self._stop_from_save = False
             return True
         # phase "stopping": verify that the training process is really gone
         if not self._training_running():
@@ -269,7 +273,11 @@ class StopAfterSaveMixin:
             pids = res.get("pids", [])
             self._append("[gui] training still running %d s after the stop - stopping again (PIDs %s)\n"
                          % (self.STOP_VERIFY_S, ", ".join(map(str, pids)) or "-"))
-            self.stop()
+            self._stop_from_save = True
+            try:
+                self.stop()
+            finally:
+                self._stop_from_save = False
             for p in pids:
                 try:
                     self._kill(p, "")
