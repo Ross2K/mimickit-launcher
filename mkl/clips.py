@@ -1,4 +1,4 @@
-# MimicKit Launcher - which motion clips the MP4 preview shows (a0.8.0). GPL-3.0-or-later (see LICENSE).
+# MimicKit Launcher - which motion clips the MP4 preview shows (a0.8.0). SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """Datasets can hold many clips (e.g. 31); the preview shows at most MAX_PREVIEW_CLIPS in one video. The choice is
 saved per training config (s['preview_clips'][config] = clip names). Without a saved choice: the preset's
 preview_clips, else the first clips (MimicKit's order) as before."""

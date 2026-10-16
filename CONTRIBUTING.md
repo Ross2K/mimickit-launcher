@@ -11,4 +11,14 @@ Thanks for helping! This project is small and was vibe coded, so fixes of any si
   - Against a real MimicKit clone: `python tests/gui_test.py C:\path\to\MimicKit`
   It should end with `RESULT: N/N checks passed`.
 - Please test on Windows if you can; most users are there.
-- Be kind. By contributing you agree your code is released under the GPL-3.0-or-later license.
+- Be kind. See "License for contributions" below.
+
+## License for contributions
+
+This project is source-available under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
+By submitting a contribution (pull request, patch, or code in an issue), you agree that:
+
+1. Your contribution is licensed under the same PolyForm Noncommercial License 1.0.0 terms as the project.
+2. You also grant curelessSky a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use,
+   modify, sublicense, and relicense your contribution under any terms, including commercial licenses.
+3. The contribution is your own work (or you have the right to submit it), and you keep your copyright in it.

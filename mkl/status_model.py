@@ -1,5 +1,5 @@
 # MimicKit Launcher - status model: turns MimicKit's console output into plain-language status.
-# Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
+# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """Pure logic, no GUI (tested directly):
 StatusModel  - fed console text; tracks stage, iteration, scores, speed, events, warnings and errors.
 health()     - the one-line health banner: (level, text).

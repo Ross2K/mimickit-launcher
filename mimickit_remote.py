@@ -1,5 +1,5 @@
 # MimicKit Launcher - phone dashboard (read-only web page) and optional Discord/Telegram notifications.
-# Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
+# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """Standard library only (http.server in a daemon thread, urllib for notifications); matplotlib (agg) for chart PNGs.
 The web server never touches Tk: the GUI publishes a snapshot dict (set_snapshot) every refresh, and the only action
 ('Render preview') is handed to the GUI through a queue that the GUI thread drains."""
