@@ -230,8 +230,8 @@ class ChartsMixin:
         if getattr(self, "_scroll_after", None):
             try:
                 self.root.after_cancel(self._scroll_after)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exc("chart scroll timer", e)
         self._scroll_after = self.root.after(self.SCROLL_SETTLE_MS, self._scroll_settled)
 
     def _scroll_settled(self):
@@ -677,8 +677,8 @@ class ChartsMixin:
         lines.append(self._per_step_line(log, d))
         try:
             self.fig.align_ylabels(list(self._axes()))
-        except Exception:
-            pass
+        except Exception as e:
+            log_exc("chart y-labels", e)
         if ax3 is not None:
             ax3.set_ylabel("Reward/step %", fontsize=8)
             if not ax3.get_lines():

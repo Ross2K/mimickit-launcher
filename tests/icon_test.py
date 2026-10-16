@@ -48,6 +48,9 @@ icon.apply_icon = lambda r: calls.append("icon")
 
 
 class FakeRoot:
+    def withdraw(self):
+        calls.append("withdraw")
+
     def mainloop(self):
         calls.append("mainloop")
 
@@ -59,7 +62,7 @@ try:
 finally:
     L.tk.Tk = real_tk
     icon.set_dpi_aware, icon.set_app_id, icon.apply_icon, L.App = orig
-check("main(): dpi -> app_id -> Tk -> icon -> mainloop", calls == ["dpi", "app_id", "Tk", "App", "icon", "mainloop"], str(calls))
+check("main(): dpi -> app_id -> Tk -> hidden -> icon -> mainloop", calls == ["dpi", "app_id", "Tk", "withdraw", "App", "icon", "mainloop"], str(calls))
 src = open(os.path.join(os.path.dirname(icon.__file__), "..", "mimickit_launcher.py")).read()
 check("App applies the icon in __init__", "icon.apply_icon(root)" in src)
 bat = open(os.path.join(os.path.dirname(icon.ICON_ICO), "..", "launch.bat")).read()

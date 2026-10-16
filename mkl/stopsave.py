@@ -195,8 +195,8 @@ class StopAfterSaveMixin:
         self._stopsave_status("", error=msg)
         try:
             self.root.after(self.REFUSAL_SHOW_MS, self._stopsave_clear_msg, msg)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exc("stop after save: refusal timer", e)
         return False, msg
 
     def _stopsave_clear_msg(self, msg):

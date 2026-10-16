@@ -906,7 +906,7 @@ class ProcessMixin:
             self.sm_q.put(ended)
         elif kind == "preview" and proc.returncode not in (0, None):
             self.sm_q.put(("preview_end", proc.returncode, logp))
-            self._preview_ended(proc.returncode)
+            self._render_prog_done(proc.returncode)
         if kind == "preview" and proc.returncode == 0:
             self.rq.put(self._preview_finished)  # GUI thread: it reads Tk variables
 

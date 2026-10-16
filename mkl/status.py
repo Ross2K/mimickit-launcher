@@ -273,6 +273,8 @@ class StatusMixin:
             self._show_card(cid, **ctx)
 
     def _preview_ended(self, rc, logp=None):
+        if hasattr(self, "_render_prog_done"):
+            self._render_prog_done(rc)  # phone progress bar
         txt = "exit code %s\n" % rc
         try:
             with open(logp, "rb") as f:

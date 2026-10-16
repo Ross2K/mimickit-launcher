@@ -126,7 +126,7 @@ class DashboardMixin:
         rp["elapsed"] = int(time.time() - rp.get("started", time.time()))
         self.render_prog = rp
 
-    def _preview_ended(self, rc):
+    def _render_prog_done(self, rc):
         rp = dict(getattr(self, "render_prog", None) or {})
         rp.update(active=False, pct=100 if rc == 0 else rp.get("pct", 0),
                   stage="Done" if rc == 0 else "Failed (exit code %s) - see the PC log" % rc,
@@ -328,7 +328,7 @@ class DashboardMixin:
 
     def _preview_finished(self):
         self.render_msg = "Preview finished."
-        self._preview_ended(0)
+        self._render_prog_done(0)
         c = self.s.get("notify", {})
         if c.get("send_preview") and self.notifier.targets():
             mp4s = glob.glob(os.path.join(self.mk(), "output", "*", "preview_*.mp4")) + glob.glob(

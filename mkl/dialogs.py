@@ -134,14 +134,19 @@ def scroll_popup(parent, title, theme, max_frac=MAX_FRAC):
         need_v, need_h = bh > maxh, bw > maxw
         if need_v:
             vs.pack(side="right", fill="y", before=cv)
+        else:
+            vs.pack_forget()
         if need_h:
             hs.pack(side="bottom", fill="x", before=cv)
+        else:
+            hs.pack_forget()
         cw = min(bw, maxw - (vs.winfo_reqwidth() if need_v else 0))
         ch = min(bh, maxh - (hs.winfo_reqheight() if need_h else 0))
         cv.configure(width=max(cw, bar.winfo_reqwidth() - (vs.winfo_reqwidth() if need_v else 0)), height=ch)
         region()
         place_popup(top, parent)
 
+    top._scroll["fit"] = fit  # call again (after_idle) if the content changes after an update_idletasks()
     top.after_idle(fit)
     return top, body, bar
 

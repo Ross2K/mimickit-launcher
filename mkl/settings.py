@@ -78,6 +78,7 @@ class SettingsMixin:
             justify="left",
         )
         note.pack(side="top", anchor="w", pady=(0, 4))
+        top.after_idle(top._scroll["fit"])  # the update_idletasks() above already ran the first fit, before stacking
 
         def collect():
             changes, bad = {}, []

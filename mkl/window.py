@@ -363,7 +363,8 @@ class MainWindowMixin:
         # chart help: '?' badge in the chart's title row, next to 'Training progress' (a0.6.1 UX item: it used to be
         # a tiny badge on the end of the Return line); hover shows the help, kept inside the window
         self.chart_help = tk.Label(right.title_row, text="?", width=2, cursor="question_arrow")
-        self.chart_help.pack(side="left", padx=(8, 0))
+        # before the title: on a narrow window the title row gets clipped from the right, the badge must stay whole
+        self.chart_help.pack(side="left", padx=(0, 6), before=right._title)
         Tip(self.chart_help, HELP["chartnav"])
         self.canvas.mpl_connect("scroll_event", self._on_scroll)
         self.canvas.mpl_connect("button_press_event", self._on_click)
@@ -700,8 +701,8 @@ class MainWindowMixin:
         try:
             with open(U.log_path() if hasattr(U, "log_path") else os.devnull, "a", encoding="utf-8") as f:
                 f.write("".join(traceback.format_exception(exc, val, tb)))
-        except Exception:
-            pass
+        except OSError:
+            pass  # the log file itself can't be written: _gui_error below still shows it
         self._gui_error("button/timer", val)
 
     def _gui_error(self, where, e):
@@ -711,8 +712,8 @@ class MainWindowMixin:
             self._append("[gui] %s\n" % msg)
             if hasattr(self, "ban_detail"):
                 self.ban_detail.configure(text="error: %s" % type(e).__name__)
-        except Exception:
-            pass
+        except Exception as e2:
+            log_exc("showing a GUI error", e2)
         self.last_gui_error = msg
 
     def _append(self, s):
