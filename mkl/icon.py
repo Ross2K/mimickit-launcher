@@ -1,5 +1,6 @@
 """Window / taskbar icon. To swap the design, replace assets/icon.png and assets/icon.ico (multi-size) - nothing else.
 Windows groups windows on the taskbar by AppUserModelID; without our own ID it shows python.exe's icon.
+Start paths (all go through mimickit_launcher.main): MimicKit Launcher.exe, launch.bat, mimickit_launcher.pyw, double-clicked mimickit_launcher.py (own console hidden), shortcuts. Icon paths are relative to this file, never the CWD.
 Order matters: prepare_process() before tk.Tk(), apply_icon(root) right after it (see mimickit_launcher.main)."""
 
 import os
@@ -49,10 +50,35 @@ def set_dpi_aware():
         return False
 
 
+def hide_own_console():
+    """Windows: double-clicking mimickit_launcher.py starts python.exe with a NEW console window - that console is a
+    second taskbar button with Python's icon (what the user saw). Hide it, but only if the console belongs to us
+    alone (GetConsoleProcessList == 1); a console the user opened himself (cmd, launch.bat fallback) stays."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        k = ctypes.windll.kernel32
+        hwnd = k.GetConsoleWindow()
+        if not hwnd:
+            return False  # pythonw.exe / the .exe starter: no console at all
+        arr = (ctypes.c_uint * 4)()
+        if k.GetConsoleProcessList(arr, 4) != 1:
+            return False
+        ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+        return True
+    except Exception as e:
+        log_exc("icon: hide console", e)
+        return False
+
+
 def prepare_process():
-    """Everything that must happen before tk.Tk(): DPI awareness, then our taskbar identity."""
+    """Everything that must happen before tk.Tk(): DPI awareness, our taskbar identity (AppUserModelID), and no
+    stray console button. Works for every start path: the .exe starter, launch.bat, the .pyw, the .py, shortcuts."""
     set_dpi_aware()
     set_app_id()
+    hide_own_console()
 
 
 START_LNK = "MimicKit Launcher.lnk"
