@@ -3,6 +3,32 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.2
+
+Fixes from the a0.8.1 review, plus the taskbar icon.
+
+- **Taskbar icon (Windows):** the launcher's icon now shows on the taskbar however you start it: the .exe,
+  launch.bat, the new `mimickit_launcher.pyw`, or a double-clicked `mimickit_launcher.py` (its extra black console
+  window, which showed Python's icon, is hidden). It sets its own taskbar ID before the window opens, uses the
+  multi-size .ico, and creates a Start-menu shortcut with the same ID (Windows takes a pinned button's icon from it).
+  Old pins keep Windows' cached icon: once, double-click **Fix taskbar icon.bat**, unpin the old button, start the
+  launcher and pin it again.
+- **Stop after next save:** the retry only stops the right training (exact output folder or the launcher's own
+  process), and looks for it in the background, so the window never freezes.
+- **Phone control:** a slow action no longer blocks other phones. The button shows "Working..." until the PC answers.
+- **PIN:** at least 6 digits. 20 wrong PINs within an hour (from any phones) turn phone control off:
+  "Phone control turned off after too many wrong PINs. Turn it back on from the PC." Old lockouts are cleaned up.
+- **Patches** are also refused while the launcher's own training process is still alive. Greyed patch buttons on the
+  phone say why.
+- **Parallel sims field:** if it isn't a whole number it says "Whole number, e.g. 64" and won't start, instead of
+  failing or using 0.
+- **Phone wording:** "parallel sims" instead of num_envs, "saved progress" instead of model.pt, no _resumeN. The
+  always-disabled Save checkpoint button is gone (training saves by itself).
+- Dashboard address choice reads "Only this PC (phone can't connect)".
+- Z build only: updates are signed (Ed25519) and checked against a key built into the launcher; the update kind is
+  re-checked from the changed files (the stricter one wins); the phone install needs a 2-second hold; update errors
+  are plain, with a Details toggle.
+
 ## a0.8.1
 
 ### Added
