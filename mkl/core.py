@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.9.0"
+VERSION = "a0.9.1"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -122,7 +122,7 @@ def detect_python(mk):
 
 
 GHOST_MODES = {"Off": "off", "Side by side": "side", "Overlay": "overlay"}
-CLIP_LAYOUTS = {"All at once": "grid", "One after another": "seq"}
+CLIP_LAYOUTS = {"All at once": "grid", "One after another": "seq", "One long clip (all animations)": "long"}
 
 HELP = {
     "perstep": "Avg reward per step = Return / episode length, in % (each step's reward is 0..1 in DeepMimic-style tasks, so\n"
@@ -174,7 +174,9 @@ HELP = {
     "that chart has data outside its current vertical range. Home or double-click = full view, follow new data.",
     "layout": "Clip layout of the preview when the training data has several motions (the first 4 are previewed, each from\n"
     "its start). All at once = a grid (1x2 or 2x2), one camera per clip; shorter clips hold their last frame.\n"
-    "One after another = the clips in sequence, each labelled.",
+    "One after another = the clips in sequence, each labelled.\n"
+    "One long clip (all animations) = EVERY training clip back to back in one MP4 (ignores the 1-4 clip choice; up to\n"
+    "64 clips, each shortened if they add up to more than 15 min). Takes longer to render - progress shows in the log.",
     "ghost": "Reference ghost in the preview MP4: the motion clip the policy is tracking (same clip, same time), drawn as a\n"
     "translucent orange character. Overlay (default) = drawn in place, on top of the policy. Side by side = next to\n"
     "the policy (offset sideways, camera frames both). Off = policy only. Applies to every clip.",

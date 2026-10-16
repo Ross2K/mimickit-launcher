@@ -122,30 +122,64 @@ def load(d):
 
 
 def fired(chain):
-    """Levels already fired in any folder of the run chain (original + its resumes / continues)."""
+    """Levels already fired in any folder of the run chain (original + its resumes / continues), on disk or in
+    memory (M1)."""
     out = {}
     for d in chain:
         out.update(load(d))
+        out.update(_MEM.get(os.path.normcase(os.path.abspath(d)), {}))
     return out
 
 
+SAFE_ALL = "chain-unknown"  # a0.9.1 (M2): check() gets chain=None when the run chain couldn't be read
+
+
+def _siblings(d):
+    """M2 fallback when the chain is unknown: folders in the same output folder whose name d starts with (run_x for
+    run_x_resume1, ...) - the usual resume layout - so a parent's fired level is still seen."""
+    p, name = os.path.dirname(os.path.abspath(d)), os.path.basename(os.path.abspath(d))
+    try:
+        return [os.path.join(p, n) for n in os.listdir(p) if n != name and name.startswith(n)
+                and os.path.isdir(os.path.join(p, n))] + [d]
+    except OSError:
+        return [d]
+
+
+_MEM = {}  # a0.9.1 (M1): fired flags that couldn't be written (file locked by AV, read-only, ...) - kept per process
+
+
 def mark(d, key, info):
+    """Store the fired flag in d/milestones.json. A failed write (M1) never raises: the flag stays in memory so the
+    alert still shows once and doesn't repeat every tick. Returns True if it was written."""
     import mimickit_util as U
 
+    _MEM.setdefault(os.path.normcase(os.path.abspath(d)), {})[key] = True
     st = load(d)
     st[key] = dict(info, at=time.time())
-    U.save_json(os.path.join(d, STATE_FILE), st, backup=False)
+    try:
+        U.save_json(os.path.join(d, STATE_FILE), st, backup=False)
+        return True
+    except Exception as e:  # noqa: BLE001 - any write problem: keep going with the in-memory flag
+        U.log_exc("milestones: saving %s" % STATE_FILE, e)
+        return False
 
 
 def check(d, chain, h, c):
     """New levels for run folder d (marked as fired in d). Returns [info] in level order."""
     if not c.get("enabled", True):
         return []
+    unknown = chain is None
+    if unknown:  # M2: run chain unreadable -> look at name-prefix siblings; a level fires only if NONE has it
+        chain = _siblings(d)
     done = fired(chain)
     new = []
     mlen = next((m for m in (max_len(x) for x in [d] + list(reversed(chain))) if m), None)
     for key, info in reached(h, mlen, c).items():
         if key in done:
+            continue
+        if unknown and any(os.path.isfile(os.path.join(x, STATE_FILE)) for x in chain if x != d):
+            # a parent folder has milestone flags but we can't tell which run this belongs to: treat as fired
+            mark(d, key, dict(info, note="chain unknown - not shown"))
             continue
         mark(d, key, info)
         new.append(info)

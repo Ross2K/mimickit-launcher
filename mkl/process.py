@@ -635,7 +635,7 @@ class ProcessMixin:
             return
         return self._start_preview(it, model)
 
-    def _start_preview(self, it, model, diag=False, origin="PC", clips=None):
+    def _start_preview(self, it, model, diag=False, origin="PC", clips=None, layout=None):
         """origin 'phone': rendered in the background only - never opened / played on the PC (--no_open)."""
         pdir = os.path.join(self.mk(), "output", "_launcher_preview")
         os.makedirs(pdir, exist_ok=True)
@@ -670,6 +670,9 @@ class ProcessMixin:
                 "preview_%s.mp4" % (itn if itn is not None else time.strftime("%Y%m%d_%H%M%S")),
             )
             dev = {"Auto": "auto", "CPU only": "cpu", "GPU": "gpu"}.get(self.v_pdev.get(), "auto")
+            lay = layout or CLIP_LAYOUTS.get(self.v_layout.get(), "grid")
+            if lay == "long":  # a0.9.1: every training clip back to back - the 1-4 clip choice doesn't apply
+                clips = []
             cmd = [
                 self.python(),
                 "-u",
@@ -682,7 +685,7 @@ class ProcessMixin:
                 "--ghost",
                 GHOST_MODES.get(self.v_ghost.get(), "overlay"),
                 "--layout",
-                CLIP_LAYOUTS.get(self.v_layout.get(), "grid"),
+                lay,
                 "--out",
                 mp4,
             ] + (["--clips", ",".join(clips if clips is not None else self._chosen_clips(it))]

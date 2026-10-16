@@ -616,7 +616,7 @@ class MainWindowMixin:
         ttk.Label(bfb, text="Clip layout").pack(side="left", padx=(12, 4))
         self.v_layout = tk.StringVar(value=self.s.get("preview_layout", "All at once"))
         cb = ttk.Combobox(
-            bfb, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=16
+            bfb, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=28
         )
         cb.pack(side="left")
         Tip(cb, HELP["layout"])

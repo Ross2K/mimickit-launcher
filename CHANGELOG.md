@@ -3,6 +3,14 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.9.1
+
+- Preview: new clip layout **One long clip (all animations)** (PC Clip layout list and phone Render). Renders every training clip back to back in one MP4: up to 64 clips, and if they add up to more than 15 min each clip is shortened to its share (at least 2 s). Uses the same separate preview process as before, so the running training is touched no more than a normal preview. The log and the phone show record/render progress (frame x/n).
+- Preview: the record step now gets the chosen clips (before, it could record the first clips instead of the chosen ones).
+- Phone: new **Ghost** section to switch the reference ghost (Off / Side by side / Overlay). PIN-protected like the other controls; it applies to the next preview.
+- Milestones: if milestones.json can't be written, it no longer raises. The alert fires once and the flag is kept in memory (M1).
+- Milestones: if the run chain can't be read, a parent run's level isn't re-fired (M2).
+
 ## a0.9.0
 
 New: "First steps!" and "Walking well" alerts (GUI only).

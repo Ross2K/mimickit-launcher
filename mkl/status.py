@@ -682,8 +682,9 @@ class StatusMixin:
             return []
         try:
             chain = run_chain(d)
-        except (ValueError, OSError):
-            chain = [d]
+        except Exception as e:  # a0.9.1 (M2): unknown chain -> milestones.check() falls back safely
+            log_exc("milestones: run chain", e)
+            chain = None
         new = MS.check(d, chain, self._milestone_history(d, log), MS.cfg(self.s))
         for info in new:
             self._milestone = dict(info, run=os.path.basename(d.rstrip("/\\")), at=time.time())

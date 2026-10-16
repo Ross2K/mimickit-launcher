@@ -144,4 +144,25 @@ wait(1)
 cmd = CMD[-1]
 check("phone render uses its clips (once, not saved)", ok3 and cmd[cmd.index("--clips") + 1] == "w_run_b,w_attack_a"
       and "--no_open" in cmd and set(app._chosen_clips(it)) == {"w_idle", "w_sprint_a", "w_walk_a"}, cmd)
+# a0.9.1: one long clip + phone ghost type
+app.preview_proc = None
+app.v_layout.set("One long clip (all animations)")
+app.preview()
+wait(1)
+cmd = CMD[-1]
+check("long layout: --layout long, no clip choice", "--clips" not in cmd and cmd[cmd.index("--layout") + 1] == "long", cmd)
+app.v_layout.set("All at once")
+app.preview_proc = None
+ok4, m4 = app._remote_render(None, layout="long")
+wait(1)
+cmd = CMD[-1]
+check("phone render with layout long", ok4 and "--clips" not in cmd and cmd[cmd.index("--layout") + 1] == "long", (m4, cmd))
+ok5, m5 = app._remote_render(["w_run_b"], layout="bogus")
+check("phone render with an unknown layout refused", not ok5, m5)
+check("snapshot lists the ghost types + layouts", app.snap.get("ghost", {}).get("modes") and "long" in str(app.snap.get("layouts")))
+code6, m6 = app._remote_action("ghost", {"mode": "Side by side"})
+wait(0.5)
+check("phone ghost action sets the ghost type", code6 == 200 and app.v_ghost.get() == "Side by side", (code6, m6))
+code7, m7 = app._remote_action("ghost", {"mode": "nope"})
+check("phone ghost action: bad mode refused", code7 == 400 and app.v_ghost.get() == "Side by side", (code7, m7))
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

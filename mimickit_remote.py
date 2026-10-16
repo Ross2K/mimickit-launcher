@@ -320,6 +320,9 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <div class="bgrid"><button id="a_start">Start new training</button></div>
 <div class="row"><span class="k">Continue from</span><select id="r_src"></select></div><small id="r_srcinfo"></small>
 <div class="bgrid"><button class="sec2" id="a_cont">Continue from run</button></div><small id="runmsg"></small></details>
+<details class="sec" id="s_ghost"><summary>Preview ghost <span class="cnt" id="n_ghost"></span></summary>
+<div class="row"><span class="k">Reference ghost</span><select id="g_mode"><option>Overlay</option><option>Side by side</option><option>Off</option></select></div>
+<small>How the reference motion is shown in the next preview. </small><small id="ghostmsg"></small></details>
 <details class="sec" id="s_patch"><summary>MimicKit patches <span class="cnt" id="n_patch"></span></summary><div id="plist"></div><small id="patchmsg"></small></details>
 </div><p><small id="ctlmsg"></small></p></div>
 <div class="modal" id="modal"><div class="mbox"><b id="m_title">Stop training now?</b><p><small id="m_text"></small></p>
@@ -346,6 +349,7 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <div class="row"><span class="k">Loop</span><label><input type="checkbox" id="pv_loop"> play again from the start</label></div>
 <div class="row"><span class="k">File</span><a id="pv_dl" href="#">Download MP4</a></div>
 <div id="pv_clipbox" style="display:none"><div class="row"><span class="k">Clips for a new render</span><small id="pv_clipn"></small></div><select id="pv_clips" multiple size="5" style="width:100%;max-width:100%"></select><small>Up to 4. Default = the PC's choice.</small></div></details></div><p></p>
+<div class="row"><span class="k">Clip layout</span><select id="r_layout"><option value="">PC's choice</option><option value="grid">All at once</option><option value="seq">One after another</option><option value="long">One long clip (all animations)</option></select></div>
 <button id="render">Render new preview</button><div id="rprog" style="display:none;margin-top:6px"><div class="bar"><div id="rbar" style="background:var(--acc)"></div></div><small id="rstage"></small></div><p><small id="rmsg"></small></p></div>
 <!--EXTRA_HTML-->
 <div class="card"><small>Controls are off unless allowed on the PC (PIN required). Updates every 10 s.</small></div>
@@ -443,8 +447,9 @@ function rProg(){const r=(S&&S.render)||{};const on=r.active||(r.stage&&r.elapse
  q('rstage').textContent=r.stage?(r.stage+(r.active?' \u00b7 '+fmt(r.elapsed||0)+' so far':'')+(r.origin?' \u00b7 started on the '+(r.origin==='phone'?'phone':'PC'):'')):'';
  if(r.active&&!window.RFAST){window.RFAST=setTimeout(()=>{window.RFAST=0;tick()},2500)}
  q('render').disabled=!!r.active;q('render').textContent=r.active?'Rendering\u2026 ('+(r.pct||0)+'%)':'Render new preview'}
-q('render').onclick=async()=>{const C=S&&S.clips,sel=C?[...q('pv_clips').selectedOptions].map(o=>o.value):null;if(sel&&(sel.length<1||sel.length>4)){q('rmsg').textContent='Pick 1 to 4 clips under Preview options.';return}
- q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(sel?{clips:sel}:{})});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
+q('render').onclick=async()=>{const lay=q('r_layout').value;const C=S&&S.clips,sel=C&&lay!=='long'?[...q('pv_clips').selectedOptions].map(o=>o.value):null;if(sel&&(sel.length<1||sel.length>4)){q('rmsg').textContent='Pick 1 to 4 clips under Preview options.';return}
+ const bd=Object.assign(sel?{clips:sel}:{},lay?{layout:lay}:{});
+ q('render').disabled=true;try{const r=await fetch('/api/render',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},H),body:JSON.stringify(bd)});const j=await r.json();q('rmsg').textContent=j.message}catch(e){q('rmsg').textContent='failed: '+e}
  setTimeout(tick,1500)};
 
 // ---- Controls panel (a0.7.0). Session token lives in localStorage, never in the URL; every action needs a fresh nonce.
@@ -456,7 +461,7 @@ for(const d of document.querySelectorAll('details.sec')){d.open=localStorage['mk
 async function cpost(what,body){const r=await fetch('/api/control/'+what,{method:'POST',headers:Object.assign({'Content-Type':'application/json','X-Session':SES},H),body:JSON.stringify(body||{})});
  let j={};try{j=await r.json()}catch(e){}if(r.status===401){SES='';localStorage.mkSes='';updCtl()}return [r.status,j]}
 let LASTBTN=null;document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(b&&!b.closest('#modal'))LASTBTN=b},true);
-async function act(action,params,msgEl,btn){const m=msgEl||q('ctlmsg');btn=btn||LASTBTN;const [c1,n]=await cpost('nonce',{action});if(c1!==200){m.textContent=n.error||('refused ('+c1+')');return}
+async function act(action,params,msgEl,btn){const m=msgEl||q('ctlmsg');btn=btn===false?null:(btn||LASTBTN);const [c1,n]=await cpost('nonce',{action});if(c1!==200){m.textContent=n.error||('refused ('+c1+')');return}
  const lbl=btn?btn.textContent:'';if(btn){btn.disabled=true;btn.textContent='Working\u2026'}
  try{let [c,j]=await cpost(action,{nonce:n.nonce,params});
   for(let i=0;c===202&&i<120;i++){m.textContent='Working\u2026';await new Promise(r=>setTimeout(r,1500));[c,j]=await cpost(action,{nonce:n.nonce,params})}
@@ -464,7 +469,8 @@ async function act(action,params,msgEl,btn){const m=msgEl||q('ctlmsg');btn=btn||
  finally{if(btn){btn.textContent=lbl;btn.disabled=false}}setTimeout(tick,500)}
 function updCtl(){const b=q('ctlbtn');b.textContent=CTL?'Controls':'Controls: off';b.classList.toggle('off',!CTL);
  q('ctloff').style.display=CTL?'none':'';q('ctlon').style.display=CTL?'':'none';q('pinbox').style.display=CTL&&!SES?'':'none';
- for(const id of ['s_train','s_tweak','s_runs','s_patch'])q(id).style.display=SES?'':'none';
+ for(const id of ['s_train','s_tweak','s_runs','s_ghost','s_patch'])q(id).style.display=SES?'':'none';
+ const G=S&&S.ghost;if(G){q('n_ghost').textContent='('+G.mode+')';if(document.activeElement!==q('g_mode')&&!window.GBUSY)q('g_mode').value=G.mode}
  const run=S&&S.running;q('a_resume').disabled=!!run;q('a_stopnow').disabled=!run;q('a_stopsave').disabled=!run;
  q('a_stopsave').textContent=S&&S.stop_save?'Cancel stop after save':'Stop after next save';
  q('n_train').textContent='(3 of 4)';const tw=(S&&S.tweaks)||{};const nt=Object.keys(tw).length;q('n_tweak').textContent=nt?'('+nt+' pending)':'(0)';
@@ -490,6 +496,7 @@ q('m_hold').onclick=()=>{if(q('m_hold').disabled||!MODAL)return;const f=MODAL.on
 q('a_stopnow').onclick=()=>modal({title:'Stop training now?',text:'Anything since the last save is lost. Stop after next save keeps it.',alt:true,hold:true});
 q('a_stopsave').onclick=()=>{const c=S&&S.stop_save;modal({title:c?'Cancel the stop after next save?':'Stop after the next save?',text:c?'Training keeps going.':'Training stops right after its next save - nothing is lost.',keep:'Cancel',hold:true,holdText:c?'cancel it':'stop after save',timeout:5000,onhold:()=>act(c?'cancel_stop':'stop_after_save',{},null,q('a_stopsave'))})};
 q('a_resume').onclick=()=>modal({title:'Resume training?',text:'Starts from the latest saved progress on the PC.',keep:'Resume',ok:()=>act('resume')});
+q('g_mode').onchange=async()=>{window.GBUSY=1;try{await act('ghost',{mode:q('g_mode').value},q('ghostmsg'),false)}finally{window.GBUSY=0}};
 q('a_tweak').onclick=()=>{const v=q('t_envs').value.trim();const n=Number(v);modal({title:'Use '+v+' parallel sims for the next resume?',keep:'Confirm',ok:()=>act('tweaks',{num_envs:Number.isInteger(n)?n:v},q('tweakmsg'))})};
 // ---- Runs + MimicKit patches (a0.8.0): names/keys only come from the PC's lists; the PC checks everything again
 let RU_SIG='',RU_CFG='';const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -647,7 +654,8 @@ class Dashboard:
                 except ValueError:
                     body = {}
                 clips = body.get("clips") if isinstance(body, dict) else None
-                code, msg = dash.request_render(clips)
+                layout = body.get("layout") if isinstance(body, dict) else None
+                code, msg = dash.request_render(clips, layout if layout in RENDER_LAYOUTS else None)
                 return self._send(code, json.dumps({"message": msg}))
 
             def _file(self, p, download=False):
@@ -756,7 +764,7 @@ class Dashboard:
             s["previews"] = [{k: v for k, v in x.items() if k != "path"} for x in s["previews"]]
         return s
 
-    def request_render(self, clips=None):
+    def request_render(self, clips=None, layout=None):
         """clips: optional list of clip names for this render (the PC checks them against its own list)."""
         now = time.time()
         wait = self.min_interval - (now - self._last_render)
@@ -769,7 +777,10 @@ class Dashboard:
             return 503, "Rendering is not available."
         self._last_render = now
         try:
-            ok, msg = self.on_render(clips) if clips is not None else self.on_render()
+            if layout in RENDER_LAYOUTS:  # a0.9.1
+                ok, msg = self.on_render(clips, layout=layout)
+            else:
+                ok, msg = self.on_render(clips) if clips is not None else self.on_render()
         except Exception as e:
             ok, msg = False, "failed: %s" % e
         if not ok:
@@ -928,7 +939,10 @@ GLOBAL_FAILS_PER_HOUR = 20  # wrong PINs from ALL phones within an hour -> phone
 MIN_PIN_LAN = 6  # dashboard reachable from the network: PIN must have at least this many digits
 PIN_RULES_MSG = "Phone PIN rules changed. Set a new 6\u201312 digit PIN on the PC (one-time)."
 LOCKDOWN_MSG = "Phone control turned off after too many wrong PINs. Turn it back on from the PC."
-ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch")
+ACTIONS = ("stop_after_save", "stop_now", "resume", "cancel_stop", "tweaks", "start_train", "continue_run", "patch",
+           "ghost")
+GHOST_CHOICES = ("Off", "Side by side", "Overlay")  # = mkl.core.GHOST_MODES keys (tests check)
+RENDER_LAYOUTS = ("grid", "seq", "long")
 TWEAK_RULES = {"num_envs": (int, 1, 65536)}
 TWEAK_LABEL = {"num_envs": "Parallel sims"}  # what the phone calls it  # name -> (type, min, max); applied on the next resume
 
@@ -1131,6 +1145,10 @@ class Control:
             if action not in ACTIONS and action not in extra:
                 self.log("control: refused unknown action '%s'" % action)
                 return 400, {"error": "Unknown action '%s'." % action}
+            if action == "ghost" and (not isinstance(params, dict) or params.get("mode") not in GHOST_CHOICES):
+                self.log("control: refused ghost - unknown type %r" % (params,))
+                self.used[nonce] = (400, {"error": "Unknown ghost type."})
+                return 400, {"error": "Unknown ghost type."}
             if action == "tweaks":
                 params, why = validate_tweaks(params)
                 if why:

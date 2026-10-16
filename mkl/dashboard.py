@@ -60,6 +60,8 @@ class DashboardMixin:
             snap["vram"] = "%.1f / %.1f GB" % (v[0] / 1024, v[1] / 1024)
             snap["vram_pct"] = round(100 * v[0] / v[1])
         snap["stop_save_msg"] = getattr(self, "stopsave_msg", "")
+        snap["ghost"] = dict(mode=self.v_ghost.get(), modes=list(GHOST_MODES))  # a0.9.1: phone ghost selector
+        snap["layouts"] = [[v, k] for k, v in CLIP_LAYOUTS.items()]
         ms = getattr(self, "_milestone", None)  # a0.9.0: phone banner
         if ms and ms.get("run") == os.path.basename(d.rstrip("/\\")):
             snap["milestone"] = dict(title=ms["title"], text=ms["text"], at=ms["at"], key=ms["key"])
@@ -137,6 +139,13 @@ class DashboardMixin:
         for key, pct, stage in self.PREVIEW_STAGES:
             if key in line and pct >= rp.get("pct", 0):
                 rp.update(pct=pct, stage=stage)
+        m = re.search(r"(record|render) frame (\d+)/(\d+)", line)  # a0.9.1: finer progress (long clips)
+        if m and int(m.group(3)) > 0:
+            lo, hi = (40, 60) if m.group(1) == "record" else (60, 90)
+            pct = lo + (hi - lo) * min(1.0, int(m.group(2)) / int(m.group(3)))
+            if pct >= rp.get("pct", 0):
+                rp.update(pct=int(pct), stage="%s frame %s of %s" % (
+                    "Recording" if m.group(1) == "record" else "Rendering", m.group(2), m.group(3)))
         rp["elapsed"] = int(time.time() - rp.get("started", time.time()))
         self.render_prog = rp
 
@@ -258,6 +267,19 @@ class DashboardMixin:
         running = self._training_running()
         if action in ("start_train", "continue_run", "patch"):
             return self._remote_runs_action(action, params)
+        if action == "ghost":  # a0.9.1: preview ghost type from the phone (PIN session + nonce like every control)
+            mode = (params or {}).get("mode")
+            if mode not in GHOST_MODES:
+                return 400, "Unknown ghost type."
+
+            def apply_ghost():
+                self.v_ghost.set(mode)
+                self.s["preview_ghost"] = mode
+                self._save_settings_only()
+                self._append("[remote] preview ghost set to %s (from phone)\n" % mode)
+
+            self.rq.put(apply_ghost)
+            return 200, "Preview ghost: %s (used by the next preview)." % mode
         if action == "resume":
             if running or (self.proc and self.proc.poll() is None):
                 return 409, "Training is already running - resume refused."
@@ -344,24 +366,29 @@ class DashboardMixin:
         self._append("[remote] resume (from phone)\n")
         self.resume()
 
-    def _remote_render(self, clips=None):
-        """Called from the web server thread: never touches Tk, only queues work for the GUI thread."""
+    def _remote_render(self, clips=None, layout=None):
+        """Called from the web server thread: never touches Tk, only queues work for the GUI thread.
+        layout (a0.9.1): optional 'grid' / 'seq' / 'long' for this render only; 'long' ignores the clip choice."""
         if self.preview_proc and self.preview_proc.poll() is None:
             return False, "A preview is already being rendered."
+        if layout is not None and layout not in CLIP_LAYOUTS.values():
+            return False, "Unknown clip layout."
+        if layout == "long":
+            clips = None
         if clips is not None:
             known = ((getattr(self, "snap", None) or {}).get("clips") or {}).get("all") or []
             if (not isinstance(clips, list) or not clips or len(clips) > 4
                     or any(not isinstance(c, str) or c not in known for c in clips)):
                 self.q.put("[remote] refused preview: clip choice %r is not 1-4 clips of this config\n" % (clips,))
                 return False, "Pick 1 to 4 clips from the list."
-        self.rq.put(lambda: self._remote_render_gui(clips))
+        self.rq.put(lambda: self._remote_render_gui(clips, layout))
         self.render_msg = "Preview requested from the phone - rendering in the background."
         return (
             True,
             "Preview started - it appears here when it is done (usually under a minute or two).",
         )
 
-    def _remote_render_gui(self, clips=None):
+    def _remote_render_gui(self, clips=None, layout=None):
         it = self._item("train")
         model = self.v_model.get().strip() or self._latest_model()
         if not it or not model:
@@ -370,7 +397,7 @@ class DashboardMixin:
             return
         self._append("[remote] preview requested from the dashboard (renders in the background; it is not "
                      "opened on this PC)\n")
-        self._start_preview(it, model, origin="phone", clips=clips)
+        self._start_preview(it, model, origin="phone", clips=clips, layout=layout)
 
     def _preview_finished(self):
         self.render_msg = "Preview finished."

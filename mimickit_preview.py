@@ -379,7 +379,16 @@ def cmd_record(a):
     ckpt("build_env")
     clips = dataset_motions(mk, args.parse_string("env_config"))
     sel = pick_clips(clips, a.clips)
-    if sel:
+    long_ = getattr(a, "layout", "") == "long"
+    if long_:  # a0.9.1: all clips (or the chosen ones) back to back
+        sel = sel or list(range(len(clips)))
+        if not sel:
+            sel = [0]
+        if len(sel) > MAX_LONG_CLIPS:
+            log("one long clip: %d clips - showing the first %d (cap)" % (len(sel), MAX_LONG_CLIPS))
+        K = min(len(sel), MAX_LONG_CLIPS)
+        log("one long clip: %d clip(s) back to back" % K)
+    elif sel:
         K = min(len(sel), MAX_CLIPS)
         log("chosen clips: %s" % ", ".join(os.path.basename(clips[i]) for i in sel[:K]))
     else:
@@ -466,6 +475,10 @@ def cmd_record(a):
         else ["clip"]
     )
     nper = [int(math.ceil(L_ * fps)) for L_ in lens]
+    if long_ and sum(lens) > MAX_LONG_S:
+        nper, cap = long_caps(lens, fps)
+        log("one long clip: clips add up to %.0f s - each shortened to at most %.1f s (total cap %.0f s)"
+            % (sum(lens), cap, MAX_LONG_S))
     if a.frames:
         nper = [min(v, a.frames) for v in nper]
     n = max(nper)
@@ -809,14 +822,31 @@ def clip_data(z):
     return dict(Q=Q, BP=BP, RQ=RQ, RBP=RBP, K=K, n=n, nper=nper, names=names)
 
 
-LAYOUTS = ("grid", "seq")
+LAYOUTS = ("grid", "seq", "long")
 MAX_CLIPS = 4
+# a0.9.1: layout "long" = every training clip back to back in ONE mp4 (all clips simulated at once, one env each, then
+# rendered one after another). Caps keep it sane: at most MAX_LONG_CLIPS envs (a training run uses thousands, so this
+# stays small next to it), and when the clips add up to more than MAX_LONG_S each clip is shortened to its share
+# (never below LONG_MIN_CLIP_S) so the video and the render time stay bounded.
+MAX_LONG_CLIPS = 64
+MAX_LONG_S = 900.0
+LONG_MIN_CLIP_S = 2.0
+
+
+def long_caps(lens, fps):
+    """Frames per clip for 'one long clip': unchanged when the clips fit in MAX_LONG_S, else each clip capped to its
+    share (never below LONG_MIN_CLIP_S). Returns (nper, cap_seconds_or_None)."""
+    nper = [max(1, int(math.ceil(L_ * fps))) for L_ in lens]
+    if sum(lens) <= MAX_LONG_S:
+        return nper, None
+    cap = max(LONG_MIN_CLIP_S, MAX_LONG_S / max(1, len(lens)))
+    return [max(1, min(v, int(math.ceil(cap * fps)))) for v in nper], cap
 
 
 def frame_specs(c, layout):
     """Per output frame: list of (clip, step) panels. grid: all clips at once, shorter ones hold their last frame;
     seq: clips one after another."""
-    if c["K"] == 1 or layout == "grid":
+    if c["K"] == 1 or layout == "grid":  # "seq" and "long": one after another
         return [
             [(k, min(i, c["nper"][k] - 1)) for k in range(c["K"])] for i in range(max(c["nper"]))
         ]
@@ -982,6 +1012,11 @@ def _render_chunk(job):
         else:
             frame = panels[0]
         wr.append_data(frame)  # streamed: no frame list kept in RAM
+        if (f - lo) % 15 == 14:
+            try:
+                open(part + ".prog", "w").write(str(f - lo + 1))
+            except OSError:
+                pass
     wr.close()
     r.close()
     return hi - lo
@@ -1031,7 +1066,7 @@ def cmd_render(a, guard=None):
         log(
             "clip layout: %s - %d clips (%s), %d frames%s"
             % (
-                "all at once" if layout == "grid" else "one after another",
+                "all at once" if layout == "grid" else "one long clip" if layout == "long" else "one after another",
                 c["K"],
                 ", ".join(c["names"]),
                 n,
@@ -1078,8 +1113,18 @@ def cmd_render(a, guard=None):
             if guard:
                 guard.children = list(getattr(pool, "_pool", []))
             res = pool.map_async(_render_chunk, jobs)
+            lastp = time.time()
             while not res.ready():
                 res.wait(0.5)
+                if time.time() - lastp > 2:  # a0.9.1: render progress (long clips take a while)
+                    lastp = time.time()
+                    got = 0
+                    for j in jobs:
+                        try:
+                            got += int(open(j[4] + ".prog").read() or 0)
+                        except (OSError, ValueError):
+                            pass
+                    log("render frame %d/%d" % (min(got, n), n))
                 if guard and guard.tripped:
                     pool.terminate()
                     ram_abort(guard)
@@ -1259,6 +1304,10 @@ def _record_proc(a, device, guard, slow_check, variant=None):
     if a.frames:
         cmd += ["--frames", str(a.frames)]
     cmd += ["--motions", str(getattr(a, "motions", 4))]
+    if getattr(a, "clips", ""):  # a0.9.1: the record step now gets the chosen clips (it used to pick the first ones)
+        cmd += ["--clips", a.clips]
+    if getattr(a, "layout", "") == "long":
+        cmd += ["--layout", "long"]
     cmd += ["--"] + a.mk_args
     env = variant_env(variant)
     cmd[cmd.index("--out") : cmd.index("--out")] = ["--warp_cache", a.warp_cache]
@@ -1645,7 +1694,7 @@ def main(argv=None):
     p.add_argument("--ghost", default="overlay", choices=GHOST_MODES)
     p.add_argument("--layout", default="grid", choices=LAYOUTS)
     p.add_argument("--motions", type=int, default=4)
-    p.add_argument("--clips", default="", help="comma list of clip names (or ids) to preview, max 4")
+    p.add_argument("--clips", default="", help="comma list of clip names (or ids) to preview, max 4 (layout long: any)")
     p.add_argument("--mk", default=".")
     p.add_argument("--device", default="auto")
     p.add_argument("--out", default="preview.mp4")
