@@ -260,7 +260,7 @@ class DashboardMixin:
         ttk.Label(f, text="Phone dashboard", style="TLabelframe.Label").grid(
             row=0, column=0, sticky="w"
         )
-        ttk.Checkbutton(f, text="Enable (read-only web page; off by default)", variable=v_en).grid(
+        ttk.Checkbutton(f, text="Enable (web page; read-only unless control is allowed below; off by default)", variable=v_en).grid(
             row=1, column=0, columnspan=3, sticky="w"
         )
         ttk.Label(f, text="Port").grid(row=2, column=0, sticky="w")
