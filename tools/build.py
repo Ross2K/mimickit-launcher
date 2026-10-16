@@ -26,6 +26,7 @@ TESTS = [
     "trainsettings_test",
     "decimate_test",
     "dashboard_page_test",
+    "runs_test",
     "chart_lines_test",
     "placement_test",
     "fixes042_test",

@@ -92,7 +92,7 @@ class RunsMixin:
             except Exception as e:
                 core.log_exc("patch status %s" % ph["name"], e)
                 st = "unknown"
-            out.append(dict(name=ph["name"], title=a["text"], why=(a.get("help") or "").replace("\n", " "),
+            out.append(dict(name=ph["name"], title=ph.get("title") or a["text"], why=(a.get("help") or "").replace("\n", " "),
                             status=st, can_revert=bool(ph.get("revert")), touches_sim=ph.get("touches_sim", True)))
         self._patch_cache = (time.time(), out)
         return out

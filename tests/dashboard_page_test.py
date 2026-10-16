@@ -47,6 +47,9 @@ page = page.decode()
 check("page served", c == 200)
 for m in ("pv_play", "pv_seek", "pv_sel", 'data-r="0.25"', 'data-r="0.5"', 'data-r="1"', "pv_loop", "pv_dl", "rprog"):
     check("preview control " + m, m in page)
+for m in ('id="s_runs"', "r_cfg", "r_envs", "r_out", "r_ovw", "a_start", "r_src", "a_cont", 'id="s_patch"', "plist", "onhold"):
+    check("runs/patches control " + m, m in page)
+check("Runs + patches sit inside the Controls panel", page.index('id="panel"') < page.index('id="s_runs"') < page.index('id="s_patch"') < page.index('id="modal"'))
 check("'Preview options' collapsed by default", "<details" in page and "Preview options" in page
       and "<details open" not in page.split("Preview options")[0][-200:])
 check("no autoplay on the video", "autoplay=" not in page.lower() and ".autoplay" not in page.lower() and " autoplay>" not in page.lower())
