@@ -3,6 +3,15 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## a0.8.3
+
+Small phone/wording polish (GUI only, no training or patch files changed).
+
+- Phone dark mode is true black; buttons are at least 44 px tall (easier to tap).
+- Phone "Parallel sims": hint "Whole number, e.g. 64" under the field; Start/Continue stay disabled until it is valid.
+- Browser tab title matches the header ("MimicKit · run"); PIN label "6–12 digits"; "Working…" everywhere.
+- Z build: plainer updater messages (technical part under Details).
+
 ## a0.8.2
 
 Fixes from the a0.8.1 review, plus the taskbar icon.

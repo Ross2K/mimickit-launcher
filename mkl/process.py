@@ -251,7 +251,7 @@ class ProcessMixin:
             )
             return False
         if kind in ("train", "resume") and self._envs_or_0() < 1:
-            self._append("[gui] refused: parallel sims (num_envs) must be a whole number, e.g. 64\n")
+            self._append("[gui] refused: parallel sims must be a whole number, e.g. 64\n")
             messagebox.showinfo("Parallel sims", "Parallel sims must be a whole number, e.g. 64.")
             return False
         if it.get("missing"):

@@ -273,8 +273,8 @@ def status_text(snap):
 
 # ---------------------------------------------------------------- web server
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MimicKit dashboard</title><style>
-:root{--bg:#121212;--panel:#1e1e1e;--fg:#d8d8d8;--dim:#8a8a8a;--acc:#5b8db8;--b:#333}
+<title>MimicKit</title><style>
+:root{--bg:#000;--panel:#0d0d0d;--fg:#d8d8d8;--dim:#8a8a8a;--acc:#5b8db8;--b:#333}
 body.light{--bg:#ececec;--panel:#fff;--fg:#1a1a1a;--dim:#666;--acc:#2f6ea3;--b:#bbb}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
 header{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--b)}
@@ -283,7 +283,7 @@ h1{font-size:16px;margin:0}.card{background:var(--panel);margin:10px;padding:10p
 .bar{height:10px;background:var(--b);border-radius:5px;overflow:hidden}.bar>div{height:100%;width:0}
 canvas{width:100%;height:190px;touch-action:pan-y;display:block}video{width:100%;border-radius:8px;background:#000}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;width:100%}
-button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
+button{min-height:44px}#ctlbtn,#theme,.seg button,.pvrow button,.bgrid button{min-height:44px}button:disabled{opacity:.5}small{color:var(--dim)}#state{font-weight:600}a{color:var(--acc)}
 #theme{display:inline-block;min-width:32px;min-height:32px;line-height:32px;text-align:center;padding:0 6px}#ctlbtn{width:auto;padding:6px 10px;font-size:13px;margin-right:8px}#ctlbtn.off{background:var(--b);color:var(--dim)}
 #pending{color:#e6bd66;font-weight:600}#pending:empty{display:none}
 details.sec{border-top:1px solid var(--b);padding:6px 0}details.sec summary{font-weight:600;cursor:pointer;padding:4px 0}
@@ -314,7 +314,7 @@ select{width:auto;max-width:65%;padding:4px 6px;font-size:13px}
 <button class="sec2" id="a_tweak">Queue for next resume</button></div><small id="tweakmsg"></small></details>
 <details class="sec" id="s_runs"><summary>Runs <span class="cnt" id="n_runs"></span></summary><small id="runbusy"></small>
 <div class="row"><span class="k">Config</span><select id="r_cfg"></select></div><small id="r_help"></small>
-<div class="row"><span class="k">Parallel sims</span><input id="r_envs" type="number" min="1" max="65536" style="width:45%"></div>
+<div class="row"><span class="k">Parallel sims</span><input id="r_envs" type="number" min="1" max="65536" step="1" style="width:45%"></div><small id="r_envs_hint">Whole number, e.g. 64</small>
 <div class="row"><span class="k">Output folder</span><input id="r_out" autocomplete="off" spellcheck="false" style="width:60%"></div>
 <div class="row"><span class="k">Overwrite</span><label><input type="checkbox" id="r_ovw"> replace an earlier run there</label></div>
 <div class="bgrid"><button id="a_start">Start new training</button></div>
@@ -412,7 +412,7 @@ for(const id of ['c1','c2','c3']){const cv=q(id);let t0=null,mode=null,moved=fal
  cv.addEventListener('wheel',e=>{if(!S)return;e.preventDefault();const v=view||full(),r=cv.getBoundingClientRect(),c=v[0]+(e.clientX-r.left-44)/(r.width-50)*(v[1]-v[0]),f=e.deltaY<0?0.8:1.25;view=[c-(c-v[0])*f,c+(v[1]-c)*f];draw()});
  cv.addEventListener('dblclick',()=>{view=null;draw()})}
 async function tick(){try{const r=await fetch('/api/status',{headers:H,cache:'no-store'});if(!r.ok){q('state').textContent='access denied ('+r.status+')';return}
- S=await r.json();q('title').textContent=S.run_name?'MimicKit \u00b7 '+S.run_name:(S.title||'MimicKit');q('state').textContent=S.state||'';
+ S=await r.json();q('title').textContent=S.run_name?'MimicKit \u00b7 '+S.run_name:(S.title||'MimicKit');document.title=q('title').textContent;q('state').textContent=S.state||'';
  for(const k of ['session_time','total_time','samples','rate','estimate','per_step','vram'])q(k).textContent=S[k]||'-';
  const vp=S.vram_pct;const vb=q('vbar');vb.style.width=(vp||0)+'%';vb.style.background=vp>90?'#c0392b':vp>75?'#d0952c':'#3f9a54';
  q('age').textContent=new Date().toLocaleTimeString();draw();
@@ -494,13 +494,14 @@ function runsTick(){clipsTick();const R=S&&S.runs_ui;if(!R)return;const sig=JSON
  if(sig!==RU_SIG){RU_SIG=sig;opts(q('r_cfg'),R.configs.map(c=>[c,c+((R.missing||{})[c]?' (not installed)':'')]),R.config);opts(q('r_src'),R.runs.map(r=>[r.key,r.name+' \u00b7 '+r.saved]),'')}
  const c=q('r_cfg').value;if(c!==RU_CFG){RU_CFG=c;if(document.activeElement!==q('r_out'))q('r_out').value=(c===R.config?R.out:(R.outs[c]||R.out))||'';if(!q('r_envs').value)q('r_envs').value=R.num_envs||''}
  const miss=(R.missing||{})[c];q('r_help').textContent=miss?('Not installed: '+miss):((R.helps&&R.helps[c])||'');q('r_help').style.color=miss?'#e6bd66':'';const r=R.runs.find(x=>x.key===q('r_src').value);q('r_srcinfo').textContent=r?('saved '+r.saved+' \u00b7 '+r.total+' trained, '+r.sessions+' session(s)'):'No earlier runs with a model.pt yet.';
- q('runbusy').textContent=R.busy?('Running on the PC ('+(R.busy_kind||'run')+') - starting is off until it stops.'):'';q('a_start').disabled=!!R.busy||!!miss;q('a_cont').disabled=!!R.busy||!r||!!miss;
+ q('runbusy').textContent=R.busy?('Running on the PC ('+(R.busy_kind||'run')+') - starting is off until it stops.'):'';const ev=q('r_envs').value.trim(),eok=/^[0-9]+$/.test(ev)&&+ev>=1&&+ev<=65536;q('r_envs_hint').style.color=eok?'':'#e6bd66';q('a_start').disabled=!!R.busy||!!miss||!eok;q('a_cont').disabled=!!R.busy||!r||!!miss||!eok;
  q('n_runs').textContent='('+R.runs.length+' earlier)';if(R.msg)q('runmsg').textContent=R.msg;
  const P=R.patches||[];q('n_patch').textContent='('+P.filter(p=>p.status==='applied').length+' of '+P.length+' applied)';
  const ps=JSON.stringify(P)+!!S.running;if(ps!==q('plist').dataset.sig){q('plist').dataset.sig=ps;
   const whyOff=(p,op)=>S.running?'Off while training runs (patches change MimicKit files).':p.status==='missing'?'MimicKit folder not found on the PC.':p.status==='unknown'?'The PC could not read this patch\u2019s state (see the PC log).':op==='apply'&&p.status==='applied'?'Already applied.':op==='revert'&&!p.can_revert?'This one cannot be reverted.':op==='revert'&&p.status==='not applied'?'Not applied, nothing to revert.':'';
   q('plist').innerHTML=P.map(p=>{const wa=whyOff(p,'apply'),wr=whyOff(p,'revert'),w=wa&&wr?(wa===wr?wa:wa+' '+wr):'';return '<div class="row"><span class="k">'+esc(p.title)+'</span><span class="v">'+esc(p.status)+'</span></div><div class="bgrid"><button class="sec2" data-p="'+esc(p.name)+'" data-op="apply"'+(wa?' disabled title="'+esc(wa)+'"':'')+'>Apply</button><button class="sec2" data-p="'+esc(p.name)+'" data-op="revert"'+(wr?' disabled title="'+esc(wr)+'"':'')+'>Revert</button></div>'+((wa||wr)&&!S.running?'<small>'+esc(w||wa||wr)+'</small>':'')}).join('')+(S.running?'<small>Training is running: patches change MimicKit files, so they are off until it stops.</small>':'');
   for(const b of q('plist').querySelectorAll('button'))b.onclick=()=>{const p=P.find(x=>x.name===b.dataset.p),op=b.dataset.op;modal({title:(op==='apply'?'Apply':'Revert')+' "'+p.title+'"?',text:p.why+' Runs started afterwards use it.',keep:'Cancel',hold:true,holdText:op,onhold:()=>act('patch',{name:p.name,op},q('patchmsg'))})}}}
+q('r_envs').oninput=()=>{try{runsTick()}catch(e){}};
 q('a_start').onclick=()=>{const n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim(),w=q('r_ovw').checked;
  modal({title:'Start a new training run?',text:c+' \u00b7 '+n+' parallel sims \u2192 '+o+(w?' (REPLACES an earlier run there)':''),keep:'Cancel',hold:true,holdText:'start',onhold:()=>act('start_train',{config:c,num_envs:Number.isInteger(n)?n:q('r_envs').value,out:o,overwrite:w},q('runmsg'))})};
 q('a_cont').onclick=()=>{const R=S.runs_ui,r=R.runs.find(x=>x.key===q('r_src').value),n=Number(q('r_envs').value),c=q('r_cfg').value,o=q('r_out').value.trim();if(!r)return;
@@ -967,7 +968,7 @@ class Control:
     a0.8.0: wrong-PIN lockout is per phone (client address), each nonce is bound to the one action it was asked for,
     extra_actions() adds overlay actions (e.g. updates) behind the same PIN + session + nonce gate."""
 
-    ACT_WAIT_S = 3.0  # wait this long for an action's answer, then reply 202 'Working...' (phone re-asks with the nonce)
+    ACT_WAIT_S = 3.0  # wait this long for an action's answer, then reply 202 'Working…' (phone re-asks with the nonce)
 
     def __init__(self, cfg_get, on_action, log=None, now=time.time, extra_actions=None, turn_off=None):
         self.cfg_get, self.on_action, self.log, self.now = cfg_get, on_action, log or (lambda m: None), now
@@ -1124,7 +1125,7 @@ class Control:
                     self.used[nonce] = (400, {"error": why})
                     return 400, {"error": why}
             handler = extra[action] if action in extra else None
-            self.used[nonce] = (202, {"message": "Working...", "pending": True})
+            self.used[nonce] = (202, {"message": "Working…", "pending": True})
             if len(self.used) > 500:
                 self.used = dict(list(self.used.items())[-200:])
         # the lock is released: a slow handler (GUI queue, file I/O) can't block other phones / sign-ins
@@ -1151,4 +1152,4 @@ class Control:
         if "r" in res:
             return res["r"]
         self.log("control: %s still working after %.0f s - phone told 202, it asks again" % (action, self.ACT_WAIT_S))
-        return 202, {"message": "Working...", "pending": True}
+        return 202, {"message": "Working…", "pending": True}

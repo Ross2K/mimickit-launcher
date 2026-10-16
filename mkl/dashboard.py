@@ -420,7 +420,7 @@ class DashboardMixin:
         ttk.Checkbutton(
             cf, text="Allow phone control (needs a PIN)", variable=v_ctl
         ).grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(cf, text="PIN: 6+ digits").grid(row=1, column=0, sticky="w")
+        ttk.Label(cf, text="PIN: 6–12 digits").grid(row=1, column=0, sticky="w")
         v_pin = tk.StringVar()
         ttk.Entry(cf, textvariable=v_pin, width=14, show="*").grid(row=1, column=1, sticky="w")
         ctl_msg = ttk.Label(cf, style="Dim.TLabel", wraplength=520, justify="left")
