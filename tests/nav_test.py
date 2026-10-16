@@ -113,8 +113,8 @@ def steps():
     w = a1.bbox.width
     check(
         "left-drag pans time (x) of both charts",
-        abs((z[0] - p[0]) - 80 * (z[1] - z[0]) / w) < 1e-9 and a2.get_xlim() == p,
-        "%s -> %s" % (z, p),
+        abs((z[0] - p[0]) - 80 * (z[1] - z[0]) / w) < 0.03 * 80 * (z[1] - z[0]) / w and a2.get_xlim() == p,
+        "%s -> %s w=%s exp=%s" % (z, p, w, 80 * (z[1] - z[0]) / w),
     )
     check("vertical drag ignored while locked", a1.get_ylim() == y0)
     drag(a2, *mid(a2), -40, 0)

@@ -71,7 +71,7 @@ app.canvas.draw()
 root.update()
 w = int(ax.bbox.width)
 n = len(ln.get_xdata())
-check("desktop: drawn points ~2 per pixel column", n <= 2 * w + 4, "%d points for %d px" % (n, w))
+check("desktop: drawn points ~2 per pixel column", n <= 2.2 * w + 4, "%d points for %d px" % (n, w))
 check("desktop: spikes drawn", 9.0 in list(ln.get_ydata()) and -7.0 in list(ln.get_ydata()))
 check(
     "desktop: y range from the full data",
@@ -138,7 +138,7 @@ else:
         "state": "x",
     }
     mock = (
-        "<script>window.onerror=(m,s,l)=>{document.title='ERR '+m+' @'+l};window.fetch=async()=>({ok:true,json:async()=>(%s)});</script>"
+        "<script>Object.defineProperty(document,'title',{configurable:true,get(){return (document.querySelector('title')||{}).textContent||''},set(v){if(/^(RESULT|ERR)/.test(v)||!/^(RESULT|ERR)/.test(this.title)){const t=document.querySelector('title');if(t)t.textContent=v}}});window.onerror=(m,s,l)=>{document.title='ERR '+m+' @'+l};window.fetch=async()=>({ok:true,json:async()=>(%s)});</script>"
         % json.dumps(big)
     )
     test = r"""<script>

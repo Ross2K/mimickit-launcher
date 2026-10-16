@@ -68,7 +68,7 @@ check(
 st, h, body = req(P, "/?t=" + tok)
 check(
     "page with token: 200 html, mobile viewport, dark default",
-    st == 200 and b"width=device-width" in body and b"--bg:#121212" in body,
+    st == 200 and b"width=device-width" in body and b"--bg:#000" in body,
 )
 check(
     "token cookie set (HttpOnly, SameSite=Strict)",
