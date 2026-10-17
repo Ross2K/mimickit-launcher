@@ -2,7 +2,7 @@
 
 It only LOOKS: a small 'Update aX.Y.Z available' notice on the PC (bottom bar, click it) and on the phone (one line).
 It never downloads or installs anything by itself.
-  * public build: reads the public GitHub releases of curelessSky/mimickit-launcher (no key needed);
+  * public build: reads the public GitHub releases of Ross2K/mimickit-launcher (no key needed);
   * Z build: the Updates plugin (launcher_updater.py) registers app.update_checker, which uses the stored read-only
     access key and the signed-manifest check - the same check as 'Check for updates', minus any install.
 Offline / GitHub errors: no popup, no notice - one log line, and it tries again at the next interval."""
@@ -11,7 +11,7 @@ import json, os, re, threading, time, urllib.request, webbrowser
 
 from mkl import core
 
-PUBLIC_REPO = "curelessSky/mimickit-launcher"
+PUBLIC_REPO = "Ross2K/mimickit-launcher"
 API = "https://api.github.com"
 DEFAULT_HOURS = 6
 MIN_HOURS, MAX_HOURS = 1, 168

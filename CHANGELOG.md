@@ -14,6 +14,9 @@ place: `VERSION` in `mkl/core.py`.
   name and start command (window properties), so the button shows the launcher icon whatever started it.
 - **Check taskbar icon.bat**: double-click diagnostic; writes `taskbar_icon_report.txt` (start chain with exe paths,
   venv redirector yes/no, the taskbar ID Windows reports, window icons and properties, shortcuts, Python/Tk versions).
+- **GitHub name changed** to Ross2K: update checks, the About link and the update-key guide use
+  `Ross2K/mimickit-launcher(-Z)`. Versions before 1.0.1 still ask the old name and can't update themselves past this
+  one (install 1.0.1 by hand once). The taskbar ID string stays as it is (changing it would split the taskbar button).
 - The log panel shows one `[gui] taskbar:` line (ID, window identity, icon file). Creating the Start-menu shortcut
   now checks that the taskbar ID really landed in it and says so if not.
 

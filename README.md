@@ -191,7 +191,7 @@ A stand-alone PyInstaller build can be made with the GitHub Actions workflow `.g
 
 Or from a terminal:
 ```bat
-git clone https://github.com/curelessSky/mimickit-launcher.git
+git clone https://github.com/Ross2K/mimickit-launcher.git
 cd mimickit-launcher
 launch.bat
 ```
@@ -392,4 +392,4 @@ xvfb-run -a python tests/remote_test.py   # phone dashboard (token, range reques
 
 ## License
 
-Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later - see [LICENSE](LICENSE).
+Copyright (c) 2026 Ross2K, licensed under GPL-3.0-or-later - see [LICENSE](LICENSE).
