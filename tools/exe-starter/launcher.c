@@ -1,6 +1,6 @@
 /* Tiny Windows starter: finds a pythonw.exe (venv) and runs SCRIPT_NAME next to this .exe.
    Build: see build.sh (clang-cl + lld-link, xwin SDK).
-   Copyright (c) 2026 curelessSky, licensed under GPL-3.0-or-later. */
+   Copyright (c) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shlobj.h>

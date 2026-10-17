@@ -1,5 +1,5 @@
 # MimicKit Launcher - main window
-# Copyright (C) 2026 Ross2K. GPL-3.0-or-later (see LICENSE).
+# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 from mkl.core import *  # noqa: F401,F403 - shared helpers/constants
 from mkl.core import __all__ as _core_names  # noqa: F401
 
@@ -1430,7 +1430,8 @@ class MainWindowMixin:
         ttk.Label(
             f,
             text="A GUI for training and previewing MimicKit policies.\n"
-            "GPL-3.0-or-later. https://github.com/Ross2K/mimickit-launcher",
+            "Source-available, free for non-commercial use (PolyForm Noncommercial 1.0.0).\n"
+            "https://github.com/Ross2K/mimickit-launcher",
             style="Dim.TLabel",
             justify="left",
         ).pack(anchor="w", pady=(6, 10))

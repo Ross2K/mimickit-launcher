@@ -140,6 +140,7 @@ OLD_OWNER = "cureless" + "Sky"  # GitHub owner before the rename to Ross2K (spli
 OWNER_ALLOW = (
     (("mkl/icon.py", "tools/make_shortcut.ps1", "tests/icon_test.py", "CHANGELOG.md"), OLD_OWNER + ".MimicKitLauncher"),
     (None, "Copyright"),
+    (("CONTRIBUTING.md",), "grant " + OLD_OWNER),  # contributor license grant (legal text)
 )
 
 
@@ -152,7 +153,7 @@ def old_owner_hits(d, files=None):
             files += [os.path.relpath(os.path.join(root, f), d).replace(os.sep, "/") for f in fs]
     hits = []
     for rel in files:
-        if rel == "LICENSE" or rel.endswith((".pyc", ".png", ".ico", ".exe", ".pkl", ".zip")):
+        if rel in ("LICENSE", "NOTICE") or rel.endswith((".pyc", ".png", ".ico", ".exe", ".pkl", ".zip")):
             continue
         try:
             text = open(os.path.join(d, rel), encoding="utf-8").read()

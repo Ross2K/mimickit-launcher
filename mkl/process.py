@@ -1,5 +1,5 @@
 # MimicKit Launcher - configs and runs
-# Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
+# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 from mkl.core import *  # noqa: F401,F403 - shared helpers/constants
 from mkl.core import __all__ as _core_names  # noqa: F401
 import tempfile

@@ -1,4 +1,4 @@
-"""MimicKit Launcher - preview MP4 renderer (part of MimicKit Launcher, GPL-3.0-or-later, Copyright (c) 2026 curelessSky).
+"""MimicKit Launcher - preview MP4 renderer (part of MimicKit Launcher, Copyright (c) 2026 curelessSky, SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0).
 
 Runs in MimicKit's own Python environment, in a separate (detached) process so it can never take down a training run.
   all    : record (CPU first, GPU fallback per --device) -> render with plain MuJoCo on the CPU -> open the MP4

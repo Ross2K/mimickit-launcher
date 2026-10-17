@@ -1,5 +1,5 @@
 # MimicKit Launcher - "First steps!" / "Walking well" milestones (a0.9.0)
-# Copyright (C) 2026 curelessSky. GPL-3.0-or-later (see LICENSE).
+# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """Milestone alerts from the metrics MimicKit already logs (log.txt / console), no extra logging needed.
 
 Log keys used (mimickit/learning/base_agent.py writes them every output iteration, after a test pass):
