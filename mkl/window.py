@@ -386,11 +386,15 @@ class MainWindowMixin:
                 room = req
             # a few px short -> squeeze the Last preview card (sub line, padding) instead of a scrollbar
             card = getattr(self, "_lastcard", None)
-            if card is not None:
+            geo = (self.root.winfo_width(), self.root.winfo_height())
+            if st.get("tog_geo") != geo:
+                st["tog_geo"], st["tog_n"] = geo, 0
+            if card is not None and st["tog_n"] < 2:  # at most 2 squeeze changes per window size: never a loop
                 over = req - room
                 if not st.get("compact") and 1 < over <= int(20 * k) + 1:
                     st["compact"] = self.l_cardsub.winfo_reqheight() + 16  # estimate until measured below
                     st["room0"], st["measured"] = room, False
+                    st["tog_n"] += 1
                     self._card_compact(True)
                     cv.after_idle(fit)
                     return
@@ -398,6 +402,7 @@ class MainWindowMixin:
                     st["compact"], st["measured"] = max(1, room - st["room0"]), True  # what the squeeze gave back
                 if st.get("compact") and (over > int(60 * k) or -over > st["compact"] + 2):
                     st["compact"] = 0
+                    st["tog_n"] += 1
                     self._card_compact(False)
                     cv.after_idle(fit)
                     return
