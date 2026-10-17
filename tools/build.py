@@ -134,11 +134,61 @@ def zip_dir(d, dst, prefix):
                 z.write(p, os.path.join(prefix, os.path.relpath(p, d)))
 
 
+OLD_OWNER = "cureless" + "Sky"  # GitHub owner before the rename to Ross2K (split so this file doesn't match itself)
+# The ONLY places the old name may stay: the Windows taskbar ID string (changing it splits the taskbar button) and
+# copyright / license lines. Anything else (URLs, REPO / PUBLIC_REPO, guide and About text) fails the build.
+OWNER_ALLOW = (
+    (("mkl/icon.py", "tools/make_shortcut.ps1", "tests/icon_test.py", "CHANGELOG.md"), OLD_OWNER + ".MimicKitLauncher"),
+    (None, "Copyright"),
+)
+
+
+def old_owner_hits(d, files=None):
+    """[(file, line no, text)] of old-owner references outside the allowlist in folder d."""
+    if files is None:
+        files = []
+        for root, dirs, fs in os.walk(d):
+            dirs[:] = [x for x in dirs if x not in ("__pycache__", ".git", "output")]
+            files += [os.path.relpath(os.path.join(root, f), d).replace(os.sep, "/") for f in fs]
+    hits = []
+    for rel in files:
+        if rel == "LICENSE" or rel.endswith((".pyc", ".png", ".ico", ".exe", ".pkl", ".zip")):
+            continue
+        try:
+            text = open(os.path.join(d, rel), encoding="utf-8").read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if OLD_OWNER not in line:
+                continue
+            rest = line
+            for where, pat in OWNER_ALLOW:
+                if where is None or rel in where:
+                    if pat == "Copyright" and pat in line:
+                        rest = ""
+                    else:
+                        rest = rest.replace(pat, "")
+            if OLD_OWNER in rest:
+                hits.append((rel, n, line.strip()[:120]))
+    return hits
+
+
+def check_old_owner(dirs):
+    hits = []
+    for d in dirs:
+        files = git("ls-files").splitlines() if d == HERE else None
+        hits += [(d,) + h for h in old_owner_hits(d, files)]
+    if hits:
+        sys.exit("old GitHub owner %r still referenced (repo is Ross2K now) - no zip written:\n%s" % (
+            OLD_OWNER, "\n".join("  %s/%s:%d: %s" % h for h in hits)))
+
+
 def main():
     z = sys.argv[sys.argv.index("--z") + 1] if "--z" in sys.argv else None
     check_clean()
     if z:
         check_overlay_synced(z)
+    check_old_owner([HERE] + ([z] if z else []))
     commit = git("rev-parse", "--short=10", "HEAD").strip()
     if "--skip-tests" not in sys.argv:
         for d in [HERE] + ([z] if z else []):
