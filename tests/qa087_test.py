@@ -152,5 +152,7 @@ top, ch, short, clip, more = map(int, next((l for l in out.splitlines() if l.sta
 check("125 %%: top keeps ~260 px, snapped down to a whole row (%d)" % top, top >= 210)  # a0.8.8: snap
 check("125 %%: chart canvas >= 312 px, two charts (%d px, short=%d)" % (ch, short), ch >= 312 and short < 2)
 check("125 %%: no chart toolbar control clipped (%d)" % clip, clip == 0)
-check("125 %%: '\u25be More settings below' strip 20-24 px (%d)" % more, 20 <= more <= 24)
+# 1.0.0: the left column got shorter (plain description) and may fit whole at 125 % - then there is no strip
+check("125 %%: '\u25be More settings below' strip 20-24 px when the column scrolls, none when it fits (%d)" % more,
+      20 <= more <= 24 or more == 0)
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

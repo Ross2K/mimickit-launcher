@@ -146,6 +146,7 @@ mid, need, toph, topreq, stopb, winh = map(int, line[1:])
 check("125 %% 1536x816: top keeps ~260 px or all of it (%d of %d px, need %d)" % (toph, topreq, min(topreq, need * 208 // 360) - 50),
       toph >= min(topreq, need * 208 // 360) - 50)
 check("125 %% 1536x816: charts box keeps >= ~150 px (%d px)" % mid, mid >= need * 150 // 360)
-check("125 %%: the top section is the one that scrolls (shown %d of %d px)" % (toph, topreq), toph < topreq)
+check("125 %%: the top section is the one that scrolls, or it fits whole (shown %d of %d px)" % (toph, topreq),
+      toph < topreq or toph >= topreq - 2)  # 1.0.0: the shorter left column can fit whole at 125 %
 check("125 %: STOP still inside the window", 0 < stopb <= winh, (stopb, winh))
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

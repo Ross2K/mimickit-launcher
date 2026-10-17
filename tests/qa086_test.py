@@ -94,7 +94,8 @@ G.filedialog.askdirectory = lambda *a, **k: fake_mk()
 r = tk.Tk()
 a = G.App(r)
 a.v_mk.set(fake_mk())
-r.geometry("1280x700+0+0")
+r.minsize(1, 1)
+r.geometry("1280x560+0+0")  # 1.0.0: the left column is shorter now - a lower window still makes it scroll
 for _ in range(60):
     r.update()
     time.sleep(0.03)

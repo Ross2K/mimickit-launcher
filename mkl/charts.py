@@ -96,7 +96,7 @@ class ChartsMixin:
     def _make_axes(self):
         """2 charts (return, speed) or 3 with the per-step score chart."""
         self.fig.clear()
-        n = 3 if self.v_ps.get() and not getattr(self, "_chart_short", False) else 2
+        n = 3 if self._ps_wanted() else 2
         axes = [self.fig.add_subplot(n, 1, i + 1) for i in range(n)]
         self.ax1, self.ax2 = axes[0], axes[1]
         self.ax3 = axes[2] if n == 3 else None
@@ -109,6 +109,27 @@ class ChartsMixin:
             gs = self.fig.add_gridspec(2, 1, height_ratios=[1, 1e-3] if hide is self.ax2 else [1e-3, 1])
             self.ax1.set_subplotspec(gs[0])
             self.ax2.set_subplotspec(gs[1])
+
+    def _ps_wanted(self):
+        """Per-step chart shown: ticked, tall enough, and (1.0.0 UX) only once there is per-step data."""
+        return bool(self.v_ps.get() and not getattr(self, "_chart_short", False)
+                    and getattr(self, "per_step", None) is not None)
+
+    def _ps_hint_paint(self):
+        f = getattr(self, "f_pshint", None)
+        if f is None:
+            return
+        show = bool(self.v_ps.get() and getattr(self, "per_step", None) is None)
+        if show and not f.winfo_manager():
+            f.pack(side="bottom", fill="x", pady=(2, 0), before=self.canvas.get_tk_widget())
+        elif not show and f.winfo_manager():
+            f.pack_forget()
+
+    def _ps_avail_changed(self):
+        self._make_axes()
+        self.apply_theme()
+        self._auto_follow()
+        self._progress_tick(force=True)
 
     CHART_MIN_2 = 250  # below this only one chart (Return or Speed tab)
     CHART_MIN_3 = 360  # px (at 96 dpi) the chart area needs for 3 charts; below it the per-step chart is hidden
@@ -143,6 +164,7 @@ class ChartsMixin:
     def _ps_toggled(self):
         self.s["per_step_chart"] = bool(self.v_ps.get())
         self._save_settings_only()
+        self._ps_hint_paint()
         self._make_axes()
         self.apply_theme()
         self._auto_follow()
@@ -483,6 +505,8 @@ class ChartsMixin:
                 l for l in lines if not l.startswith(STATUS_PANEL_SHOWS)
             ]  # already in the status panel
         self.l_status.configure(text="\n".join(lines))
+        if getattr(self, "l_details", None) is not None:
+            self.l_details.configure(text="\n".join(lines))
         self.canvas.draw_idle()
         try:
             self._publish(lines, d, running)
@@ -716,6 +740,9 @@ class ChartsMixin:
         self.ax1.set_ylabel("Return", fontsize=8)
         self.ax2.set_ylabel("M samples/h", fontsize=8)
         lines.append(self._per_step_line(log, d))
+        self._ps_hint_paint()
+        if self._ps_wanted() != (self.ax3 is not None):  # per-step data appeared / went away
+            self.root.after_idle(self._ps_avail_changed)
         try:
             self.fig.align_ylabels(list(self._axes()))
         except Exception as e:

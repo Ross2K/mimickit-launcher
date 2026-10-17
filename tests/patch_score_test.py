@@ -154,6 +154,12 @@ check(
     l2,
 )
 app._chart_short = 0  # tall chart (a0.8.4 hides per-step when short)
+app.per_step = None
+app._make_axes()
+check("1.0.0: no per-step data -> per-step chart hidden (Return + Speed fill the space)", app.ax3 is None)
+app.per_step = {"Train": 50.0}  # per-step data arrived
+_psl = app._per_step_line
+app._per_step_line = lambda log, d: (setattr(app, "per_step", {"Train": 50.0}), "Avg reward per step: train 50.0%")[1]
 app._make_axes()
 check(
     "third chart present (per-step) and toggleable",
@@ -164,6 +170,7 @@ check(
 app._chart_short = 1
 app._make_axes()
 check("per-step hidden when chart is short (<360px)", app.ax3 is None)
+app._per_step_line = _psl
 app._chart_short = 0
 app._make_axes()
 app.patch_dialog()

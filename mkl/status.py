@@ -5,6 +5,7 @@
 from mkl.core import *
 from mkl import status_model as SM
 import tkinter.font as tkfont
+import re
 
 BANNER_COL = {"idle": "dim", "info": "accent", "ok": "good", "warn": "warn", "error": "err"}
 MONO = ("DejaVu Sans Mono", 9) if not IS_WIN else ("Consolas", 9)
@@ -186,6 +187,13 @@ class StatusMixin:
                 padx=6,
                 pady=4,
             )
+        # 1.0.0 UX: the event list is part of the panel (themed like it, light theme too), not a black log box
+        self.st_events.configure(bg=T["bg"], fg=T["fg"], padx=0, pady=2, font="TkDefaultFont")
+        try:
+            ind = tkfont.nametofont("TkDefaultFont").measure("00:00  ")
+        except tk.TclError:
+            ind = 40
+        self.st_events.tag_configure("ev", lmargin2=ind, spacing3=5)
         self.st_warn.tag_configure("warn", foreground=T["warn"])
         self.st_warn.tag_configure("err", foreground=T["err"])
         self.st_warn.tag_configure("dim", foreground=T["dim"])
@@ -295,7 +303,10 @@ class StatusMixin:
     def _paint_banner(self, level=None, text=None, force=False):
         level = level or self.ban_level
         if text is not None:
-            self.ban_lab.configure(text=text)
+            # 1.0.0 UX: short pill while healthy ('Training \u00b7 iter N'; the speed is in its own tile), full text on hover
+            m_ = re.match(r"Training normally - iteration (\d+)[,.]", text)
+            self.ban_lab.configure(text="Training \u00b7 iter %s" % m_.group(1) if m_ else text)
+            Tip(self.ban_lab, text)
             self.root.after_idle(self._ban_hold)
         self.ban_level = level
         col = T.get(BANNER_COL.get(level, "dim"), T["fg"])
@@ -366,13 +377,14 @@ class StatusMixin:
         )
         if sig != self._status_sig or force:
             self._status_sig = sig
-            self._fill(
+            self._fill(  # 1.0.0: Mockup D event list - newest first, time column, wrapped lines indented
                 self.st_events,
                 [
                     (time.strftime("%H:%M", time.localtime(t)) + "  ", "dim", x, "")
-                    for t, x in m.events[-8:]
+                    for t, x in reversed(m.events[-12:])
                 ]
                 or [("", "", "Nothing yet.", "dim")],
+                top=True,
             )
             rows = [
                 (time.strftime("%H:%M", time.localtime(t)) + "  ", "dim", l, "err")
@@ -408,14 +420,15 @@ class StatusMixin:
             for w in (t, a, b):  # 1.0.0: the tile's small print is in its hover help
                 Tip(w, base + ("\n\nNow: %s" % sub if sub else ""))
 
-    def _fill(self, w, rows):
+    def _fill(self, w, rows, top=False):
         w.configure(state="normal")
         w.delete("1.0", "end")
         for pre, ptag, text, tag in rows:
             w.insert("end", pre, ptag)
             w.insert("end", text + "\n", tag)
+        w.tag_add("ev", "1.0", "end")
         w.configure(state="disabled")
-        w.see("end")
+        w.see("1.0" if top else "end")
 
     def _ep_from_log(self):
         """Newest Train_Episode_Length of the shown run's log.txt (re-read every 30 s, or when the run changes)."""

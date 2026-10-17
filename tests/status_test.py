@@ -11,6 +11,7 @@ sys.path.insert(0, ROOT)
 TMP = tempfile.mkdtemp()
 os.environ["MIMICKIT_LAUNCHER_CONFIG"] = os.path.join(TMP, "settings.json")
 from mkl import status_model as SM
+from mkl.core import Tip
 
 ok = []
 
@@ -284,7 +285,8 @@ app.sm_q.put(REAL)
 tick()
 check(
     "banner from the console",
-    app.ban_lab.cget("text").startswith("Training normally - iteration 12"),
+    app.ban_lab.cget("text") == "Training \u00b7 iter 12"  # 1.0.0: short pill, full text on hover
+    and Tip._by_widget[str(app.ban_lab)].text.startswith("Training normally - iteration 12"),
     app.ban_lab.cget("text"),
 )
 check(

@@ -25,6 +25,15 @@ every safety rule work exactly as before; only where things sit has changed.
   update check settings and About.
 - **Results page**: the full console (Auto-scroll, Copy all, Open log folder), the exact command with Copy command,
   and a runs list with **Continue from selected run**, Open folder and Refresh.
+- *What's happening* is a timestamped event list (newest first). The raw status text moved to **Run details** on
+  the Results page; when nvidia-smi can't run it says "GPU stats unavailable (NVIDIA tools not found)" in amber.
+- The per-step chart stays hidden until there is per-step data, so Return and Speed get the room; a line under the
+  charts links to Setup › MimicKit patches.
+- The training config shows a plain-English description; its file paths are in the tooltip and under Advanced.
+- The health pill is short while training ("Training · iter N", full text on hover) and the bar says
+  "63 % to plateau · ~2 h 10 m" once there is an estimate. At 125 % the stats stay on one row (compact tiles).
+- Chart fonts follow Windows scaling once (they were scaled twice at 125 %). Light theme: the event list matches the
+  panels. Setup is one centred column. Results shows "No runs yet. Start one on the Train page." when empty.
 - Every pre-1.0 control is kept (a test checks each one is reachable on its page and keeps its hover help). Keyboard
   shortcuts, light/OLED themes and all safety checks are unchanged.
 - Version numbers drop the `a` prefix (1.0.0 / 1.0.0Z). a0.9.x installs see 1.0.0 as the newer version.

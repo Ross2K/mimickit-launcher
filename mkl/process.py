@@ -157,11 +157,13 @@ class ProcessMixin:
             self.l_preset_help.configure(text="NOT INSTALLED - %s" % it["missing"], style="Err.TLabel")
             return
         self.l_preset_help.configure(style="Dim.TLabel")
-        self.l_preset_help.configure(
-            text=(it["help"] + "\n" if it.get("help") else "")
-            + "%s  |  env: %s  |  motion: %s  |  engine in file: %s"
-            % (it["file"], it["env"] or "?", it["motion"] or "?", it["engine"] or "?")
-        )
+        # 1.0.0 UX: plain-English description; the raw file paths are in its tooltip and under Advanced
+        files = "%s  |  env: %s  |  motion: %s  |  engine in file: %s" % (
+            it["file"], it["env"] or "?", it["motion"] or "?", it["engine"] or "?")
+        self.l_preset_help.configure(text=it.get("help") or describe_config(it))
+        Tip(self.l_preset_help, "Files: " + files)
+        if getattr(self, "l_preset_files", None) is not None:
+            self.l_preset_files.configure(text=files)
 
     def _add_custom(self):
         f = filedialog.askopenfilename(
@@ -1100,3 +1102,28 @@ class ProcessMixin:
             else (a.get("agent_config") or [""])[0]
         )
         return env, ag
+
+
+METHODS = {
+    "deepmimic": "DeepMimic: learns to copy the motion",
+    "amp": "AMP: learns to move in the style of the motion",
+    "ase": "ASE: learns reusable skills from the motion",
+    "add": "ADD: learns to copy the motion (adversarial)",
+    "lcp": "LCP: learns to copy the motion (smooth policy)",
+}
+
+
+def describe_config(it):
+    """'deepmimic_humanoid_ppo_args.txt' + its motion -> 'DeepMimic: learns to copy the motion humanoid spinkick
+    with the humanoid character.' (1.0.0: shown instead of the raw paths when the preset has no description)."""
+    base = os.path.basename(str(it.get("file") or "")).replace("_args.txt", "").replace(".txt", "")
+    parts = base.split("_")
+    method = METHODS.get(parts[0].lower()) if parts else None
+    char = " ".join(p for p in parts[1:] if p.lower() not in ("ppo", "awr", "args")) if len(parts) > 1 else ""
+    mot = os.path.splitext(os.path.basename(str(it.get("motion") or "")))[0].replace("_", " ")
+    if not method:
+        return "Training config %s%s." % (base or "?", (" - motion: " + mot) if mot else "")
+    txt = method + ((" " + mot) if mot else "")
+    if char:
+        txt += " with the %s character" % char
+    return txt + "."

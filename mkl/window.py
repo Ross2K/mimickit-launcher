@@ -554,11 +554,12 @@ class MainWindowMixin:
         w = self.pages["setup"].winfo_width()
         if w <= 1:
             w = self.root.winfo_width()
-        mode = "side" if w >= st.winfo_reqwidth() + ex.winfo_reqwidth() + 60 else "stack"
+        mode = "stack"  # 1.0.0 UX: one centred column (both boxes the same width), scrolls when short
         if mode == self._setup_mode:
             return
         self._setup_mode = mode
         st.grid(row=0, column=0, sticky="new")
+        st.master.columnconfigure(0, minsize=int(640 * kscale(self.root)))
         if mode == "side":
             ex.grid(row=0, column=1, sticky="new", padx=(14, 0), pady=0)
         else:
@@ -669,10 +670,17 @@ class MainWindowMixin:
         self.l_envs_hint.pack(side="left", padx=(6, 0))
 
         def envs_hint(*_):
-            self.l_envs_hint.configure(text="" if self._envs_or_0() >= 1 else "Whole number, e.g. 64")
+            bad = self._envs_or_0() < 1
+            self.l_envs_hint.configure(text="Whole number, e.g. 64" if bad else "")
+            # 1.0.0: an empty hint takes no room (it used to wrap into an empty 2nd row at 1600 px)
+            if bad and not self.l_envs_hint.winfo_manager():
+                self.l_envs_hint.pack(in_=sw, side="left", padx=(6, 0))
+            elif not bad and self.l_envs_hint.winfo_manager():
+                self.l_envs_hint.pack_forget()
 
         self.v_envs.trace_add("write", envs_hint)
         flow(sw)  # the button goes under the box when the column is narrow (125 %)
+        self.root.after_idle(envs_hint)
         self.l_envswitch = ttk.Label(g, text="", style="Dim.TLabel", wraplength=330, justify="left")
         self.l_envswitch.grid(row=4, column=0, columnspan=2, sticky="w")
         self.l_envswitch.grid_remove()  # takes no room until there is something to say
@@ -738,6 +746,9 @@ class MainWindowMixin:
         self.b_model_browse.grid(row=0, column=1, padx=(4, 0))
         bfa = ttk.Frame(adv)  # args / settings buttons (+ profile ACTIONS), wraps
         bfa.grid(row=2, column=0, columnspan=2, sticky="we", pady=(4, 0))
+        # 1.0.0 UX: the training config's raw file paths are in the description's tooltip (a line here made the
+        # column scroll at 1600x900)
+        self.l_preset_files = None
         self.b_tsettings = ttk.Button(bfa, text="Training settings...", command=self.train_settings_dialog)
         self.b_tsettings.pack(side="left", padx=(0, 4), pady=2)
         Tip(self.b_tsettings, HELP["tsettings"])
@@ -801,6 +812,8 @@ class MainWindowMixin:
         try:
             if abs(int(str(self.l_preset_help.cget("wraplength")) or 0) - wl) > 4:
                 self.l_preset_help.configure(wraplength=wl)
+                if getattr(self, "l_preset_files", None) is not None:
+                    self.l_preset_files.configure(wraplength=wl)
                 self.l_envswitch.configure(wraplength=wl)
         except (tk.TclError, ValueError):
             return
@@ -968,10 +981,11 @@ class MainWindowMixin:
         self.st_stage.pack(side="left")
         self.st_iter = ttk.Label(top, text="", style="Big.TLabel")
         self.st_iter.pack(side="left", padx=(10, 0))
+        # 1.0.0 UX: the raw status text is no longer dumped here (its numbers are in the bottom bar; the full text is
+        # 'Run details' on the Results page) - What's happening is the timestamped event list (Mockup D)
         self.l_status = ttk.Label(right, text="Idle.", justify="left", style="Dim.TLabel", wraplength=280)
-        self.l_status.pack(side="top", anchor="w", fill="x", pady=(2, 0))
-        self.l_gpu = ttk.Label(right, text="GPU: checking...", justify="left", style="Good.TLabel", wraplength=280)
-        self.l_gpu.pack(side="top", anchor="w", fill="x", pady=(2, 4))
+        self.l_gpu = ttk.Label(right, text="GPU: checking...", justify="left", style="Dim.TLabel", wraplength=280)
+        self.l_gpu.pack(side="top", anchor="w", fill="x", pady=(4, 6))
         # wrap to the column instead of being cut off on the right
         def wrap(e):
             w = e.width - 24 if (getattr(self, "_train_mode", None) or ("3col",))[0] == "3col" else e.width // 2 - 36
@@ -980,6 +994,16 @@ class MainWindowMixin:
                     lab.configure(wraplength=max(160, w))
 
         right.bind("<Configure>", wrap, add="+")
+
+    def _gpu_line(self, txt):
+        """GPU line in What's happening: the nvidia-smi numbers, or one plain amber line when they can't be read."""
+        if txt.startswith("GPU: nvidia-smi"):
+            self.l_gpu.configure(text="GPU stats unavailable (NVIDIA tools not found)", style="Warn.TLabel")
+            Tip(self.l_gpu, "nvidia-smi could not be run (%s). Training is not affected; only the GPU numbers and the "
+                            "VRAM meter stay empty." % txt.replace("GPU: ", ""))
+        else:
+            self.l_gpu.configure(text=txt, style="Dim.TLabel")
+            Tip(self.l_gpu, "Read from nvidia-smi every 5 s.")
 
     def _view_changed(self, _=None):
         it = self._item("view") or {}
@@ -1036,10 +1060,9 @@ class MainWindowMixin:
         right = TitleBox(mid, text="Training progress (refreshed every 10 s)", padding=(4, 2, 4, 4))
         right.pack(side="top", fill="both", expand=True)
         self.prog_frame = right
-        try:
-            dpi = max(72.0, min(240.0, float(self.root.winfo_fpixels("1i"))))
-        except (tk.TclError, ValueError):
-            dpi = 96.0
+        # 1.0.0 UX: matplotlib's Tk canvas already multiplies the figure dpi by Tk scaling (device pixel ratio), so
+        # the base stays 96 - fpixels here scaled the chart fonts twice at 125 % (ticks/labels now follow Tk scaling)
+        dpi = 96.0
         self.fig = Figure(figsize=(560 / dpi, 500 / dpi), dpi=dpi, layout="constrained")
         self.v_ps = tk.BooleanVar(value=bool(self.s.get("per_step_chart", True)))
         self.ax3 = None
@@ -1075,6 +1098,17 @@ class MainWindowMixin:
         Tip(self.b_home, HELP["chartnav"])
         Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
         flow(navf)  # the toolbar wraps onto a 2nd row instead of clipping at 125 %
+        # 1.0.0 UX: the per-step chart stays hidden until there is per-step data; this line says why + where to fix
+        ph = ttk.Frame(right)
+        self.f_pshint = ph
+        ttk.Label(ph, text="Per-step chart appears once episode length is logged:", style="Dim.TLabel").pack(
+            side="left")
+        self.l_pslink = tk.Label(ph, text="Setup › MimicKit patches...", cursor="hand2", bd=0,
+                                 font=("Segoe UI", 9, "underline"))
+        self.l_pslink.pack(side="left", padx=(4, 0))
+        self.l_pslink.bind("<Button-1>", lambda e: self._open_patches_link())
+        Tip(self.l_pslink, HELP["perstep"])
+        flow(ph)  # the link goes under the text on a narrow chart instead of being cut off
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.canvas.get_tk_widget().bind("<Configure>", self._chart_resized, add="+")
         # chart help: '?' badge in the chart's title row, next to 'Training progress'
@@ -1087,6 +1121,14 @@ class MainWindowMixin:
         self.canvas.mpl_connect("button_press_event", self._on_click)
         self.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.canvas.mpl_connect("button_release_event", self._on_release)
+
+    def _open_patches_link(self):
+        self.show_page("setup")
+        try:
+            self.b_patches.focus_set()
+            self.patch_dialog()
+        except Exception as e:
+            log_exc("per-step hint: open MimicKit patches", e)
 
     def _toggle_theme(self):
         self.apply_theme()
@@ -1134,6 +1176,7 @@ class MainWindowMixin:
         st.configure("Dim.TLabel", background=T["bg"], foreground=T["dim"])
         st.configure("Good.TLabel", background=T["bg"], foreground=T["good"])
         st.configure("Err.TLabel", background=T["bg"], foreground=T["err"])
+        st.configure("Warn.TLabel", background=T["bg"], foreground=T["warn"])
         st.configure(
             "Big.TLabel", background=T["bg"], foreground=T["fg"], font=("Segoe UI", 12, "bold")
         )
@@ -1296,6 +1339,8 @@ class MainWindowMixin:
         for w in (getattr(self, "_tp_gpu", None),):
             if w is not None:
                 w.configure(bg=T["bg"])
+        if getattr(self, "l_pslink", None) is not None:
+            self.l_pslink.configure(bg=T["bg"], fg=T["accent"], activeforeground=T["accent"])
         card = getattr(self, "_lastcard", None)
         if card is not None:
             card.configure(bg=T["panel"], highlightbackground=T["border"], highlightcolor=T["border"])
@@ -1473,7 +1518,7 @@ class MainWindowMixin:
                     return  # window closed: just end this poll thread
                 # worker thread: never call Tk here - the GUI thread runs these from rq
                 self.rq.put(lambda v=vr, t=txt, n=gname: (setattr(self, "gpu_name", n), self._set_vram(*v),
-                                                          self.l_gpu.configure(text=t)))
+                                                          self._gpu_line(t)))
                 time.sleep(5)
 
         threading.Thread(target=loop, daemon=True).start()

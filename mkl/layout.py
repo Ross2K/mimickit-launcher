@@ -6,6 +6,7 @@ live stats, VRAM), the Results page (console, exact command, runs list) and the 
 Every control of a0.9.3 still exists under the same attribute name; CONTROL_MAP says where each one lives now
 (tests/v100_layout_test.py checks that every one of them is reachable)."""
 
+import re
 from mkl.core import *  # noqa: F401,F403
 from mkl.window import TitleBox, flow, kscale  # noqa: F401
 
@@ -72,7 +73,7 @@ CONTROL_MAP = [
     ("Render progress bar", "pv_bar", "preview", False),
     ("Render status line", "l_pvprog", "preview", False),
     # Status box
-    ("Status text", "l_status", "train", False),
+    ("Status text", "l_details", "results", False),
     ("GPU line", "l_gpu", "train", False),
     ("VRAM meter", "c_vram", "transport", True),
     # Output panel (Status / Console) -> Train right column + Results page
@@ -362,6 +363,19 @@ class PagesMixin:
             if hint.cget("text") != txt:
                 hint.configure(text=txt)
         bw, sw, mw = self._tp_btns.winfo_reqwidth(), self._tp_stats.winfo_reqwidth(), int(260 * k)
+        # 1.0.0 UX: before the stats drop to a 2nd row, try them compact (smaller tiles, narrower bar) on one row
+        cache = self.__dict__.setdefault("_tp_sw", {})
+        cur = bool(getattr(self, "_tp_compact_on", False))
+        cache[cur] = sw
+        full = cache.get(False, sw)
+        want = w < bw + mw + full + 40
+        if want != cur:
+            self._tp_compact(want)
+            self._tp_mode = None
+            self.root.after_idle(self._transport_layout)
+            return
+        if cur:
+            mw = int(200 * k)
         mode = "one" if w >= bw + mw + sw + 40 else "two" if w >= bw + mw + 24 else "three"
         if mode == self._tp_mode:
             return
@@ -385,6 +399,25 @@ class PagesMixin:
             self._tp_mid.grid(row=1, column=0, sticky="we", pady=(6, 0))
             self._tp_stats.grid(row=2, column=0, sticky="w", pady=(6, 0))
             tp.columnconfigure(0, weight=1)
+
+    def _tp_compact(self, on):
+        self._tp_compact_on = bool(on)
+        k = kscale(self.root)
+        for t, a, b, c in self.tiles.values():
+            t.configure(padx=4 if on else 9)
+            b.configure(font=("Segoe UI", 11 if on else 13, "bold"))
+            a.configure(font=("Segoe UI", 8 if on else 9))
+        self._tp_gpu.configure(padx=4 if on else 9)
+        # compact: the plateau text goes on its own line under the health pill (the pill keeps its room)
+        self.l_eta.pack_forget()
+        bf = getattr(self, "ban_f", None)
+        kw = dict(before=bf) if bf is not None else {}
+        if on:
+            self.l_eta.pack(side="bottom", anchor="w", padx=(8, 0), **kw)
+        else:
+            self.l_eta.pack(side="right", padx=(8, 0), **kw)
+        self.c_vram.configure(width=int((120 if on else 170) * k))
+        self.root.after_idle(self._draw_vram)
 
     def _transport_tick(self):
         try:
@@ -412,11 +445,14 @@ class PagesMixin:
         self.tp_bar.configure(value=pct if pct is not None else 0)
         txt = (e or {}).get("text") or "Plateau: no data yet"
         txt = txt.replace("Plateau estimate: ", "Plateau: ")
+        left = re.search(r"about ([^)]*?) left", txt)
+        if pct is not None and left:  # 1.0.0 UX: '63 % to plateau \u00b7 ~2 h 10 m' once there is an estimate
+            txt = "%d %% to plateau \u00b7 ~%s" % (round(pct), left.group(1).strip())
         if self.l_eta.cget("text") != txt:
             self.l_eta.configure(text=txt)
             Tip(self.l_eta, (e or {}).get("text", "") + "\n\n" + HELP["target"])
         k = kscale(self.root)
-        room = max(int(160 * k), self._tp_top.winfo_width() // 2)
+        room = max(int(160 * k), self._tp_top.winfo_width() // (1 if getattr(self, "_tp_compact_on", False) else 2))
         self.l_eta.configure(wraplength=room)
         d = self.run_dir or self.outdir_abs()
         name = os.path.basename((d or "").rstrip("/\\")) or "-"
@@ -506,6 +542,12 @@ class PagesMixin:
         b.pack(side="left", padx=(6, 0))
         Tip(b, "Re-read the runs list.")
         self._run_paths = {}
+        ttk.Label(rp, text="RUN DETAILS", style="Sec.TLabel").pack(side="top", anchor="w", pady=(12, 2))
+        self.l_details = ttk.Label(rp, text="Idle.", style="Dim.TLabel", justify="left", wraplength=int(500 * k))
+        self.l_details.pack(side="top", anchor="w", fill="x")
+        Tip(self.l_details, "The shown run's folder, iteration, samples, session and total training time and the "
+                            "plateau estimate, as read from MimicKit's console.")
+        rp.bind("<Configure>", lambda e: self.l_details.configure(wraplength=max(200, e.width - 20)), add="+")
         page.columnconfigure(1, minsize=int(540 * k))
 
     def _copy_text(self, txt):
@@ -543,6 +585,9 @@ class PagesMixin:
             self._run_paths[iid] = r["path"]
             if sel and r["path"] == sel:
                 tv.selection_set(iid)
+        if not runs:  # empty state (not a run: no path, Continue says 'pick a run')
+            tv.insert("", "end", text="No runs yet. Start one on the Train page.", values=("", "", ""), tags=("empty",))
+            tv.tag_configure("empty", foreground=T["dim"])
 
     def _selected_run(self):
         tv = getattr(self, "tv_runs", None)
