@@ -1,7 +1,34 @@
 # Changelog
 
-All notable changes to MimicKit Launcher, newest first. Versions are `aX.Y.Z` (alpha). The version string lives in one
+All notable changes to MimicKit Launcher, newest first. Versions are `X.Y.Z` from 1.0.0 on (before that: `aX.Y.Z`, alpha; the updater treats 1.0.0 as newer than every alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
+
+## 1.0.0
+
+First non-alpha release: a new window layout (the approved "Mockup D"). Training, previews, the phone dashboard and
+every safety rule work exactly as before; only where things sit has changed.
+
+- **Four pages, tabs at the bottom**: Setup, Train, Preview, Results (Ctrl+1..4). They are the only navigation.
+- **Transport strip** above the tabs, on every page: Start, Resume ▾ (menu: Resume training / Continue from run...),
+  Stop after next save, STOP (red), the health line, a progress-to-plateau bar with the estimate, and live tiles for
+  score, per-step %, speed, episode length and training time, plus the GPU name and a VRAM meter.
+- **Train page**: *What to train* on the left (configs + hint, num_envs + Apply while training, output folder, Newton,
+  progress target + Set, a collapsible **Advanced** section with Extra args, Model for Watch, Training settings, Apply
+  death patch, Rescan args and Add args file, and a **Last preview** card with Render MP4 / Preview page). The three
+  charts with their toolbar (Current session only, Per-step chart, Home, Save picture) in the centre. *What's happening*
+  on the right: status, events, last checkpoint / next save, an amber **Warnings and errors** card and a link to Results.
+  On narrow windows *What's happening* moves under the charts in two short columns.
+- **Preview page**: a picture of the last rendered video (Open video / Open folder) next to all preview options:
+  Choose clips / All clips, Clip layout, Reference ghost, Preview device, Pause training for preview, Render MP4, the
+  render progress, Cancel render (set apart), Preview diagnostics, Watch latest and View clip.
+- **Setup page**: MimicKit folder, venv, Save + rescan, Light mode, Phone + notifications, MimicKit patches, automatic
+  update check settings and About.
+- **Results page**: the full console (Auto-scroll, Copy all, Open log folder), the exact command with Copy command,
+  and a runs list with **Continue from selected run**, Open folder and Refresh.
+- Every pre-1.0 control is kept (a test checks each one is reachable on its page and keeps its hover help). Keyboard
+  shortcuts, light/OLED themes and all safety checks are unchanged.
+- Version numbers drop the `a` prefix (1.0.0 / 1.0.0Z). a0.9.x installs see 1.0.0 as the newer version.
+- Phone dashboard: unchanged apart from the version label. No change to PIN, sign-in, lockout or phone access rules.
 
 ## a0.9.3
 

@@ -44,6 +44,7 @@ TESTS = [
     "multi_test",
     "view_test",
     "replay_test",
+    "v100_layout_test",
 ]
 KNOWN = {}  # name -> accepted "a/b"; empty: every test must pass
 

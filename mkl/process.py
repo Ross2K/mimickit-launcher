@@ -197,7 +197,7 @@ class ProcessMixin:
             self._append("[gui] found a Python venv: %s\n" % v)
         elif not self.v_venv.get():
             self._append(
-                "[gui] no venv found next to MimicKit - using this Python: %s (change it in Settings)\n"
+                "[gui] no venv found next to MimicKit - using this Python: %s (change it on the Setup page)\n"
                 % sys.executable
             )
         self._save()
@@ -517,14 +517,16 @@ class ProcessMixin:
         )
         return os.path.relpath(dst, self.mk()).replace(os.sep, "/")
 
-    def continue_from(self):
-        """Start a new training run of the current config from the newest model of another run chain."""
+    def continue_from(self, src=None):
+        """Start a new training run of the current config from the newest model of another run chain.
+        src: a run folder picked on the Results page (1.0.0); None = ask for the folder."""
         if not self._check("train"):
             return
-        src = filedialog.askdirectory(
-            title="Pick the run to continue from (a folder with model.pt, or its _resumeN folders)",
-            initialdir=os.path.join(self.mk(), "output"),
-        )
+        if not src:
+            src = filedialog.askdirectory(
+                title="Pick the run to continue from (a folder with model.pt, or its _resumeN folders)",
+                initialdir=os.path.join(self.mk(), "output"),
+            )
         if not src:
             return
         plan, err = self._continue_plan(src)

@@ -2,7 +2,7 @@
 defines no plugins; these hooks only let a personal overlay add things without editing the generic code.
 
 Optional plugin attributes / methods (all called on the GUI thread unless noted):
-  build_settings(frame)            add widgets to the Settings row (right side)
+  build_settings(frame)            add widgets to the Setup page (Extras card)
   snapshot(snap)                   add keys to the phone dashboard snapshot (dict, mutate in place)
   control_actions                  dict action name -> handler(params) -> (http code, message); called from the web
                                    server thread through the PIN + session + nonce gate - must only queue GUI work

@@ -260,18 +260,21 @@ def tick():
 
 
 check("dark message boxes by default", type(G.messagebox).__name__ == "DarkMessageBox")
-check(
+root.update()
+check(  # 1.0.0: status = the Train page's 'What's happening'; the console is on the Results page, one click away
     "status view is the default, console one click away",
     app.v_outview.get() == "status"
-    and app.st_panel.winfo_manager()
-    and not app.con_panel.winfo_manager(),
+    and app.v_page.get() == "train"
+    and app.st_panel.winfo_ismapped()
+    and not app.con_panel.winfo_ismapped(),
 )
 app._set_outview("console")
 root.update()
 check(
-    "toggle -> raw console (+ command box) shown, saved",
-    app.con_panel.winfo_manager()
-    and not app.st_panel.winfo_manager()
+    "toggle -> raw console (+ command box) shown on the Results page, saved",
+    app.con_panel.winfo_ismapped()
+    and not app.st_panel.winfo_ismapped()
+    and app.v_page.get() == "results"
     and app.s["output_view"] == "console"
     and app.t_cmd.winfo_ismapped(),
 )

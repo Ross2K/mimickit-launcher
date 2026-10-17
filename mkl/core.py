@@ -6,7 +6,7 @@ Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launc
 """
 
 # the one version string: window title, banner, About box, zip names (tools/build.py)
-VERSION = "a0.9.3"
+VERSION = "1.0.0"
 import codecs, json, math, os, queue, shlex, shutil, signal, subprocess, sys, threading, time, datetime, glob, re
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -127,7 +127,7 @@ CLIP_LAYOUTS = {"All at once": "grid", "One after another": "seq", "One long cli
 HELP = {
     "perstep": "Avg reward per step = Return / episode length, in % (each step's reward is 0..1 in DeepMimic-style tasks, so\n"
     "100% = perfect tracking every step). Unlike Return it doesn't grow just because episodes get longer.\n"
-    "Needs Train/Test_Episode_Length in the console: Settings -> MimicKit patches... -> logging patch\n"
+    "Needs Train/Test_Episode_Length in the console: Setup -> MimicKit patches... -> logging patch\n"
     "(without it the value is read from log.txt, which MimicKit writes less often).",
     "patches": "Small optional changes to your MimicKit install, applied and reverted by the launcher (a backup of the original\n"
     "file is kept as <file>.launcher_orig). They affect runs started afterwards.",
@@ -281,6 +281,18 @@ THEMES = {
         dis_bg="#121212",
         list_bg="#000000",
         plot="#000000",
+        # 1.0.0 (Mockup D): amber warning card, blue 'Stop after next save', green Render MP4
+        stop_dis="#2a1414",
+        stop_dis_fg="#7a5a5a",
+        warn_bg="#0f0c05",
+        warn_border="#5a4a22",
+        blue="#1e3a5c",
+        blue_act="#27496f",
+        blue_b="#3d6a99",
+        blue_fg="#e6eef7",
+        go="#2a6b45",
+        go_act="#327d51",
+        go_fg="#eef7f0",
     ),
     "light": dict(
         bg="#ececec",
@@ -315,6 +327,17 @@ THEMES = {
         dis_bg="#e4e4e4",
         list_bg="#ffffff",
         plot="#ffffff",
+        stop_dis="#ecc8c8",
+        stop_dis_fg="#a07070",
+        warn_bg="#fff6e0",
+        warn_border="#d9a640",
+        blue="#cfe0f2",
+        blue_act="#bcd3ec",
+        blue_b="#6f9cc9",
+        blue_fg="#10263d",
+        go="#2f7d4f",
+        go_act="#286b43",
+        go_fg="#ffffff",
     ),
 }
 T = dict(THEMES["dark"])  # current colours (updated in place)

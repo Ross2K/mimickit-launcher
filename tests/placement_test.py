@@ -114,8 +114,9 @@ for corner, (cx, cy) in corners.items():
         check("tooltip %s, window %s: inside the window" % (name, corner), inside(r, main), (r, main))
 badge = rect(app.chart_help)
 canvas = rect(app.canvas.get_tk_widget())
+# 1.0.0: the chart toolbar sits between the title row and the chart (Mockup D) -> up to ~2 rows higher
 check("'?' badge sits in the chart panel's title row, whole (not clipped), above the chart (a0.8.0)",
-      badge[1] + badge[3] <= canvas[1] + 2 and badge[1] > canvas[1] - 60 and badge[2] >= 12, (badge, canvas))
+      badge[1] + badge[3] <= canvas[1] + 2 and badge[1] > canvas[1] - 130 and badge[2] >= 12, (badge, canvas))
 check("no always-on tooltip on the chart itself", str(app.canvas.get_tk_widget()) not in G.Tip._by_widget)
 # chart hover label flips left / below near the right / top edge
 root.geometry("1280x880+0+0")

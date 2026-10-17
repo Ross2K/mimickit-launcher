@@ -726,7 +726,7 @@ class ChartsMixin:
                 ax3.text(
                     0.5,
                     0.5,
-                    "per-step score needs episode length - see Settings -> MimicKit patches...",
+                    "per-step score needs episode length - see Setup -> MimicKit patches...",
                     ha="center",
                     va="center",
                     color=T["dim"],
@@ -757,6 +757,7 @@ class ChartsMixin:
                     % (hms(time.time() - self.started), self.run_kind)
                 )
         tot, ses_t, ses = self._tt_total()
+        self._tt_last = (tot, ses_t, ses)  # 1.0.0: the transport strip's 'Training time' between refreshes
         if ses_t is not None:
             lines.append("Running for %s (this session)" % hms(ses_t))
         lines.append(
@@ -765,17 +766,20 @@ class ChartsMixin:
             else "Total training time %s (this run + its resumes%s)"
             % (hms(tot), ", %d sessions" % ses if ses else "")
         )
+        self._est_last = None
         try:
             self._sync_target_widgets(d)
             if segs:
                 e = estimate_progress(segs, est_rate, self._get_target(d))
                 txt = e["text"]
+                shown = e["pct"]
                 if e["pct"] is not None and e["pct"] < 100:
                     shown = self._smooth_estimate(
                         self._chain_key(d) + str(self._get_target(d)), e["pct"]
                     )
                     txt = re.sub(r"~?\d+%", "~%d%%" % round(shown), txt, count=1)
                 lines.append(txt)
+                self._est_last = dict(pct=shown, text=txt, kind=e.get("kind"))  # transport strip bar + text
                 self._check_looks_trained(d, e, running, tot)
         except Exception as ex:
             lines.append("Progress estimate unavailable (%s)" % ex)
@@ -801,7 +805,7 @@ class ChartsMixin:
                 v = {}
         if not v:
             self.per_step = None
-            return "Avg reward per step: needs the logging patch - see README (Settings -> MimicKit patches...)"
+            return "Avg reward per step: needs the logging patch - see README (Setup -> MimicKit patches...)"
         self.per_step = v
         return "Avg reward per step: %s%s" % (
             "   ".join("%s %.1f%%" % (k.lower(), x) for k, x in v.items()),

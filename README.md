@@ -14,6 +14,22 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
 
 ![screenshot](docs/screenshot.png)
 
+## Layout (1.0.0)
+
+Four pages, switched with the tabs along the bottom (or **Ctrl+1..4**):
+
+- **Setup** - MimicKit folder, Python venv, Light mode, Phone + notifications, MimicKit patches, automatic update check, About.
+- **Train** - left: *What to train* (configs, `num_envs` + Apply while training, output folder, Newton, progress target,
+  a collapsible **Advanced** section and a *Last preview* card); centre: the three training charts and their toolbar;
+  right: *What's happening* (status, events, last checkpoint / next save, an amber *Warnings and errors* card).
+- **Preview** - a picture of the last rendered video next to every preview option (clips, layout, ghost, device, pause
+  training), Render MP4, Cancel render, diagnostics, Watch latest and View clip.
+- **Results** - the full console, the exact command (copyable) and a runs list with *Continue from selected run*.
+
+The **transport strip** above the tabs is always visible: Start, Resume (▾ menu: Continue from run...), Stop after next
+save, STOP, the health line, a progress-to-plateau bar with its estimate, and live score / per-step / speed / episode /
+training time tiles with the GPU name and a VRAM meter.
+
 ## Features
 
 - **Finds your configs automatically**: scans MimicKit's `args/*.txt`, splits them into *training* configs
@@ -40,17 +56,17 @@ pick a config, press **Start training**, and watch the reward graph, GPU memory 
   PID, command and start time are saved to `launcher_run.json`, so the next launcher window **reattaches** to a still-running
   training or Watch run (replays the log, keeps tailing, timers stay correct). STOP still kills the whole process tree.
   Closing the window while something runs asks whether to keep it running in the background.
-- **Status panel** (default) or **raw console**, one click apart. The status panel reads MimicKit's console output and
+- **Status view** (Train page, *What's happening*) or **raw console** (Results page), one click apart. The status panel reads MimicKit's console output and
   shows the stage (building the simulation, compiling GPU code, training...), the iteration, progress to the next
   `model.pt` save (every `iters_per_output` iterations of the agent config), score / speed / episode-length tiles, the
   last checkpoint, highlighted warnings and errors, and a few plain-language lines about what just happened.
-- **Health banner** at the top: one line saying whether training is running normally, slowed down, silent for a
+- **Health line** in the transport strip: one line saying whether training is running normally, slowed down, silent for a
   while, finished, stopped or crashed.
 - **Error cards** for known failures (GPU out of memory, CPU preview crash, missing `model.pt`, a typo in a yaml file,
   MimicKit folder not found): what happened, whether training is still safe, and one button that applies the fix.
 - **"Looks trained" prompt** when the progress estimate says the score has levelled off (once per run), with Render
   preview / Stop / Keep training - optionally also sent to your phone (Phone + notifications...).
-- **Command echo**: shows the exact command it runs (in the Console view), so you can copy it into a terminal.
+- **Command echo**: shows the exact command it runs (Results page, with Copy command), so you can copy it into a terminal.
 - **Live progress** parsed from MimicKit's console tables (`| Iteration | N |`), with `log.txt` as a fallback when watching a run the launcher did not start (MimicKit writes log.txt rarely, so it can lag): iteration, samples, training time, samples/hour,
   last `model.pt` save, plus charts of Train/Test return and speed.
 - **Total training time across resumes**: "Running for (this session)" and "(total)" lines, saved every 10 s to

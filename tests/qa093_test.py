@@ -98,30 +98,14 @@ def inside(w, box):
 
 
 pvb = app.preview_box
-check("PC: all preview controls in their own 'Preview' box", pvb.cget("text") == "Preview" and all(
-    inside(w, pvb) for w in (app.b_stoprender, app.cb_allclips, app.b_clips, app.run_btns["preview"], app.l_pause,
-                             app.pv_bar)))
+# 1.0.0: the Preview box is the 'Make a preview video' panel of the Preview page (Mockup D)
+check("PC: all preview controls in their own 'Make a preview video' panel", pvb.cget("text") == "Make a preview video"
+      and all(inside(w, pvb) for w in (app.b_stoprender, app.cb_allclips, app.b_clips, app.run_btns["preview"],
+                                       app.l_pause, app.pv_bar)))
 check("PC: 'Choose clips...' (greyed while All clips is ticked)", app.b_clips.cget("text") == "Choose clips...")
 check("PC: pause notices go on the render status line", app.l_pause is app.l_pvprog)
-check("PC: Preview sits right of 'What to run' when wide, below it when narrow",
-      app._jobrow_mode in ("side", "side1", "stack") and str(app.preview_box.grid_info().get("column")) in ("0", "1"))
-_jw, _pw = app._job_basew + 8, app._pv_widths
-modes = {}
-for _w, _want in ((_jw + _pw["wide"] + 20, "side"), (_jw + _pw["narrow"] + 10, "side1"), (_jw + _pw["narrow"] - 30, "stack")):
-    app._jobrow_mode = None
-    app._jobrow.winfo_width = (lambda v=_w: v)
-    app._jobrow_layout()
-    app.root.update_idletasks()
-    gi = app.preview_box.grid_info()
-    modes[_want] = (app._jobrow_mode, str(gi.get("row")), str(gi.get("column")), app._pv_mode,
-                    app.b_pdiag.cget("text"))
-del app._jobrow.winfo_width
-app._jobrow_mode = None
-app._jobrow_layout()
-check("PC: wide -> Preview beside 'What to run', two columns", modes["side"][:4] == ("side", "0", "1", "wide"), modes)
-check("PC: narrower -> still beside, one setting per row", modes["side1"][:4] == ("side1", "0", "1", "narrow")
-      and modes["side1"][4] == "Diagnostics", modes)
-check("PC: too narrow -> Preview wraps below 'What to run'", modes["stack"][:4] == ("stack", "1", "0", "wide"), modes)
+check("PC: the panel is on the Preview page", inside(pvb, app.pages["preview"]))
+check("PC: Cancel render set apart from Render MP4 (own row)", app.b_stoprender.master is not app.run_btns["preview"].master)
 check("PC: Preview box is separate from the training controls", not inside(app.run_btns["train"], pvb)
       and not inside(pvb, app.run_btns["train"].master))
 check("nothing running -> refused", app.stop_render() == (False, "No render is running."))

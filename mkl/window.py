@@ -26,6 +26,14 @@ class TitleBox(ttk.LabelFrame):
         return self._title.cget("text") if key == "text" else super().cget(key)
 
 
+def kscale(root):
+    """Screen scale vs 96 dpi (1.0 at 100 %, 1.25 at 125 %)."""
+    try:
+        return max(1.0, float(root.winfo_fpixels("1i")) / 96.0)
+    except (tk.TclError, ValueError):
+        return 1.0
+
+
 def _pad(v):
     """pack padding (int, 'n', '3 5' or (a, b)) -> (a, b) ints."""
     if isinstance(v, (tuple, list)):
@@ -161,49 +169,130 @@ class MainWindowMixin:
     VRAM_COLORS = dict(ok="#3f9a54", warn="#d0952c", bad="#c0392b")
 
     def _build(self):
-        """The main window, top to bottom: banner, settings row, what to run, status + cards + output | charts."""
-        self._build_banner()  # health banner, version on its right
-        top = self._top_area()  # a0.8.5: Settings + What to run scroll/shrink first; the charts keep a real minimum
-        # run / stop buttons: outside the scrolling top, so STOP is always visible whatever the window height
-        self._runbar = ttk.Frame(self.root, padding=(10, 2, 6, 0))
-        self._runbar.pack(fill="x")
-        self._build_settings(top)
-        self._build_job(top)
-        self._build_preview_box(self._jobrow)  # a0.9.3: right of 'What to run' (wraps below it when narrow)
+        """1.0.0 (Mockup D): four pages picked with the bottom tabs (Setup / Train / Preview / Results, Ctrl+1..4) and
+        the transport strip above the tabs (run buttons, progress to the plateau, live stats, VRAM) on every page."""
+        self._build_shell()  # pages + transport strip + tab bar (mkl/layout.py)
+        self._build_transport()
+        self._build_banner()  # health pill in the transport strip, hint + version in the tab bar
+        self._build_setup_page(self.pages["setup"])
+        self._build_train_page(self.pages["train"])
+        self._build_preview_page(self.pages["preview"])
+        self._build_preview_box(self._pv_right)
+        self._build_preview_left(self._pv_left)
+        self._build_results(self.pages["results"])
         self.rescan()
-        mid = ttk.Panedwindow(self.root, orient="horizontal")
-        mid.pack(fill="both", expand=True, padx=6, pady=(2, 4))
-        lo = ttk.Frame(mid)
-        mid.add(lo, weight=2)  # a0.8.3: left 2 : charts 3
-
-        def left_need():  # a0.8.4: Status + cards + at least ~150 px of Output, else the whole column scrolls
-            k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
-            h = self._stf.winfo_reqheight() + int(150 * k) + 40
-            if hasattr(self, "cards_f") and self.cards_f.winfo_manager():
-                h += self.cards_f.winfo_reqheight()
-            return h
-
-        left = self._scroll_area(lo, need=left_need)
-        self._build_status(left)
-        self._build_cards(left)
-        self._build_output(left)
-        self._build_charts(mid)
         self.apply_theme()
+        self.show_page("train")
 
-    BOTTOM_MIN = 400  # px at 96 dpi: chart area (~360 px charts + toolbar) kept when the window is short
+    BOTTOM_MIN = 400  # px at 96 dpi: chart area kept when the window is short (2 charts fit in CHART_MIN_2)
+    LEFT_W = (400, 360)  # Train page left column at >= 1800 px / below (x scale)
+    RIGHT_W = (340, 290)  # Train page right column
+    CENTER_MIN = 500  # charts need at least this; else 'What's happening' moves under the charts
 
-    def _top_area(self):
-        """a0.8.5: Settings + What to run in a frame that scrolls when the window is short, so the bottom half
-        (status / output | charts) keeps a real minimum height instead of being squeezed first (125 %)."""
-        outer = ttk.Frame(self.root)
-        outer.pack(fill="x")
-        cv = tk.Canvas(outer, highlightthickness=0, bd=0, height=1, bg=T.get("bg", "#202020"))
+    # ------------------------------------------------------------------ Train page
+    def _build_train_page(self, page):
+        k = kscale(self.root)
+        self._train_page = page
+        page.rowconfigure(0, weight=1)
+        page.columnconfigure(1, weight=1)
+        left = TitleBox(page, text="What to train", padding=(6, 2, 2, 4))
+        ttk.Label(left.title_row, text="   applies on next Start", style="Dim.TLabel").pack(side="left")
+        self._train_left = left
+        top = self._top_area(left)  # scrolls when the window is short (combobox wheel only when focused)
+        self._build_job(top)
+        center = ttk.Frame(page)
+        self._train_center = center
+        self._build_cards(center)  # error / milestone cards: above the charts, full width
+        self._build_charts(center)
+        self._cards_anchor = self.prog_frame
+        right = TitleBox(page, text="What's happening", padding=(8, 2, 8, 6))
+        self._train_right = right
+        self._build_status(right)
+        self._build_output(right)
+        self._feed_parts = list(right.pack_slaves())  # in packing order (side top / bottom)
+        self._feed_opts = [{k: v for k, v in w.pack_info().items() if k != "in"} for w in self._feed_parts]
+        self._feed_right_half = {self._warncard, self.st_ckpt.master, self.b_open_console.master}
+        self._train_mode = None
+        page.bind("<Configure>", lambda e: self._train_layout(), add="+")
+        self._train_layout()
+
+    def _train_layout(self, force=False):
+        """3 columns when the charts keep CENTER_MIN; else 'What's happening' goes under the charts (still visible)."""
+        page = self._train_page
+        k = kscale(self.root)
+        w = page.winfo_width()
+        if w <= 1:
+            w = self.root.winfo_width()
+        wide = self.root.winfo_width() >= 1800
+        lw, rw = int(self.LEFT_W[0 if wide else 1] * k), int(self.RIGHT_W[0 if wide else 1] * k)
+        mode = ("3col" if w >= lw + rw + int(self.CENTER_MIN * k) + 40 else "2col", lw, rw)
+        if mode == self._train_mode and not force:
+            return
+        self._train_mode = mode
+        self._top_cv.configure(width=lw - int(24 * k))
+        L, C, R = self._train_left, self._train_center, self._train_right
+        L.grid(row=0, column=0, sticky="nsew")
+        L.configure(width=lw)  # fixed width: content can't nudge the column (flow() rows would flip-flop)
+        L.pack_propagate(False)
+        C.grid(row=0, column=1, sticky="nsew", padx=(10, 10) if mode[0] == "3col" else (10, 0))
+        R.grid_forget()
+        R.pack_forget()
+        page.columnconfigure(0, minsize=lw)
+        self._feed_regrid(mode[0])
+        if mode[0] == "3col":
+            R.grid(in_=page, row=0, column=2, sticky="nsew")
+            page.columnconfigure(2, minsize=rw)
+            self._feed_text_h(8)
+        else:  # under the charts, still on the Train page, in two short columns
+            page.columnconfigure(2, minsize=0)
+            R.pack(in_=C, side="bottom", fill="x", pady=(8, 0), before=self.prog_frame)
+            self._feed_text_h(3)
+        self._wrap_preset_help(lw - int(40 * k))
+        for lab in (self.l_cardtitle, self.l_cardsub):  # the card never widens the column (no wrap feedback)
+            lab.configure(wraplength=max(120, lw - int(150 * k)), justify="left")
+        self.root.after_idle(self._top_fit)
+
+    def _feed_regrid(self, mode):
+        """'What's happening': one column (3col) or two short side-by-side halves under the charts (2col)."""
+        R = self._train_right
+        if not hasattr(self, "_feed_halves"):
+            self._feed_halves = (ttk.Frame(R), ttk.Frame(R))
+        a, b = self._feed_halves
+        order = [w for w in self._feed_parts if w is not None]
+        for w in order:
+            w.pack_forget()
+        for w in (a, b):
+            w.grid_forget()
+        if mode == "3col":
+            for w, opt in zip(order, self._feed_opts):
+                w.pack(in_=R, **opt)
+        else:
+            a.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+            b.grid(row=0, column=1, sticky="nsew")
+            R.columnconfigure(0, weight=1, uniform="half")
+            R.columnconfigure(1, weight=1, uniform="half")
+            for w, opt in zip(order, self._feed_opts):
+                w.pack(in_=b if w in self._feed_right_half else a, **opt)
+                w.lift()  # the halves were created later: keep the parts above them
+
+    def _feed_text_h(self, n):
+        for w in (getattr(self, "st_events", None), getattr(self, "st_warn", None)):
+            if w is not None:
+                w.configure(height=n if w is self.st_events else max(2, n // 2))
+
+    def _top_area(self, parent):
+        """The Train page's left column ('What to train') in a frame that scrolls when the window is short
+        (a0.8.5-a0.8.9 rules kept: whole-row cut, a '\u25be more' strip at the cut, the wheel scrolls it over any
+        child, comboboxes / spinboxes take the wheel only when focused)."""
+        outer = ttk.Frame(parent)
+        outer.pack(fill="both", expand=True)
+        cv = tk.Canvas(outer, highlightthickness=0, bd=0, height=1, width=360, bg=T.get("bg", "#202020"))
         ys = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
         cv.configure(yscrollcommand=ys.set)
-        cv.pack(side="left", fill="x", expand=True)
-        inner = ttk.Frame(cv, padding=(6, 2, 6, 0))
+        cv.pack(side="left", fill="x", expand=True, anchor="n")
+        inner = ttk.Frame(cv, padding=(2, 2, 6, 0))
         win = cv.create_window(0, 0, window=inner, anchor="nw")
-        self._top_cv, self._top_inner = cv, inner
+        self._top_cv, self._top_inner, self._top_outer = cv, inner, outer
         self._scroll_canvases = getattr(self, "_scroll_canvases", []) + [cv]
 
         more = tk.Label(outer, text="\u25be More settings below (scroll)", anchor="center", cursor="hand2",
@@ -213,15 +302,13 @@ class MainWindowMixin:
         st = {"h": 0}
 
         def show_more():
-            """a0.8.6: a '\u25be more' strip at the cut while part of the top area is hidden below."""
             try:
                 lo, hi = cv.yview()
             except tk.TclError:
                 return
             if ys.winfo_manager() and hi < 0.999:
                 more.configure(bg=T.get("sel", "#2d4f7c"), fg=T.get("fg", "#ffffff"))
-                # a0.8.7 (UX 3): a 20-24 px strip (22 px at 125 %), easy to spot and to click
-                k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+                k = kscale(self.root)
                 more.place(in_=cv, relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=strip_h(k))
                 more.lift()
             elif more.winfo_manager():
@@ -237,8 +324,7 @@ class MainWindowMixin:
             return max(20, min(24, int(18 * k)))
 
         def cuts():
-            """y positions (inside the top area) that cut no control in half: below every widget that starts
-            above them. Leaf widgets only (frames are containers)."""
+            """y positions (inside the column) that cut no control in half (leaf widgets only)."""
             boxes, stack = [], list(inner.winfo_children())
             while stack:
                 w = stack.pop()
@@ -257,50 +343,51 @@ class MainWindowMixin:
             return [e for e in ends if not any(t < e < b for t, b in boxes)]
 
         def snap(h, sh):
-            """Largest whole-row cut c with c + strip <= h -> visible height c + strip (never more than h)."""
-            ok = [c for c in cuts() if c + sh <= h]
+            """Largest whole-row cut c with c + strip <= h -> visible height c + strip (never more than h);
+            loses at most one row height (a0.8.9 U3)."""
+            allc = cuts()
+            ok = [c for c in allc if c + sh <= h]
             if not ok:
                 return h
             c = max(ok)
-            # a0.8.9 (U3): lose at most one row height (the gap to the next cut), else keep h as it is
-            allc = cuts()
             nxt = [x for x in allc if x > c]
             prv = [x for x in allc if x < c]
-            row = (min(nxt) - c) if nxt else (c - max(prv)) if prv else int(36 * max(1.0, self.root.winfo_fpixels("1i") / 96.0))
+            row = (min(nxt) - c) if nxt else (c - max(prv)) if prv else int(36 * kscale(self.root))
             return c + sh if h - (c + sh) <= row else h
 
         self._top_cuts = cuts
 
         def fit(_=None):
-            k = max(1.0, self.root.winfo_fpixels("1i") / 96.0)
+            k = kscale(self.root)
             req = inner.winfo_reqheight()
-            winh = self.root.winfo_height()
-            others = self.ban_f.winfo_height() + (self._runbar.winfo_reqheight() if hasattr(self, "_runbar") else 0)
-            room = winh - others - 10  # top + bottom half share this
-            # a0.8.7 (UX 1): the bottom half must fit two charts (CHART_MIN_2, 312 px at 125 %) plus the chart
-            # box's title + toolbar; the top keeps ~260 px at 125 % (208 x scale) and only then gives way
-            ch = self.canvas.get_tk_widget() if hasattr(self, "canvas") else None
-            over = int(90 * k)
-            if ch is not None and self.prog_frame.winfo_reqheight() > ch.winfo_reqheight():
-                # title row + toolbar rows + padding (requested sizes: they don't depend on how the space is split)
-                over = self.prog_frame.winfo_reqheight() - ch.winfo_reqheight() + 8
-            # (a0.8.7: measured from the actual heights this fed back into itself and the split never settled)
-            bottom_need = int(self.CHART_MIN_2 * k) + over
-            avail = room - int(self.BOTTOM_MIN * k)
-            h = max(min(req, int(208 * k)), min(req, avail))
-            h = min(h, max(min(req, int(110 * k)), room - bottom_need))  # the two charts win over the top
-            # less than ~32 px hidden -> take it from the bottom half (if two charts still fit), no scrollbar
-            if 0 < req - h <= int(32 * k) and room - req >= bottom_need:
-                h = req
-            if winh <= 1:
-                h = req
-            if req > h + 1:  # a0.8.8: end the visible part (above the 'more' strip) at the last whole row
-                h = snap(h, strip_h(k))
+            room = outer.winfo_height()
+            if room <= 1:
+                room = req
+            # a few px short -> squeeze the Last preview card (sub line, padding) instead of a scrollbar
+            card = getattr(self, "_lastcard", None)
+            if card is not None:
+                over = req - room
+                if not st.get("compact") and 1 < over <= int(20 * k) + 1:
+                    st["compact"] = self.l_cardsub.winfo_reqheight() + 16  # estimate until measured below
+                    st["room0"], st["measured"] = room, False
+                    self._card_compact(True)
+                    cv.after_idle(fit)
+                    return
+                if st.get("compact") and not st["measured"] and room != st["room0"]:
+                    st["compact"], st["measured"] = max(1, room - st["room0"]), True  # what the squeeze gave back
+                if st.get("compact") and (over > int(60 * k) or -over > st["compact"] + 2):
+                    st["compact"] = 0
+                    self._card_compact(False)
+                    cv.after_idle(fit)
+                    return
+            h = room
+            if req > room + 1:
+                h = snap(room, strip_h(k))
             if int(cv.cget("height")) != h:
                 cv.configure(height=h)
             cv.itemconfigure(win, width=max(1, cv.winfo_width()))
             cv.configure(scrollregion=(0, 0, cv.winfo_width(), req))
-            if req > h + 1:
+            if req > room + 1:
                 if not ys.winfo_manager():
                     ys.pack(side="right", fill="y", before=cv)
             elif ys.winfo_manager():
@@ -308,19 +395,13 @@ class MainWindowMixin:
                 cv.yview_moveto(0)
             st["h"] = h
             show_more()
+
         self._top_fit = fit
         ys.configure(style="Top.Vertical.TScrollbar")
-
         cv.bind("<Configure>", lambda e: cv.after_idle(fit))
         inner.bind("<Configure>", lambda e: cv.after_idle(fit))
-        self.root.bind("<Configure>", lambda e: cv.after_idle(fit) if e.widget is self.root else None, add="+")
+        outer.bind("<Configure>", lambda e: cv.after_idle(fit))
 
-        # a0.8.6: the wheel scrolls the top area over ANY child widget (an all-binding, added once with add="+" so
-        # dialog bindings stay, that only acts while the pointer is over the top area).
-        # a0.8.7 (UX 2 / QA 1): comboboxes and spinboxes (Training config, num_envs) take the wheel only when they
-        # have the keyboard focus; otherwise a widget binding scrolls the top area and stops their class binding
-        # (which would change the value). Text and Listbox scroll their own content, so they are left alone (there
-        # are none in the top area today; tests/qa087_test.py checks the rule).
         hover = {"on": False}
         own = ("TCombobox", "TSpinbox", "Spinbox")
         skip = own + ("Text", "Listbox")
@@ -344,7 +425,7 @@ class MainWindowMixin:
             step(e)
 
         def box_wheel(e):
-            """Widget binding of a combobox / spinbox in the top area (runs before its class binding)."""
+            """Widget binding of a combobox / spinbox in the column (runs before its class binding)."""
             try:
                 if self.root.focus_get() is e.widget:
                     return None  # focused: the box changes its value
@@ -356,7 +437,7 @@ class MainWindowMixin:
 
         import weakref
 
-        hooked = weakref.WeakSet()  # a0.8.8 (T2): destroyed boxes drop out on their own
+        hooked = weakref.WeakSet()
 
         def hook_boxes(_=None):
             stack = [inner]
@@ -365,20 +446,17 @@ class MainWindowMixin:
                 try:
                     stack.extend(w.winfo_children())
                     cls = w.winfo_class()
-                except tk.TclError:  # destroyed meanwhile
+                except tk.TclError:
                     continue
                 if w not in hooked and cls in own:
                     hooked.add(w)
                     for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
                         w.bind(seq, box_wheel, add="+")
         self._top_hook_boxes, self._top_hooked = hook_boxes, hooked
-        # a0.8.8 (T2): on <Map> and after a rebuild (flow() re-layout / an explicit self._top_hook_boxes() call),
-        # not on every resize
         inner.bind("<Map>", hook_boxes, add="+")
         self.root.bind("<<FlowRebuilt>>", hook_boxes, add="+")
 
         def on_box_map(e):
-            """a0.8.9 (U5): a box created or shown later outside flow() (grid/pack after start) hooks itself."""
             try:
                 if mine(e.widget) and e.widget not in hooked:
                     hook_boxes()
@@ -402,13 +480,13 @@ class MainWindowMixin:
                                     for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>")}
 
         def leave(_=None):
-            if not inside():  # <Leave> also fires when the pointer moves onto a child widget
+            if not inside():
                 hover["on"] = False
 
         outer.bind("<Enter>", enter, add="+")
         outer.bind("<Leave>", leave, add="+")
+
         def teardown(e=None):
-            """a0.8.7 (S5): drop only OUR all-binding when the window goes (dialog bindings stay)."""
             if e is not None and e.widget is not outer:
                 return
             for seq, fid in (hover.pop("ids", None) or {}).items():
@@ -425,196 +503,303 @@ class MainWindowMixin:
         self._top_hover = hover
         return inner
 
-    def _build_settings(self, top):
-        """Settings row: MimicKit folder, venv, light mode, phone, patches, About."""
-        st = ttk.LabelFrame(top, text="Settings", padding=(6, 2, 6, 4))
-        st.pack(fill="x")
+    # ------------------------------------------------------------------ Setup page
+    def _build_setup_page(self, page):
+        """Setup: 'Where things are' (MimicKit folder, venv, Save + rescan, Look) and 'Extras' (phone, patches,
+        overlay buttons, updates, About), side by side; stacked on a narrow window. Scrolls when short."""
+        k = kscale(self.root)
+        body = self._scroll_area(page)
+        self._setup_body = body
+        wrap = ttk.Frame(body)
+        wrap.pack(side="top", pady=(int(24 * k), 0))
+        self._setup_wrap = wrap
+        st = TitleBox(wrap, text="Where things are", padding=(12, 6, 12, 10))
+        ttk.Label(st.title_row, text="   saved when you press Save + rescan", style="Dim.TLabel").pack(side="left")
+        self._build_settings(st)
+        ex = TitleBox(wrap, text="Extras", padding=(12, 6, 12, 10))
+        self._build_extras(ex)
+        self._setup_boxes = (st, ex)
+        self._setup_mode = None
+        page.bind("<Configure>", lambda e: self._setup_layout(), add="+")
+        self._setup_layout()
+
+    def _setup_layout(self):
+        st, ex = self._setup_boxes
+        w = self.pages["setup"].winfo_width()
+        if w <= 1:
+            w = self.root.winfo_width()
+        mode = "side" if w >= st.winfo_reqwidth() + ex.winfo_reqwidth() + 60 else "stack"
+        if mode == self._setup_mode:
+            return
+        self._setup_mode = mode
+        st.grid(row=0, column=0, sticky="new")
+        if mode == "side":
+            ex.grid(row=0, column=1, sticky="new", padx=(14, 0), pady=0)
+        else:
+            ex.grid(row=1, column=0, sticky="new", padx=0, pady=(14, 0))
+
+    def _build_settings(self, st):
+        """MimicKit folder, venv, Save + rescan, light mode."""
+        k = kscale(self.root)
         self.v_mk = tk.StringVar(value=self.s.get("mimickit", ""))
         self._mk_cache = self.v_mk.get().strip()
         self.v_mk.trace_add("write", lambda *_: (setattr(self, "_mk_cache", self.v_mk.get().strip()), setattr(self, "_patch_cache", None)))  # worker threads see the new folder at once
         self.v_venv = tk.StringVar(value=self.s.get("venv", ""))
-        for r, (lab, var) in enumerate(
-            (
-                ("MimicKit folder", self.v_mk),
-                ("Python venv", self.v_venv),
-            )
-        ):
-            lw = ttk.Label(st, text=lab)
-            lw.grid(row=r, column=0, sticky="w")
-            ttk.Entry(st, textvariable=var, width=40).grid(row=r, column=1, sticky="we", padx=4)
+        g = ttk.Frame(st)
+        g.pack(fill="x")
+        for r, (lab, var, attr) in enumerate((("MimicKit folder", self.v_mk, "mk"), ("Python venv", self.v_venv, "venv"))):
+            lw = ttk.Label(g, text=lab)
+            lw.grid(row=r, column=0, sticky="w", pady=3)
+            e = ttk.Entry(g, textvariable=var, width=52)
+            e.grid(row=r, column=1, sticky="we", padx=8, pady=3)
+            setattr(self, "e_" + attr, e)
             if var is self.v_venv:
-                Tip(
-                    lw,
-                    "A venv folder or a python executable. Empty = the Python running this launcher.",
-                )
-            ttk.Button(st, text="Browse...", command=lambda v=var: self._browse(v)).grid(
-                row=r, column=2
-            )
-        st.columnconfigure(1, weight=1)
-        ttk.Button(st, text="Save + rescan", command=lambda: (self._save(), self.rescan())).grid(
-            row=0, column=3, rowspan=2, padx=8
-        )
+                tip = "A venv folder or a python executable. Empty = the Python running this launcher."
+                Tip(lw, tip)
+                Tip(e, tip)
+            b = ttk.Button(g, text="Browse...", command=lambda v=var: self._browse(v))
+            b.grid(row=r, column=2, pady=3)
+            setattr(self, "b_%s_browse" % attr, b)
+        g.columnconfigure(1, weight=1)
+        r2 = ttk.Frame(st)
+        r2.pack(fill="x", pady=(8, 0))
+        self.b_saverescan = ttk.Button(r2, text="Save + rescan", command=lambda: (self._save(), self.rescan()))
+        self.b_saverescan.pack(side="left")
+        ttk.Label(r2, text="Re-reads MimicKit's configs after you change a folder.", style="Dim.TLabel").pack(
+            side="left", padx=10)
+        ttk.Separator(st, orient="horizontal").pack(fill="x", pady=(12, 6))
+        ttk.Label(st, text="LOOK", style="Sec.TLabel").pack(anchor="w")
+        r3 = ttk.Frame(st)
+        r3.pack(fill="x", pady=(4, 0))
         self.v_light = tk.BooleanVar(value=bool(self.s.get("light_mode", False)))
-        cbx = ttk.Checkbutton(
-            st, text="Light mode", variable=self.v_light, command=self._toggle_theme
-        )
-        cbx.grid(row=0, column=4, rowspan=2, padx=8)
-        Tip(
-            cbx,
-            "Dark mode is the default (easy on OLED screens). Tick for a light theme. Saved automatically.",
-        )
-        b = ttk.Button(st, text="Phone + notifications...", command=self.remote_dialog)
-        b.grid(row=0, column=5, padx=4)
-        b2 = ttk.Button(st, text="MimicKit patches...", command=self.patch_dialog)
-        b2.grid(row=1, column=5, padx=4)
-        Tip(b2, HELP["patches"])
-        b3 = ttk.Button(st, text="About", command=self.about_dialog)
-        b3.grid(row=1, column=4, padx=8)
-        cbx.grid_configure(row=0, rowspan=1)
-        Tip(b, HELP["remote"])
-        self.plugin_frame = ttk.Frame(st)  # overlay plugins add their buttons here (none in the public build)
-        self.plugin_frame.grid(row=0, column=6, rowspan=2, padx=4, sticky="w")
-        # a0.9.2: 'Update aX.Y.Z available' notice (automatic check) - hidden until there is one; click = details
-        self.l_update = ttk.Label(st, text="", style="Err.TLabel", cursor="hand2")
-        self.l_update.grid(row=0, column=7, rowspan=2, padx=6, sticky="w")
-        self.l_update.bind("<Button-1>", lambda e: self.open_update_notice())
-        Tip(self.l_update, "A newer launcher version is out. Click for details. Nothing is installed automatically.")
-        self.l_update.grid_remove()
+        cbx = ttk.Checkbutton(r3, text="Light mode", variable=self.v_light, command=self._toggle_theme)
+        cbx.pack(side="left")
+        self.cb_light = cbx
+        Tip(cbx, "Dark mode is the default (easy on OLED screens). Tick for a light theme. Saved automatically.")
+        ttk.Label(r3, text="Dark (true-black OLED) is the default.", style="Dim.TLabel").pack(side="left", padx=10)
 
+    def _build_extras(self, ex):
+        """Phone + notifications, MimicKit patches, overlay plugin buttons, update settings, About."""
+        k = kscale(self.root)
+        g = ttk.Frame(ex)
+        g.pack(fill="x")
+        rows = (
+            ("b_remote", "Phone + notifications...", self.remote_dialog, HELP["remote"], "Watch training from your phone."),
+            ("b_patches", "MimicKit patches...", self.patch_dialog, HELP["patches"],
+             "Enables episode length and the per-step score."),
+        )
+        for r, (attr, txt, fn, tip, hint) in enumerate(rows):
+            b = ttk.Button(g, text=txt, command=fn, width=24)
+            b.grid(row=r, column=0, sticky="w", pady=3)
+            Tip(b, tip)
+            setattr(self, attr, b)
+            ttk.Label(g, text=hint, style="Dim.TLabel").grid(row=r, column=1, sticky="w", padx=10)
+        # overlay plugins add their buttons here (none in the public build; Z: Check for updates...)
+        self.plugin_frame = ttk.Frame(g)
+        self.plugin_frame.grid(row=2, column=0, columnspan=2, sticky="w", pady=(3, 0))
+        self.b_about = ttk.Button(g, text="About", command=self.about_dialog, width=24)
+        self.b_about.grid(row=4, column=0, sticky="w", pady=3)
+        Tip(self.b_about, "Version, build and licence of this launcher, and the automatic update settings.")
+        ttk.Label(g, text="Version %s (build %s)" % (VERSION, build_id()), style="Dim.TLabel").grid(
+            row=4, column=1, sticky="w", padx=10)
+        if hasattr(self, "build_update_settings"):  # automatic update check + interval + Check now
+            self.build_update_settings(g).grid(row=3, column=0, columnspan=2, sticky="we", pady=(6, 6))
+
+    # ------------------------------------------------------------------ Train page, left column
     def _build_job(self, top):
-        """'What to run': configs, num_envs, output folder, run buttons, preview options."""
-        # a0.9.3: 'What to run' on the left, the 'Preview' box beside it on the right (stacked when too narrow)
-        row = ttk.Frame(top)
-        row.pack(fill="x", pady=(3, 0))
-        self._jobrow = row
-        job = ttk.LabelFrame(row, text="What to run", padding=(6, 2, 6, 4))
-        self._jobbox = job
+        """'What to train': configs + hint, num_envs, output folder, Newton, progress target, Advanced, last preview."""
+        k = kscale(self.root)
+        g = ttk.Frame(top)
+        g.pack(side="top", fill="x")
+        g.columnconfigure(1, weight=1)
+        self._jobbox = g
+        PAD = dict(pady=3)
         self.v_train = tk.StringVar()
         self.v_view = tk.StringVar()
-        ttk.Label(job, text="Training config").grid(row=0, column=0, sticky="w")
-        self.cb_train = ttk.Combobox(job, textvariable=self.v_train, state="readonly", width=29)
-        self.cb_train.grid(row=0, column=1, sticky="w")
+        ttk.Label(g, text="Training config").grid(row=0, column=0, sticky="w", **PAD)
+        self.cb_train = ttk.Combobox(g, textvariable=self.v_train, state="readonly", width=12)
+        self.cb_train.grid(row=0, column=1, sticky="we", **PAD)
         self.cb_train.bind("<<ComboboxSelected>>", self._train_changed)
         Tip(self.cb_train, HELP["trainsel"])
-        ttk.Label(job, text="View config").grid(row=0, column=2, sticky="e", padx=(12, 0))
-        self.cb_view = ttk.Combobox(job, textvariable=self.v_view, state="readonly", width=26)
-        self.cb_view.grid(row=0, column=3, sticky="w")
+        self.l_preset_help = ttk.Label(g, text="", style="Dim.TLabel", wraplength=340, justify="left")
+        self.l_preset_help.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
+        ttk.Label(g, text="View config").grid(row=2, column=0, sticky="w", **PAD)
+        self.cb_view = ttk.Combobox(g, textvariable=self.v_view, state="readonly", width=12)
+        self.cb_view.grid(row=2, column=1, sticky="we", **PAD)
         self.cb_view.bind("<<ComboboxSelected>>", self._view_changed)
         Tip(self.cb_view, HELP["viewsel"])
-        self.l_preset_help = ttk.Label(job, text="", style="Dim.TLabel", wraplength=640)  # a0.9.3: narrower (Preview box beside it)
-        self.l_preset_help.grid(row=1, column=0, columnspan=6, sticky="w")
-        # a0.9.3: wrap at the box's own width (it shares the row with the Preview box), never forcing it wider
-        job.bind("<Configure>", lambda e: self._wrap_preset_help(e.width), add="+")
-        ttk.Label(job, text="num_envs").grid(row=2, column=0, sticky="w")
+        ttk.Label(g, text="num_envs").grid(row=3, column=0, sticky="w", **PAD)
+        sw = ttk.Frame(g)
+        sw.grid(row=3, column=1, sticky="we", **PAD)
         self.v_envs = tk.IntVar(value=DEFAULT_ENVS)
-        sp = ttk.Spinbox(job, from_=1, to=65536, increment=512, textvariable=self.v_envs, width=8)
-        sp.grid(row=2, column=1, sticky="w")
+        sp = ttk.Spinbox(sw, from_=1, to=65536, increment=512, textvariable=self.v_envs, width=7)
+        sp.pack(side="left")
+        self.sp_envs = sp
         Tip(sp, HELP["envs"])
-        sw = ttk.Frame(job)
-        sw.grid(row=2, column=1, sticky="e")
+        self.b_envswitch = ttk.Button(sw, text="Apply while training", command=self.change_envs_live)
+        self.b_envswitch.pack(side="left", padx=(6, 0))
+        Tip(self.b_envswitch, HELP["envs_live"])
         self.l_envs_hint = ttk.Label(sw, text="", style="Err.TLabel")
-        self.l_envs_hint.pack(side="left", padx=(0, 6))
+        self.l_envs_hint.pack(side="left", padx=(6, 0))
 
         def envs_hint(*_):
             self.l_envs_hint.configure(text="" if self._envs_or_0() >= 1 else "Whole number, e.g. 64")
 
         self.v_envs.trace_add("write", envs_hint)
-        self.b_envswitch = ttk.Button(sw, text="Apply while training", command=self.change_envs_live)
-        self.b_envswitch.pack(side="left")
-        Tip(self.b_envswitch, HELP["envs_live"])
-        self.l_envswitch = ttk.Label(job, text="", style="Dim.TLabel")
-        self.l_envswitch.grid(row=7, column=0, columnspan=6, sticky="w")
+        flow(sw)  # the button goes under the box when the column is narrow (125 %)
+        self.l_envswitch = ttk.Label(g, text="", style="Dim.TLabel", wraplength=330, justify="left")
+        self.l_envswitch.grid(row=4, column=0, columnspan=2, sticky="w")
         self.l_envswitch.grid_remove()  # takes no room until there is something to say
-        ttk.Label(job, text="Output folder").grid(row=2, column=2, sticky="e")
+        ttk.Label(g, text="Output folder").grid(row=5, column=0, sticky="w", **PAD)
         self.v_out = tk.StringVar()
-        e = ttk.Entry(job, textvariable=self.v_out, width=27)
-        e.grid(row=2, column=3, sticky="w", padx=4)
+        e = ttk.Entry(g, textvariable=self.v_out, width=12)
+        e.grid(row=5, column=1, sticky="we", **PAD)
+        self.e_out = e
         Tip(e, HELP["out"])
         self.v_newton = tk.BooleanVar(value=bool(self.s.get("force_newton", True)))
-        c = ttk.Checkbutton(
-            job, text="Use Newton engine", variable=self.v_newton, command=self._save
-        )
-        c.grid(row=2, column=4, columnspan=2, sticky="w")
+        c = ttk.Checkbutton(g, text="Use Newton engine", variable=self.v_newton, command=self._save)
+        c.grid(row=6, column=1, sticky="w", **PAD)
+        self.cb_newton = c
         Tip(c, HELP["newton"])
-        ttk.Label(job, text="Extra args").grid(row=3, column=0, sticky="w")
+        # progress target (an estimate only - it never stops training)
+        ttk.Label(g, text="Progress target").grid(row=7, column=0, sticky="w", **PAD)
+        tgf = ttk.Frame(g)
+        tgf.grid(row=7, column=1, sticky="we", **PAD)
+        tgf.columnconfigure(0, weight=1)
+        self.v_tkind = tk.StringVar(value="plateau (auto)")
+        self.v_tval = tk.StringVar()
+        self.cb_target = ttk.Combobox(tgf, textvariable=self.v_tkind, state="readonly", width=10,
+                                      values=["plateau (auto)", "samples (millions)", "score (Train_Return)"])
+        self.cb_target.grid(row=0, column=0, sticky="we")
+        self.e_tval = ttk.Entry(tgf, textvariable=self.v_tval, width=7)
+        self.e_tval.grid(row=0, column=1, padx=(4, 0))
+        self.b_tset = ttk.Button(tgf, text="Set", width=4, command=self._target_from_widgets)
+        self.b_tset.grid(row=0, column=2, padx=(4, 0))
+        self.cb_target.bind("<<ComboboxSelected>>", lambda _=None: self._target_from_widgets())
+        for w in (self.cb_target, self.e_tval, self.b_tset):
+            Tip(w, HELP["target"])
+        self._target_root = None
+        self.est_disp = {}
+        # Advanced (collapsible, open by default; remembered)
+        ttk.Separator(top, orient="horizontal").pack(side="top", fill="x", pady=(8, 4))
+        ah = ttk.Frame(top)
+        ah.pack(side="top", fill="x")
+        self.v_adv = tk.BooleanVar(value=bool(self.s.get("advanced_open", True)))
+        self.b_adv = ttk.Label(ah, text="", style="Sec.TLabel", cursor="hand2")
+        self.b_adv.pack(side="left")
+        ttk.Label(ah, text="rarely needed", style="Dim.TLabel").pack(side="right")
+        self.b_adv.bind("<Button-1>", lambda e: self._toggle_advanced())
+        Tip(self.b_adv, "Show or hide the advanced options (Extra args, Model for Watch, Training settings, args files).")
+        adv = ttk.Frame(top)
+        self._adv = adv
+        adv.columnconfigure(1, weight=1)
+        ttk.Label(adv, text="Extra args").grid(row=0, column=0, sticky="w", **PAD)
         self.v_extra = tk.StringVar()
-        e = ttk.Entry(job, textvariable=self.v_extra, width=60)
-        e.grid(row=3, column=1, columnspan=3, sticky="we", pady=2)
+        e = ttk.Entry(adv, textvariable=self.v_extra, width=12)
+        e.grid(row=0, column=1, sticky="we", **PAD)
+        self.e_extra = e
         Tip(e, HELP["extra"])
-        ttk.Label(job, text="Model for Watch").grid(row=4, column=0, sticky="w")
+        ttk.Label(adv, text="Model for Watch").grid(row=1, column=0, sticky="w", **PAD)
+        mf = ttk.Frame(adv)
+        mf.grid(row=1, column=1, sticky="we", **PAD)
+        mf.columnconfigure(0, weight=1)
         self.v_model = tk.StringVar()
-        e = ttk.Entry(job, textvariable=self.v_model, width=60)
-        e.grid(row=4, column=1, columnspan=3, sticky="we")
+        e = ttk.Entry(mf, textvariable=self.v_model, width=10)
+        e.grid(row=0, column=0, sticky="we")
+        self.e_model = e
         Tip(e, HELP["model"])
-        ttk.Button(job, text="Browse...", command=self._browse_model).grid(
-            row=4, column=4, sticky="w", padx=6
-        )
-        # a0.8.4: the run/stop buttons have their own row (STOP always visible at 125 %); the rest wraps below
-        bf = ttk.Frame(self._runbar)  # a0.8.5: pinned below the scrolling top (see _build)
-        bf.pack(side="left")
-        bf2 = ttk.Frame(job)
-        bf2.grid(row=6, column=0, columnspan=6, sticky="we", pady=(2, 0))
-        bfa = ttk.Frame(bf2)  # other run buttons + args/settings buttons (+ profile ACTIONS), wraps
-        bfa.pack(side="top", fill="x")
-        for key, txt, fn, parent in (
-            ("train", "Start training", self.train, bf),
-            ("resume", "Resume training", self.resume, bf),
-            ("stopsave", "Stop after next save", self.stop_after_save, bf),
-            ("stop", "STOP", self.stop, bf),
-            ("view", "View clip", self.view, bfa),
-            ("continue", "Continue from run...", self.continue_from, bfa),
-            ("watch", "Watch latest", self.watch, bfa),
-        ):
-            b = ttk.Button(
-                parent,
-                text=txt,
-                command=fn,
-                width=max(10, len(txt) + (2 if parent is bf else 0)),  # a0.9.3: tighter wrap row (Preview fits beside)
-                style="Stop.TButton" if key == "stop" else "TButton",
-            )
-            b.pack(side="left", padx=(3, 3) if key != "stop" else (24, 3))
-            Tip(b, HELP[key])
-            self.run_btns = getattr(self, "run_btns", {})
-            self.run_btns[key] = b
-            if key == "stopsave":
-                self.b_stopsave = b
-        b = ttk.Button(bfa, text="Rescan args", command=self.rescan)
-        b.pack(side="left", padx=3)
-        Tip(b, "Re-read MimicKit's args folder.")
-        b = ttk.Button(bfa, text="Add args file...", command=self._add_custom)
-        b.pack(side="left", padx=3)
-        Tip(b, HELP["custom"])
-        b = ttk.Button(bfa, text="Training settings...", command=self.train_settings_dialog)
-        b.pack(side="left", padx=3)
-        Tip(b, HELP["tsettings"])
-        self._build_actions(bfa)  # launcher_profile.py ACTIONS (none in the public build)
-        # 'Stop after next save' status / refusal, right under the run buttons (a0.8.0: refusals are visible here)
-        self.l_stopsave = ttk.Label(bf, text="", style="Dim.TLabel")
-        self.l_stopsave.pack(side="left", padx=(12, 0))
-        self.l_stopsave.pack_forget()
+        self.b_model_browse = ttk.Button(mf, text="Browse...", command=self._browse_model)
+        self.b_model_browse.grid(row=0, column=1, padx=(4, 0))
+        bfa = ttk.Frame(adv)  # args / settings buttons (+ profile ACTIONS), wraps
+        bfa.grid(row=2, column=0, columnspan=2, sticky="we", pady=(4, 0))
+        self.b_tsettings = ttk.Button(bfa, text="Training settings...", command=self.train_settings_dialog)
+        self.b_tsettings.pack(side="left", padx=(0, 4), pady=2)
+        Tip(self.b_tsettings, HELP["tsettings"])
+        self._build_actions(bfa)  # launcher_profile.py ACTIONS (none in the public build; Z: Apply death patch)
+        self.b_rescan = ttk.Button(bfa, text="Rescan args", command=self.rescan)
+        self.b_rescan.pack(side="left", padx=(0, 4), pady=2)
+        Tip(self.b_rescan, "Re-read MimicKit's args folder.")
+        self.b_addargs = ttk.Button(bfa, text="Add args file...", command=self._add_custom)
+        self.b_addargs.pack(side="left", padx=(0, 4), pady=2)
+        Tip(self.b_addargs, HELP["custom"])
         flow(bfa)
-        self.custom = list(self.s.get("custom_args", []))  # rescan() runs once the Preview box exists (_build)
+        self._paint_advanced()
+        # last preview card (bottom of the column)
+        card = tk.Frame(self._train_left, bd=0, highlightthickness=1, padx=8, pady=6)
+        card.pack(side="bottom", fill="x", pady=(8, 2), padx=(0, 4), before=self._top_outer)
+        self._lastcard = card
+        self.l_cardimg = tk.Label(card, text="\u25a3", bd=0, font=("Segoe UI", 20))
+        self.l_cardimg.grid(row=0, column=0, rowspan=3, sticky="nw", padx=(0, 10))
+        self.l_cardtitle = tk.Label(card, text="Last preview", font=("Segoe UI", 10, "bold"), anchor="w")
+        self.l_cardtitle.grid(row=0, column=1, sticky="w")
+        self.l_cardsub = tk.Label(card, text="", anchor="w")
+        self.l_cardsub.grid(row=1, column=1, sticky="w")
+        cb = ttk.Frame(card)
+        cb.grid(row=2, column=1, sticky="w", pady=(4, 0))
+        self.b_card_render = ttk.Button(cb, text="Render MP4", command=self.preview)
+        self.b_card_render.pack(side="left")
+        Tip(self.b_card_render, HELP["preview"])
+        b = ttk.Button(cb, text="Preview page", command=lambda: self.show_page("preview"))
+        b.pack(side="left", padx=(4, 0))
+        Tip(b, "All preview options, the picture of the last render, Watch latest and View clip (Ctrl+3).")
+        self.custom = list(self.s.get("custom_args", []))  # rescan() runs once the Preview page exists (_build)
 
-    def _build_preview_box(self, row):
-        """a0.9.3: every preview control in its own 'Preview' box, right of 'What to run' (below it when the window is
-        too narrow). Two columns: (Choose clips... + All clips | Clip layout), (Reference ghost | Preview device), then
-        Pause, the buttons (Cancel render set apart on the right) and the progress bar + status line (render stage and
-        pause notices, red for failures)."""
-        pv = ttk.LabelFrame(row, text="Preview", padding=(10, 2, 10, 6))
+    def _card_compact(self, on):
+        """Squeeze the Last preview card by a line when the left column is only a few px short."""
+        card = self._lastcard
+        card.configure(pady=1 if on else 6)
+        card.pack_configure(pady=(2, 1) if on else (8, 2))
+        if on:
+            self.l_cardsub.grid_remove()
+        else:
+            self.l_cardsub.grid()
+
+    def _toggle_advanced(self):
+        self.v_adv.set(not self.v_adv.get())
+        self.s["advanced_open"] = bool(self.v_adv.get())
+        self._save_settings_only()
+        self._paint_advanced()
+
+    def _paint_advanced(self):
+        on = bool(self.v_adv.get())
+        self.b_adv.configure(text=("\u25be ADVANCED" if on else "\u25b8 ADVANCED"))
+        if on and not self._adv.winfo_manager():
+            self._adv.pack(side="top", fill="x", after=self.b_adv.master)
+        elif not on and self._adv.winfo_manager():
+            self._adv.pack_forget()
+        if hasattr(self, "_top_fit"):
+            self.root.after_idle(self._top_fit)
+
+    def _wrap_preset_help(self, width):
+        wl = max(220, int(width))
+        try:
+            if abs(int(str(self.l_preset_help.cget("wraplength")) or 0) - wl) > 4:
+                self.l_preset_help.configure(wraplength=wl)
+                self.l_envswitch.configure(wraplength=wl)
+        except (tk.TclError, ValueError):
+            return
+
+    # ------------------------------------------------------------------ Preview page
+    def _build_preview_box(self, pv):
+        """Every preview control: Choose clips... + All clips (greys out the choice), Clip layout, Reference ghost,
+        Preview device, Pause training for preview, Render MP4, progress + status line, Cancel render set apart,
+        Preview diagnostics; then 'Look live': Watch latest, View clip."""
         self.preview_box = pv
-        PAD = dict(padx=(0, 8), pady=3)
+        k = kscale(self.root)
+        PAD = dict(pady=4)
 
         def save_on_select(cb, key, var):
             cb.bind("<<ComboboxSelected>>", lambda _=None: (self.s.__setitem__(key, var.get()), self._save_settings_only()))
 
-        cf = ttk.Frame(pv)
-        cf.grid(row=0, column=0, columnspan=2, sticky="w", **PAD)
+        body = self._scroll_area(pv)
+        body.columnconfigure(1, weight=1)
+        cf = ttk.Frame(body)
+        cf.grid(row=0, column=0, columnspan=2, sticky="we", **PAD)
         b = ttk.Button(cf, text="Choose clips...", command=self.clips_dialog)
         b.pack(side="left")
         Tip(b, "Which motion clips the MP4 preview shows (up to 4), saved per training config. Greyed out while "
                "All clips is ticked.")
         self.b_clips = b
-        # a0.9.2: 'All clips' - every renderable clip (up to 64) in the chosen layout; greys out the clip choice
         self.v_allclips = tk.BooleanVar(value=bool(self.s.get("preview_all_clips", False)))
 
         def allclips_changed():
@@ -627,139 +812,91 @@ class MainWindowMixin:
         Tip(self.cb_allclips, HELP["allclips"])
         if self.v_allclips.get():
             self.b_clips.state(["disabled"])
-        l_layout = ttk.Label(pv, text="Clip layout")
-        self.v_layout = tk.StringVar(value=self.s.get("preview_layout", "All at once"))
-        cb = ttk.Combobox(pv, textvariable=self.v_layout, values=list(CLIP_LAYOUTS), state="readonly", width=28)
-        cb_layout = cb
-        Tip(cb, HELP["layout"])
-        save_on_select(cb, "preview_layout", self.v_layout)
-        l_ghost = ttk.Label(pv, text="Reference ghost")
-        self.v_ghost = tk.StringVar(value=self.s.get("preview_ghost", "Overlay"))
-        cb = ttk.Combobox(pv, textvariable=self.v_ghost, values=list(GHOST_MODES), state="readonly", width=13)
-        cb_ghost = cb
-        Tip(cb, HELP["ghost"])
-        save_on_select(cb, "preview_ghost", self.v_ghost)
-        l_dev = ttk.Label(pv, text="Preview device")
-        self.v_pdev = tk.StringVar(value=self.s.get("preview_device", "Auto"))
-        cb = ttk.Combobox(pv, textvariable=self.v_pdev, values=["Auto", "CPU only", "GPU"], state="readonly", width=13)
-        cb_dev = cb
-        Tip(cb, HELP["pdevice"])
-        save_on_select(cb, "preview_device", self.v_pdev)
+        rows = (
+            ("Clip layout", "v_layout", "preview_layout", "All at once", list(CLIP_LAYOUTS), "layout", "cb_layout"),
+            ("Reference ghost", "v_ghost", "preview_ghost", "Overlay", list(GHOST_MODES), "ghost", "cb_ghost"),
+            ("Preview device", "v_pdev", "preview_device", "Auto", ["Auto", "CPU only", "GPU"], "pdevice", "cb_pdev"),
+        )
+        for r, (lab, var, key, dflt, vals, help_, attr) in enumerate(rows, 1):
+            ttk.Label(body, text=lab).grid(row=r, column=0, sticky="w", padx=(0, 10), **PAD)
+            v = tk.StringVar(value=self.s.get(key, dflt))
+            setattr(self, var, v)
+            cb = ttk.Combobox(body, textvariable=v, values=vals, state="readonly", width=14)
+            cb.grid(row=r, column=1, sticky="we", **PAD)
+            setattr(self, attr, cb)
+            Tip(cb, HELP[help_])
+            save_on_select(cb, key, v)
         self.v_pause = tk.BooleanVar(value=bool(self.s.get("preview_pause_training", False)))
-        cbp = ttk.Checkbutton(pv, text="Pause training for preview", variable=self.v_pause, command=lambda: (
+        cbp = ttk.Checkbutton(body, text="Pause training for preview", variable=self.v_pause, command=lambda: (
             self.s.__setitem__("preview_pause_training", bool(self.v_pause.get())), self._save_settings_only()))
+        cbp.grid(row=4, column=0, columnspan=2, sticky="w", **PAD)
+        self.cb_pause = cbp
         Tip(cbp, HELP["pausepreview"])
-        pv.columnconfigure(4, weight=1)
-        act = ttk.Frame(pv)
-        b = ttk.Button(act, text="Render MP4", command=self.preview, width=12)
-        b.pack(side="left")
+        b = ttk.Button(body, text="\u25b6  Render MP4", command=self.preview, style="Primary.TButton")
+        b.grid(row=5, column=0, columnspan=2, sticky="we", pady=(8, 4))
         Tip(b, HELP["preview"])
         self.run_btns = getattr(self, "run_btns", {})
         self.run_btns["preview"] = b
-        b = ttk.Button(act, text="Preview diagnostics", command=self.preview_diag)
-        b.pack(side="left", padx=(10, 0))
-        self.b_pdiag = b
-        Tip(b, HELP["pdiag"])
-        # Cancel render: set apart on the far right - only the preview, never the training
-        self.b_stoprender = ttk.Button(act, text="Cancel render", command=self._stop_render_click, width=14)
-        self.b_stoprender.pack(side="right", padx=(40, 0))
-        Tip(self.b_stoprender, HELP["stoprender"])
-        self.b_stoprender.state(["disabled"])
-        prog = ttk.Frame(pv)
-        self.pv_bar = ttk.Progressbar(prog, mode="determinate", maximum=100, length=150)
-        self.pv_bar.pack(side="left", padx=(0, 10))
+        prog = ttk.Frame(body)
+        prog.grid(row=6, column=0, columnspan=2, sticky="we", pady=(2, 0))
+        self.pv_bar = ttk.Progressbar(prog, mode="determinate", maximum=100)
+        self.pv_bar.pack(side="top", fill="x")
         # one status line: render stage and the 'Pause training for preview' notices (red for failures)
         self.l_pvprog = ttk.Label(prog, text="No render running.", style="Dim.TLabel", justify="left")
-        self.l_pvprog.pack(side="left", fill="x", expand=True)
+        self.l_pvprog.pack(side="top", anchor="w", pady=(3, 0))
         self.l_pause = self.l_pvprog
-        prog.bind("<Configure>", lambda e: self.l_pvprog.configure(wraplength=max(160, e.width - 175)), add="+")
-        self._pvw = dict(cf=cf, l_layout=l_layout, cb_layout=cb_layout, l_ghost=l_ghost, cb_ghost=cb_ghost, l_dev=l_dev,
-                         cb_dev=cb_dev, pause=cbp, act=act, prog=prog)
-        # requested widths of both inner layouts (two columns / one column), measured once; 'What to run' is measured
-        # before the config hint gets its text (that hint wraps to whatever width the box gets)
-        self._jobbox.update_idletasks()
-        self._job_basew = self._jobbox.winfo_reqwidth()
-        self._pv_widths = {}
-        for m in ("narrow", "wide"):
-            self._pv_regrid(m)
-            pv.update_idletasks()
-            self._pv_widths[m] = pv.winfo_reqwidth()
-        row.bind("<Configure>", lambda e: self._jobrow_layout(), add="+")
-        self._jobrow_mode = None
-        self._jobrow_layout()
+        prog.bind("<Configure>", lambda e: self.l_pvprog.configure(wraplength=max(160, e.width - 4)), add="+")
+        act = ttk.Frame(body)
+        act.grid(row=7, column=0, columnspan=2, sticky="we", pady=(8, 2))
+        # Cancel render: set apart on the left, Preview diagnostics on the right - only the preview, never training
+        self.b_stoprender = ttk.Button(act, text="Cancel render", command=self._stop_render_click, width=14)
+        self.b_stoprender.pack(side="left")
+        Tip(self.b_stoprender, HELP["stoprender"])
+        self.b_stoprender.state(["disabled"])
+        b = ttk.Button(act, text="Preview diagnostics", command=self.preview_diag)
+        b.pack(side="right")
+        self.b_pdiag = b
+        Tip(b, HELP["pdiag"])
+        ttk.Separator(body, orient="horizontal").grid(row=8, column=0, columnspan=2, sticky="we", pady=(12, 6))
+        ttk.Label(body, text="LOOK LIVE (opens MimicKit's viewer)", style="Sec.TLabel").grid(
+            row=9, column=0, columnspan=2, sticky="w")
+        lf = ttk.Frame(body)
+        lf.grid(row=10, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        for key, txt, fn in (("watch", "Watch latest", self.watch), ("view", "View clip", self.view)):
+            b = ttk.Button(lf, text=txt, command=fn, width=14)
+            b.pack(side="left", padx=(0, 6))
+            Tip(b, HELP[key])
+            self.run_btns[key] = b
         self.root.after(1000, self._pv_tick)
 
-    def _wrap_preset_help(self, width):
-        wl = max(400, int(width) - 20)
-        try:
-            if abs(int(str(self.l_preset_help.cget("wraplength")) or 0) - wl) > 4:
-                self.l_preset_help.configure(wraplength=wl)
-        except (tk.TclError, ValueError):
-            return
+    def _build_preview_page(self, page):
+        k = kscale(self.root)
+        page.rowconfigure(0, weight=1)
+        page.columnconfigure(0, weight=1)
+        left = TitleBox(page, text="Last render", padding=(6, 4, 6, 6))
+        left.grid(row=0, column=0, sticky="nsew")
+        right = TitleBox(page, text="Make a preview video", padding=(10, 4, 10, 8))
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        page.columnconfigure(1, minsize=int(420 * k))
+        self._pv_left, self._pv_right = left, right
 
-    def _pv_regrid(self, mode):
-        """Inner layout of the Preview box: 'wide' = two columns, 'narrow' = one setting per row (used when it sits
-        beside 'What to run' in a narrower window)."""
-        w, PAD = self._pvw, dict(padx=(0, 8), pady=3)
-        if getattr(self, "_pv_mode", None) == mode:
-            return
-        self._pv_mode = mode
-        w["cf"].grid(row=0, column=0, columnspan=2, sticky="w", **PAD)
-        if mode == "wide":
-            w["l_layout"].grid(row=0, column=2, sticky="w", padx=(16, 8), pady=3)
-            w["cb_layout"].grid(row=0, column=3, sticky="w", **PAD)
-            w["l_ghost"].grid(row=1, column=0, sticky="w", **PAD)
-            w["cb_ghost"].grid(row=1, column=1, sticky="w", **PAD)
-            w["l_dev"].grid(row=1, column=2, sticky="w", padx=(16, 8), pady=3)
-            w["cb_dev"].grid(row=1, column=3, sticky="w", **PAD)
-            r = 2
-            w["cb_layout"].configure(width=28)
-        else:
-            for i, (l, c) in enumerate((("l_layout", "cb_layout"), ("l_ghost", "cb_ghost"), ("l_dev", "cb_dev"))):
-                w[l].grid(row=1 + i, column=0, sticky="w", **PAD)
-                w[c].grid(row=1 + i, column=1, columnspan=3, sticky="w", **PAD)
-            r = 4
-            w["cb_layout"].configure(width=24)
-        w["pause"].grid(row=r, column=0, columnspan=4, sticky="w", **PAD)
-        w["act"].grid(row=r + 1, column=0, columnspan=5, sticky="we", pady=(6, 2))
-        w["prog"].grid(row=r + 2, column=0, columnspan=5, sticky="we", pady=(4, 0))
-        self.b_stoprender.pack_configure(padx=(40, 0) if mode == "wide" else (16, 0))
-        self.b_pdiag.configure(text="Preview diagnostics" if mode == "wide" else "Diagnostics")
-
-    def _jobrow_layout(self):
-        """Preview beside 'What to run' when both fit side by side, else below it (narrow window / big scaling).
-        Decided from the row width and the boxes' requested widths only, so it can't flip back and forth."""
-        row, job, pv = self._jobrow, self._jobbox, self.preview_box
-        try:
-            w = row.winfo_width()
-            if w <= 1:
-                w = row.winfo_reqwidth()
-            jw = getattr(self, "_job_basew", 0) or job.winfo_reqwidth()
-            jw += 8
-        except tk.TclError:
-            return
-        pw = getattr(self, "_pv_widths", {})
-        mode = ("side" if w >= jw + pw.get("wide", 0) else "side1" if w >= jw + pw.get("narrow", 0) else "stack")
-        if mode == self._jobrow_mode:
-            return
-        self._jobrow_mode = mode
-        self._pv_regrid("narrow" if mode == "side1" else "wide")
-        if mode in ("side", "side1"):
-            self._wrap_preset_help(jw - 8)  # back to the box's own width (it was wider when stacked)
-            job.grid(row=0, column=0, sticky="nsew")
-            pv.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=0)
-            row.columnconfigure(0, weight=0)
-            row.columnconfigure(1, weight=1)
-        else:
-            job.grid(row=0, column=0, sticky="nsew")
-            pv.grid(row=1, column=0, sticky="nsew", padx=0, pady=(6, 0))
-            row.columnconfigure(0, weight=1)
-            row.columnconfigure(1, weight=0)
-        if hasattr(self, "_top_hook_boxes"):
-            try:
-                self._top_hook_boxes()
-            except Exception as e:
-                log_exc("preview box: re-layout", e)
+    def _build_preview_left(self, left):
+        hdr = ttk.Frame(left)
+        hdr.pack(side="top", fill="x", pady=(0, 6))
+        self.l_lastrender = ttk.Label(hdr, text="", style="Dim.TLabel")
+        self.l_lastrender.pack(side="left")
+        b = ttk.Button(hdr, text="Open folder", command=lambda: self._open_last_preview(folder=True))
+        b.pack(side="right")
+        Tip(b, "Open the folder of the newest preview MP4.")
+        b = ttk.Button(hdr, text="Open video", command=self._open_last_preview)
+        b.pack(side="right", padx=(0, 6))
+        Tip(b, "Play the newest preview MP4 in your video player.")
+        host = tk.Frame(left, bd=0, highlightthickness=0)
+        host.pack(side="top", fill="both", expand=True)
+        self._pv_host = host
+        self.l_pvimg = tk.Label(host, text="", bd=0, justify="center")
+        self.l_pvimg.place(relx=0.5, rely=0.5, anchor="center")
+        host.bind("<Configure>", lambda e: self.root.after_idle(self._still_paint), add="+")
 
     def _pv_tick(self):
         """Preview box: progress bar + status line, Cancel render enabled only while a render runs (every second)."""
@@ -783,6 +920,7 @@ class MainWindowMixin:
             if self.l_pvprog.cget("text") != txt or str(self.l_pvprog.cget("style")) != style:
                 self.l_pvprog.configure(text=txt, style=style)
             self.b_stoprender.state(["!disabled"] if running else ["disabled"])
+            self._still_check()  # 1.0.0: picture of the newest preview (Preview page + Train card), every 5 s
         except tk.TclError:
             return  # window closing
         except Exception as e:
@@ -790,63 +928,32 @@ class MainWindowMixin:
         self.root.after(1000, self._pv_tick)
 
     def _build_command_box(self, parent):
-        """The exact command being run (copyable)."""
-        cmdf = ttk.LabelFrame(
-            parent, text="Exact command (copy it into a terminal to run it yourself)", padding=4
-        )
-        cmdf.pack(side="top", fill="x", pady=(0, 4))
-        self.t_cmd = tk.Text(cmdf, height=2, width=60, wrap="word")
-        self.t_cmd.pack(fill="x")
-        self.t_cmd.configure(state="disabled")
+        """1.0.0: the exact command lives on the Results page (_build_results); kept for overlays that call it."""
+        if not hasattr(self, "t_cmd"):
+            self.t_cmd = tk.Text(parent, height=2, width=60, wrap="word", state="disabled")
+            self.t_cmd.pack(fill="x")
 
-    def _build_status(self, left):
-        """Status text, progress target, GPU/VRAM meter."""
-        stf = ttk.LabelFrame(left, text="Status", padding=4)
-        stf.pack(fill="x")
-        self._stf = stf
-        self.l_status = ttk.Label(
-            stf,
-            text="Idle.",
-            justify="left",
-            font=("Segoe UI", 10) if IS_WIN else ("TkDefaultFont", 10),
-        )
-        self.l_status.pack(anchor="w", fill="x")
-        # wrap to the column instead of being cut off on the right (a0.6.1 item: 'speed 7.50 M samples/' was clipped)
-        stf.bind("<Configure>", lambda e: self.l_status.configure(wraplength=max(200, e.width - 16)), add="+")
-        tgf = ttk.Frame(stf)
-        tgf.pack(anchor="w", fill="x", pady=(2, 0))
-        ttk.Label(tgf, text="Progress target").pack(side="left")
-        self.v_tkind = tk.StringVar(value="plateau (auto)")
-        self.v_tval = tk.StringVar()
-        self.cb_target = ttk.Combobox(
-            tgf,
-            textvariable=self.v_tkind,
-            values=["plateau (auto)", "samples (millions)", "score (Train_Return)"],
-            state="readonly",
-            width=20,
-        )
-        self.cb_target.pack(side="left", padx=4)
-        e = ttk.Entry(tgf, textvariable=self.v_tval, width=10)
-        e.pack(side="left")
-        b = ttk.Button(tgf, text="Set", command=self._target_from_widgets)
-        b.pack(side="left", padx=4)
-        self.cb_target.bind("<<ComboboxSelected>>", lambda _=None: self._target_from_widgets())
-        for w in (self.cb_target, e, b):
-            Tip(w, HELP["target"])
-        self._target_root = None
-        self.est_disp = {}
-        gpuf = ttk.Frame(stf)
-        gpuf.pack(anchor="w", fill="x")
-        self.l_gpu = ttk.Label(gpuf, text="GPU: checking...", justify="left", style="Good.TLabel")
-        self.l_gpu.pack(side="left", anchor="w")
-        self.c_vram = tk.Canvas(gpuf, width=190, height=16, highlightthickness=0, bd=0)
-        self.c_vram.pack(side="left", padx=(10, 0))
-        Tip(
-            self.c_vram,
-            "GPU memory (VRAM) used / total from nvidia-smi.\nGreen < 75 %, amber 75-90 %, red > 90 % (close to out-of-memory).",
-        )
-        self.vram = None
-        self.root.after(10, self._draw_vram)
+    def _build_status(self, right):
+        """Top of 'What's happening': stage + iteration, the status text and the GPU line (the VRAM meter is in the
+        transport strip)."""
+        top = ttk.Frame(right)
+        top.pack(side="top", fill="x")
+        self.st_stage = ttk.Label(top, text="Idle", style="Big.TLabel")
+        self.st_stage.pack(side="left")
+        self.st_iter = ttk.Label(top, text="", style="Big.TLabel")
+        self.st_iter.pack(side="left", padx=(10, 0))
+        self.l_status = ttk.Label(right, text="Idle.", justify="left", style="Dim.TLabel", wraplength=280)
+        self.l_status.pack(side="top", anchor="w", fill="x", pady=(2, 0))
+        self.l_gpu = ttk.Label(right, text="GPU: checking...", justify="left", style="Good.TLabel", wraplength=280)
+        self.l_gpu.pack(side="top", anchor="w", fill="x", pady=(2, 4))
+        # wrap to the column instead of being cut off on the right
+        def wrap(e):
+            w = e.width - 24 if (getattr(self, "_train_mode", None) or ("3col",))[0] == "3col" else e.width // 2 - 36
+            for lab in (self.l_status, self.l_gpu):
+                if abs(int(str(lab.cget("wraplength")) or 0) - max(160, w)) > 3:
+                    lab.configure(wraplength=max(160, w))
+
+        right.bind("<Configure>", wrap, add="+")
 
     def _view_changed(self, _=None):
         it = self._item("view") or {}
@@ -873,6 +980,16 @@ class MainWindowMixin:
                 b.state(["!disabled"] if on else ["disabled"])
             except tk.TclError:
                 pass
+        rb = getattr(self, "run_btns", None) or {}
+        try:  # 1.0.0: the Resume menu's first entry and 'Continue from selected run' follow Resume / Continue
+            if hasattr(self, "_resume_menu") and "resume" in rb:
+                self._resume_menu.entryconfigure(0, state="disabled" if rb["resume"].instate(["disabled"]) else "normal")
+            if hasattr(self, "b_continue_sel") and "continue" in rb:
+                self.b_continue_sel.state(["disabled"] if rb["continue"].instate(["disabled"]) else ["!disabled"])
+            if hasattr(self, "b_card_render") and "preview" in rb:
+                self.b_card_render.state(["disabled"] if rb["preview"].instate(["disabled"]) else ["!disabled"])
+        except tk.TclError:
+            pass
         sr = getattr(self, "b_stoprender", None)
         if sr is not None:
             pp = getattr(self, "preview_proc", None)
@@ -889,16 +1006,10 @@ class MainWindowMixin:
                 self._append("[gui] %s\n" % msg)
 
     def _build_charts(self, mid):
-        """Training progress charts with navigation buttons."""
-        right = TitleBox(
-            mid,
-            text="Training progress (refreshed every 10 s)",
-            padding=4,
-        )
-        mid.add(right, weight=3)
+        """Training progress charts with their toolbar (Current session only, Per-step chart, Home, Save picture)."""
+        right = TitleBox(mid, text="Training progress (refreshed every 10 s)", padding=(4, 2, 4, 4))
+        right.pack(side="top", fill="both", expand=True)
         self.prog_frame = right
-        self.root.after(300, lambda: mid.sashpos(0, max(560, int(mid.winfo_width() * 0.4))))
-        # a0.8.3: real screen DPI (x Windows scale) instead of a fixed 90 dpi - text no longer crunched at 125 %
         try:
             dpi = max(72.0, min(240.0, float(self.root.winfo_fpixels("1i"))))
         except (tk.TclError, ValueError):
@@ -908,27 +1019,25 @@ class MainWindowMixin:
         self.ax3 = None
         self._make_axes()
         self.canvas = FigureCanvasTkAgg(self.fig, master=right)
-        # chart navigation (no modes): left-drag = pan time (x) of both charts, wheel = zoom time at the cursor, y fixed to
-        # the full data range (manual y drag only when a chart has visible data outside its y range), Home/double-click = reset
+        # chart navigation (no modes): left-drag = pan time (x) of both charts, wheel = zoom time at the cursor, y fixed
+        # to the full data range (manual y drag only when a chart has visible data outside its y range), Home /
+        # double-click = reset
         self.xview = None
         self.drag = None
         self.v_cur = tk.BooleanVar(value=bool(self.s.get("current_session_only", False)))
         navf = ttk.Frame(right)
-        navf.pack(side="bottom", fill="x")
+        navf.pack(side="top", fill="x", pady=(0, 2))
         self.navf = navf
-        self.b_home = ttk.Button(navf, text="Home", width=7, command=self._auto_follow)
+        c = ttk.Checkbutton(navf, text="Current session only", variable=self.v_cur, command=self._cur_toggled)
+        c.pack(side="left", padx=(0, 10))
+        self.cb_cursess = c
+        c2 = ttk.Checkbutton(navf, text="Per-step chart", variable=self.v_ps, command=self._ps_toggled)
+        c2.pack(side="left", padx=(0, 10))
+        self.cb_ps = c2
+        self.b_home = ttk.Button(navf, text="\u2302 Home", width=8, command=self._auto_follow)
         self.b_home.pack(side="left", padx=(0, 4))
         self.b_save = ttk.Button(navf, text="Save picture...", command=self._save_chart)
         self.b_save.pack(side="left")
-        c = ttk.Checkbutton(
-            navf, text="Current session only", variable=self.v_cur, command=self._cur_toggled
-        )
-        c.pack(side="left", padx=10)
-        c2 = ttk.Checkbutton(
-            navf, text="Per-step chart", variable=self.v_ps, command=self._ps_toggled
-        )
-        c2.pack(side="left")
-        self.cb_ps = c2
         # a0.8.4: on a very short window only one chart fits - these tabs pick which (hidden otherwise)
         self.f_onechart = ttk.Frame(navf)
         self.v_onechart = tk.StringVar(value="return")
@@ -939,18 +1048,12 @@ class MainWindowMixin:
         Tip(c, HELP["cursess"])
         Tip(self.b_home, HELP["chartnav"])
         Tip(self.b_save, "Save the charts as a PNG/SVG/PDF picture.")
-        flow(navf)  # a0.8.7 (UX 4): the toolbar wraps onto a 2nd row instead of clipping at 125 %
+        flow(navf)  # the toolbar wraps onto a 2nd row instead of clipping at 125 %
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.canvas.get_tk_widget().bind("<Configure>", self._chart_resized, add="+")
-        if hasattr(self, "_top_fit"):  # a0.8.7: the chart box's toolbar may wrap -> re-split top / bottom
-            self.canvas.get_tk_widget().bind("<Configure>", lambda e: self.root.after_idle(self._top_fit), add="+")
-        # chart help: '?' badge in the chart's title row, next to 'Training progress' (a0.6.1 UX item: it used to be
-        # a tiny badge on the end of the Return line); hover shows the help, kept inside the window
+        # chart help: '?' badge in the chart's title row, next to 'Training progress'
         self.chart_help = tk.Label(right.title_row, text="?", width=2, cursor="question_arrow")
-        # before the title: on a narrow window the title row gets clipped from the right, the badge must stay whole
         self.chart_help.pack(side="left", padx=(0, 6), before=right._title)
-        # a0.8.5: the chart caption (what Return / Samples/hour mean) moved into this tooltip - no squeezed line
-        # under the charts any more
         self.chart_caption = RETURN_TEXT + "\nSamples/hour = training speed."
         Tip(self.chart_help, self.chart_caption + "\n\n" + HELP["chartnav"])
         Tip(right._title, self.chart_caption)
@@ -1083,6 +1186,39 @@ class MainWindowMixin:
             self._top_more.configure(bg=T["sel"], fg=T["fg"])
         st.configure("TPanedwindow", background=T["bg"])
         st.configure("Sash", background=T["border"])
+        # 1.0.0 (Mockup D): section labels, big transport buttons, the plateau bar, the runs list
+        st.configure("Sec.TLabel", background=T["bg"], foreground=T["accent"], font=("Segoe UI", 9, "bold"))
+        big = ("Segoe UI", 10, "bold")
+        st.configure("Big.TButton", background=T["btn"], foreground=T["fg"], bordercolor=T["border"],
+                     padding=(14, 7), font=big)
+        st.map("Big.TButton", background=[("disabled", T["dis_bg"]), ("pressed", T["sel"]), ("active", T["btn_act"])],
+               foreground=[("disabled", T["dis_fg"])])
+        st.configure("BigNarrow.TButton", background=T["btn"], foreground=T["fg"], bordercolor=T["border"],
+                     padding=(4, 7), font=big)
+        st.map("BigNarrow.TButton", background=[("disabled", T["dis_bg"]), ("pressed", T["sel"]),
+                                                ("active", T["btn_act"])], foreground=[("disabled", T["dis_fg"])])
+        st.configure("Blue.TButton", background=T["blue"], foreground=T["blue_fg"], bordercolor=T["blue_b"],
+                     padding=(12, 7), font=big)
+        st.map("Blue.TButton", background=[("disabled", T["dis_bg"]), ("pressed", T["sel"]), ("active", T["blue_act"])],
+               foreground=[("disabled", T["dis_fg"])], bordercolor=[("disabled", T["border"])])
+        st.configure("BigStop.TButton", background=T["stop"], foreground=T["stop_fg"], bordercolor=T["stop"],
+                     padding=(12, 7), font=big)
+        st.map("BigStop.TButton", background=[("disabled", T["stop_dis"]), ("pressed", T["stop_act"]),
+                                              ("active", T["stop_act"])],
+               foreground=[("disabled", T["stop_dis_fg"])], bordercolor=[("disabled", T["stop_dis"])])
+        st.configure("Primary.TButton", background=T["go"], foreground=T["go_fg"], bordercolor=T["go"],
+                     padding=(10, 8), font=("Segoe UI", 11, "bold"))
+        st.map("Primary.TButton", background=[("disabled", T["dis_bg"]), ("pressed", T["sel"]), ("active", T["go_act"])],
+               foreground=[("disabled", T["dis_fg"])])
+        st.configure("Plateau.Horizontal.TProgressbar", background=T["accent"], troughcolor=T["field"],
+                     bordercolor=T["border"], lightcolor=T["accent"], darkcolor=T["accent"])
+        st.configure("Horizontal.TProgressbar", troughcolor=T["field"], bordercolor=T["border"])
+        st.configure("Treeview", background=T["field"], fieldbackground=T["field"], foreground=T["fg"],
+                     bordercolor=T["border"], rowheight=int(22 * kscale(self.root)))
+        st.map("Treeview", background=[("selected", T["sel"])], foreground=[("selected", T["fg"])])
+        st.configure("Treeview.Heading", background=T["btn"], foreground=T["fg"], bordercolor=T["border"])
+        st.map("Treeview.Heading", background=[("active", T["btn_act"])])
+        st.configure("TSeparator", background=T["border"])
         # classic tk bits: combobox drop-down list, Text widgets
         self.root.configure(bg=T["bg"])
         self.root.option_add("*TCombobox*Listbox.background", T["list_bg"])  # a0.8.9 (UX4): black lists
@@ -1122,6 +1258,34 @@ class MainWindowMixin:
         self._restyle_artists()
         self.canvas.draw_idle()
         self._status_theme()
+        self._layout_theme()
+
+    def _layout_theme(self):
+        """1.0.0: classic tk widgets of the page shell (tabs, stats, warning card, last preview card, picture)."""
+        if hasattr(self, "_tabs_paint"):
+            self._tabs_paint()
+        for w in (getattr(self, "l_gpuname", None),):
+            if w is not None:
+                w.configure(bg=T["bg"], fg=T["fg"])
+        for w in (getattr(self, "_tp_gpu", None),):
+            if w is not None:
+                w.configure(bg=T["bg"])
+        card = getattr(self, "_lastcard", None)
+        if card is not None:
+            card.configure(bg=T["panel"], highlightbackground=T["border"], highlightcolor=T["border"])
+            for w in (self.l_cardimg, self.l_cardtitle, self.l_cardsub):
+                w.configure(bg=T["panel"] if w is not self.l_cardimg else T["plot"], fg=T["fg"] if w is self.l_cardtitle
+                            else T["dim"])
+        wc = getattr(self, "_warncard", None)
+        if wc is not None:
+            wc.configure(bg=T["warn_bg"], highlightbackground=T["warn_border"], highlightcolor=T["warn_border"])
+            self.st_wl.configure(bg=T["warn_bg"], fg=T["warn"])
+            self.st_warn.configure(bg=T["warn_bg"], fg=T["fg"])
+        for w in (getattr(self, "_pv_host", None), getattr(self, "l_pvimg", None)):
+            if w is not None:
+                w.configure(bg=T["plot"])
+        if getattr(self, "l_pvimg", None) is not None:
+            self.l_pvimg.configure(fg=T["dim"])
 
     def _browse(self, var):
         d = filedialog.askdirectory(initialdir=var.get() or "/")
@@ -1274,13 +1438,16 @@ class MainWindowMixin:
                     txt = txt or "GPU: nvidia-smi gave no data"
                     ok = [r_ for r_ in rows if len(r_) == 4 and _isnum(r_[1]) and _isnum(r_[2])]
                     vr = (ok[0][1], ok[0][2]) if ok else (None, None)
+                    gname = ok[0][0].replace("NVIDIA GeForce ", "").replace("NVIDIA ", "") if ok else None
                 except Exception as e:
                     txt = "GPU: nvidia-smi not available (%s)" % type(e).__name__
                     vr = (None, None)
+                    gname = None
                 if getattr(self, "_closed", False):
                     return  # window closed: just end this poll thread
                 # worker thread: never call Tk here - the GUI thread runs these from rq
-                self.rq.put(lambda v=vr, t=txt: (self._set_vram(*v), self.l_gpu.configure(text=t)))
+                self.rq.put(lambda v=vr, t=txt, n=gname: (setattr(self, "gpu_name", n), self._set_vram(*v),
+                                                          self.l_gpu.configure(text=t)))
                 time.sleep(5)
 
         threading.Thread(target=loop, daemon=True).start()
@@ -1358,7 +1525,9 @@ class MainWindowMixin:
         self.t_log.insert("end", s)
         if int(self.t_log.index("end-1c").split(".")[0]) > 5000:
             self.t_log.delete("1.0", "1000.0")
-        self.t_log.see("end")
+        av = getattr(self, "v_autoscroll", None)
+        if av is None or av.get():  # Results page: Auto-scroll (on by default = as before)
+            self.t_log.see("end")
 
     def _pump(self):
         try:

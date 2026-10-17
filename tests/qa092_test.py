@@ -24,6 +24,12 @@ from mkl import core
 from mkl import updatecheck as UC
 
 # --- All clips: grid shape + tile size ------------------------------------------------------------------------------
+# 1.0.0: dropping the 'a' prefix must still count as newer than every alpha
+check("1.0.0 is newer than a0.9.3 / a0.9.10, never the reverse",
+      UC.newer("1.0.0", "a0.9.3") and UC.newer("1.0.0", "a0.9.10") and not UC.newer("a0.9.3", "1.0.0")
+      and not UC.newer("1.0.0", "1.0.0") and UC.newer("1.0.1", "1.0.0") and UC.newer("v1.0.0", "a0.9.3"))
+check("1.0.0 found as the update for an a0.9.3 user", UC.newer("1.0.0", core.VERSION) is False
+      and core.VERSION == "1.0.0" and UC.parse_version("1.0.0") == (1, 0, 0))
 check("grid up to 4 unchanged", [P.grid_shape(k) for k in (1, 2, 3, 4)] == [(1, 1), (1, 2), (2, 2), (2, 2)])
 check("31 clips -> 6x6 auto grid", P.grid_shape(31) == (6, 6), P.grid_shape(31))
 check("5 clips -> 2x3, 64 -> 8x8", P.grid_shape(5) == (2, 3) and P.grid_shape(64) == (8, 8))

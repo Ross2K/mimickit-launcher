@@ -25,10 +25,11 @@ from mkl.runs import RunsMixin
 from mkl.clips import ClipsMixin
 from mkl.updatecheck import AutoUpdateMixin
 from mkl.pausepreview import PausePreviewMixin
+from mkl.layout import PagesMixin
 from mkl import icon
 
 
-class App(MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin, AutoUpdateMixin, PausePreviewMixin):
+class App(PagesMixin, MainWindowMixin, ProcessMixin, ChartsMixin, DashboardMixin, SettingsMixin, StatusMixin, EnvSwitchMixin, StopAfterSaveMixin, ActionsMixin, PluginsMixin, RunsMixin, ClipsMixin, AutoUpdateMixin, PausePreviewMixin):
     def __init__(self, root):
         self.root = root
         # Tk callback errors used to go to stderr - invisible under pythonw.exe. Now: launcher_errors.log + log panel

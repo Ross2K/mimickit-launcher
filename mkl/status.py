@@ -27,126 +27,75 @@ class StatusMixin:
         self._ep_log = (0.0, None, None)  # (read time, log.txt path, its newest Train_Episode_Length)
 
     def _build_banner(self):
-        f = tk.Frame(self.root, padx=6, pady=3)
-        f.pack(fill="x", padx=6, pady=(3, 1))
+        """1.0.0: the health line is the pill in the transport strip (every page); 'Hover any control = help', the
+        update notice and the version sit at the right of the tab bar."""
+        f = tk.Frame(self._tp_bannerhost, padx=8, pady=2)
+        f.pack(side="left", fill="x", expand=True)
         self.ban_f = f
-        self.ban_ver = tk.Label(f, text="version " + VERSION)
-        self.ban_ver.pack(side="right")
-        # a0.8.5: the 'Hover = help' hint lives in the banner (it used to wrap onto its own preview line)
-        self.ban_hint = tk.Label(f, text="Hover any control = help")
-        self.ban_hint.pack(side="right", padx=(8, 8))
         self.ban_dot = tk.Label(f, text="\u25cf", font=("Segoe UI", 11))
         self.ban_dot.pack(side="left")
         self.ban_detail = tk.Label(f, text="", anchor="e")  # grey technical detail (exit code)
-        self.ban_detail.pack(side="right", padx=(8, 8))
+        self.ban_detail.pack(side="right", padx=(8, 0))
         self.ban_lab = tk.Label(f, text=SM.BANNER["idle"][1], anchor="w", justify="left")
         self.ban_lab.pack(side="left", fill="x", expand=True, padx=(4, 0))
         self.ban_level = "idle"
         f.bind("<Configure>", self._wrap_banner)
+        tr = self._tab_right
+        # a0.9.2: 'Update X available' notice (automatic check) - hidden until there is one; click = details
+        self.l_update = ttk.Label(tr, text="", style="Err.TLabel", cursor="hand2")
+        self.l_update.grid(row=0, column=0, padx=(0, 12), sticky="e")
+        self.l_update.bind("<Button-1>", lambda e: self.open_update_notice())
+        Tip(self.l_update, "A newer launcher version is out. Click for details. Nothing is installed automatically.")
+        self.l_update.grid_remove()
+        self.ban_hint = tk.Label(tr, text="Hover any control = help  \u00b7  Ctrl+1..4 = pages")
+        self.ban_hint.grid(row=0, column=1, sticky="e")
+        self.ban_ver = tk.Label(tr, text="version " + VERSION)
+        self.ban_ver.grid(row=0, column=2, sticky="e", padx=(12, 0))
 
     def _wrap_banner(self, _=None):
         """The banner text wraps onto a second line instead of being cut off on a narrow window."""
-        room = (
-            self.ban_f.winfo_width()
-            - self.ban_ver.winfo_reqwidth()
-            - self.ban_hint.winfo_reqwidth()
-            - self.ban_dot.winfo_reqwidth()
-            - self.ban_detail.winfo_reqwidth()
-            - 40
-        )
-        if int(self.ban_lab.cget("wraplength")) != max(200, room):
-            self.ban_lab.configure(wraplength=max(200, room))
+        room = self.ban_f.winfo_width() - self.ban_dot.winfo_reqwidth() - self.ban_detail.winfo_reqwidth() - 30
+        if int(self.ban_lab.cget("wraplength")) != max(160, room):
+            self.ban_lab.configure(wraplength=max(160, room))
 
-    def _build_cards(self, left):
-        self.cards_f = ttk.Frame(left)  # packed above the output panel by _build_output
+    def _build_cards(self, parent):
+        self.cards_f = ttk.Frame(parent)  # packed above the charts while a card is shown (_show_card)
 
-    def _build_output(self, left):
-        """Output panel: Status (graphical, from the console) / Console (raw) toggle."""
-        logf = ttk.LabelFrame(left, text="Output", padding=4)
-        logf.pack(fill="both", expand=True)
-        self._cards_anchor = logf  # cards_f is packed just above it while a card is shown
-        hdr = ttk.Frame(logf)
-        hdr.pack(fill="x", pady=(0, 4))
-        self.v_outview = tk.StringVar(value=self.s.get("output_view", "status"))
-        for lab, val in (("Status", "status"), ("Console", "console")):
-            ttk.Radiobutton(
-                hdr,
-                text=lab,
-                value=val,
-                variable=self.v_outview,
-                style="Toolbutton",
-                command=self._outview_changed,
-            ).pack(side="left", padx=(0, 2))
-        self.l_outhint = ttk.Label(hdr, text="", style="Dim.TLabel")
-        self.l_outhint.pack(side="left", padx=8)
-        body = ttk.Frame(logf)
-        body.pack(fill="both", expand=True)
-        self.st_panel = ttk.Frame(body)
-        self.con_panel = ttk.Frame(body)
-        self._build_console(self.con_panel)
-        self._build_status_panel(self._scroll_area(self.st_panel))
-        self._outview_changed(save=False)
-
-    def _build_console(self, parent):
-        self._build_command_box(parent)
-        self.t_log = tk.Text(parent, wrap="none", width=70, height=8, font=MONO)
-        ys = ttk.Scrollbar(parent, command=self.t_log.yview)
-        self.t_log.configure(yscrollcommand=ys.set)
-        ys.pack(side="right", fill="y")
-        self.t_log.pack(fill="both", expand=True)
+    def _build_output(self, right):
+        """'What's happening' (right column of the Train page): events, last checkpoint, next save, the amber
+        Warnings card and a link to the Results page (full console + exact command)."""
+        self.v_outview = tk.StringVar(value="status")
+        self.st_panel = right
+        self.l_outhint = ttk.Label(right, text="from MimicKit's console output", style="Dim.TLabel")
+        self._build_status_panel(right)
 
     def _build_status_panel(self, p):
-        p.columnconfigure(0, weight=1)
-        top = ttk.Frame(p)
-        top.grid(row=0, column=0, sticky="we")
-        self.st_stage = ttk.Label(top, text="Idle", style="Big.TLabel")
-        self.st_stage.pack(side="left")
-        self.st_iter = ttk.Label(top, text="", style="Big.TLabel")
-        self.st_iter.pack(side="left", padx=(10, 0))
-        self.st_save_l = ttk.Label(top, text="", style="Dim.TLabel")
-        self.st_save_l.pack(side="right")
-        self.st_save = ttk.Progressbar(top, mode="determinate", maximum=1, length=110)
-        self.st_save.pack(side="right", padx=6)
-        ttk.Label(top, text="Next save").pack(side="right")
-        tf = ttk.Frame(p)
-        tf.grid(row=2, column=0, sticky="we", pady=(6, 0))
-        self.tiles = {}
-        for i, (k, title) in enumerate(
-            (("score", "Score"), ("rate", "Speed"), ("ep", "Episode length"))
-        ):
-            tf.columnconfigure(i, weight=1, uniform="tile")
-            t = tk.Frame(tf, padx=8, pady=3)
-            t.grid(row=0, column=i, sticky="nswe", padx=(0 if i == 0 else 6, 0))
-            t.columnconfigure(1, weight=1)
-            a = tk.Label(t, text=title, anchor="w")
-            b = tk.Label(t, text="-", anchor="e", font=("Segoe UI", 12, "bold"))
-            c = tk.Label(t, text="", anchor="w")
-            a.grid(row=0, column=0, sticky="w")
-            b.grid(row=0, column=1, sticky="e")
-            c.grid(row=1, column=0, columnspan=2, sticky="w")
-            self.tiles[k] = (t, a, b, c)
-        ck = ttk.Frame(p)
-        ck.grid(row=3, column=0, sticky="we", pady=(4, 0))
-        self.st_ckpt = ttk.Label(ck, text="Last checkpoint: none yet")
-        self.st_ckpt.pack(side="left")
-        ttk.Button(ck, text="Open console", command=lambda: self._set_outview("console")).pack(
-            side="right"
-        )
-        bx = ttk.Frame(p)
-        bx.grid(row=4, column=0, sticky="nswe", pady=(4, 0))
-        p.rowconfigure(4, weight=1)
-        for c, (attr, title) in enumerate(
-            (("st_events", "What's happening"), ("st_warn", "Warnings and errors"))
-        ):
-            bx.columnconfigure(c, weight=1, uniform="box")
-            bx.rowconfigure(1, weight=1)
-            lab = ttk.Label(bx, text=title, style="Dim.TLabel")
-            lab.grid(row=0, column=c, sticky="w", padx=(0 if c == 0 else 6, 0))
-            t = tk.Text(bx, height=2, wrap="word", width=30, relief="flat")
-            t.grid(row=1, column=c, sticky="nswe", padx=(0 if c == 0 else 6, 0))
-            setattr(self, attr, t)
-            if c == 1:
-                self.st_wl = lab
+        bot = ttk.Frame(p)
+        bot.pack(side="bottom", fill="x", pady=(8, 0))
+        ttk.Label(bot, text="Full console:", style="Dim.TLabel").pack(side="left")
+        self.b_open_console = ttk.Button(bot, text="\u2630 Results page", command=lambda: self._set_outview("console"))
+        self.b_open_console.pack(side="left", padx=(6, 0))
+        Tip(self.b_open_console, "The full MimicKit console, the exact command and your runs (Ctrl+4).")
+        wc = tk.Frame(p, bd=0, highlightthickness=1, padx=8, pady=6)
+        wc.pack(side="bottom", fill="x", pady=(8, 0))
+        self._warncard = wc
+        self.st_wl = tk.Label(wc, text="\u26a0 Warnings and errors", anchor="w", font=("Segoe UI", 10, "bold"))
+        self.st_wl.pack(side="top", fill="x")
+        self.st_warn = tk.Text(wc, height=4, wrap="word", width=24, relief="flat")
+        self.st_warn.pack(side="top", fill="both", expand=True, pady=(4, 0))
+        kv = ttk.Frame(p)
+        kv.pack(side="bottom", fill="x", pady=(6, 0))
+        kv.columnconfigure(1, weight=1)
+        self.st_ckpt = ttk.Label(kv, text="Last checkpoint: none yet", justify="left")
+        self.st_ckpt.grid(row=0, column=0, columnspan=3, sticky="w")
+        kv.bind("<Configure>", lambda e: self.st_ckpt.configure(wraplength=max(180, e.width - 4)), add="+")
+        ttk.Label(kv, text="Next save").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.st_save = ttk.Progressbar(kv, mode="determinate", maximum=1, length=100)
+        self.st_save.grid(row=1, column=1, sticky="we", padx=6, pady=(4, 0))
+        self.st_save_l = ttk.Label(kv, text="", style="Dim.TLabel")
+        self.st_save_l.grid(row=1, column=2, sticky="e", pady=(4, 0))
+        self.st_events = tk.Text(p, height=8, wrap="word", width=24, relief="flat")
+        self.st_events.pack(side="top", fill="both", expand=True)
         for w in (self.st_events, self.st_warn):
             w.configure(state="disabled")
         self._status_sig = None
@@ -192,17 +141,9 @@ class StatusMixin:
         return inner
 
     def _outview_changed(self, save=True):
+        """1.0.0: 'console' = the Results page (full console + exact command), 'status' = the Train page."""
         v = self.v_outview.get()
-        show, hide = (
-            (self.st_panel, self.con_panel) if v == "status" else (self.con_panel, self.st_panel)
-        )
-        hide.pack_forget()
-        show.pack(fill="both", expand=True)
-        self.l_outhint.configure(
-            text="from MimicKit's console output" if v == "status" else "raw MimicKit output"
-        )
-        if v == "console":
-            self.t_log.see("end")
+        self.show_page("results" if v == "console" else "train")
         if save:
             self.s["output_view"] = v
             self._save_settings_only()
@@ -228,7 +169,7 @@ class StatusMixin:
         self.st_events.tag_configure("dim", foreground=T["dim"])
         for t, a, b, c in self.tiles.values():
             for w in (t, a, b, c):
-                w.configure(bg=T["panel"])
+                w.configure(bg=T["bg"])
             a.configure(fg=T["dim"])
             b.configure(fg=T["fg"])
             c.configure(fg=T["dim"])
@@ -336,8 +277,8 @@ class StatusMixin:
         col = T.get(BANNER_COL.get(level, "dim"), T["fg"])
         bg = T["panel"]
         self.ban_f.configure(bg=bg)
-        self.ban_ver.configure(bg=bg, fg=T["dim"])
-        self.ban_hint.configure(bg=bg, fg=T["dim"])
+        self.ban_ver.configure(bg=T["bg"], fg=T["dim"])
+        self.ban_hint.configure(bg=T["bg"], fg=T["dim"])
         self.ban_detail.configure(bg=bg, fg=T["dim"])
         self.ban_dot.configure(bg=bg, fg=col)
         self.ban_lab.configure(bg=bg, fg=T["fg"] if level in ("idle", "info", "ok") else col)
@@ -355,8 +296,6 @@ class StatusMixin:
         if detail != self.ban_detail.cget("text"):
             self.ban_detail.configure(text=detail)
             self._wrap_banner()
-        if not force and self.v_outview.get() != "status":
-            return
         stage = (
             m.stage
             if running or m.iteration is not None
@@ -428,16 +367,21 @@ class StatusMixin:
             ne, nw = len(m.errors), len(m.warnings)
             self.st_wl.configure(
                 text=(
-                    "Errors (%d) and warnings (%d)" % (ne, nw)
+                    "\u26a0 Errors (%d) and warnings (%d)" % (ne, nw)
                     if ne or nw
-                    else "Warnings and errors"
+                    else "\u26a0 Warnings and errors"
                 )
             )
 
     def _tile(self, k, value, sub):
         t, a, b, c = self.tiles[k]
-        b.configure(text=value)
-        c.configure(text=sub)
+        if b.cget("text") != value:
+            b.configure(text=value)
+        if c.cget("text") != sub:
+            c.configure(text=sub)
+            base = getattr(self, "_tile_tips", {}).get(k, "")
+            for w in (t, a, b):  # 1.0.0: the tile's small print is in its hover help
+                Tip(w, base + ("\n\nNow: %s" % sub if sub else ""))
 
     def _fill(self, w, rows):
         w.configure(state="normal")
@@ -557,6 +501,8 @@ class StatusMixin:
 
         inner.bind("<Configure>", wrap)
         self.cards[cid] = (outer, ctx)
+        if hasattr(self, "_tabs_paint"):
+            self._tabs_paint()  # a dot on the Train tab while a card waits there
         self.card_texts = getattr(self, "card_texts", {})
         self.card_texts[cid] = c  # for tests / the doc generator
 
@@ -566,6 +512,8 @@ class StatusMixin:
             fr.destroy()
         if not self.cards:
             self.cards_f.pack_forget()  # an empty frame would keep its old height
+        if hasattr(self, "_tabs_paint"):
+            self._tabs_paint()
 
     def _card_action(self, cid, act, ctx):
         """One fix per card. Every action is logged in the console."""

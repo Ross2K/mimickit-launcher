@@ -102,7 +102,13 @@ cv, inner = a._top_cv, a._top_inner
 req, h = inner.winfo_reqheight(), cv.winfo_height()
 scrolls = req > h + 1
 check("UX: short window -> top area scrolls", scrolls, (h, req))
-child = next(w for w in inner.winfo_children()[0].winfo_children() if w.winfo_class() == "TButton")
+def _walk(w):
+    for c in w.winfo_children():
+        yield c
+        yield from _walk(c)
+
+
+child = next(w for w in _walk(inner) if w.winfo_class() == "TButton")  # 1.0.0: any button in the Train left column
 a._top_hover["on"] = True
 cv.yview_moveto(0)
 

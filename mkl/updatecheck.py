@@ -1,6 +1,6 @@
 """a0.9.2 (A1): automatic update check - on launch and every few hours (default on, interval in About > Updates).
 
-It only LOOKS: a small 'Update aX.Y.Z available' notice on the PC (Settings row, click it) and on the phone (one line).
+It only LOOKS: a small 'Update aX.Y.Z available' notice on the PC (bottom bar, click it) and on the phone (one line).
 It never downloads or installs anything by itself.
   * public build: reads the public GitHub releases of curelessSky/mimickit-launcher (no key needed);
   * Z build: the Updates plugin (launcher_updater.py) registers app.update_checker, which uses the stored read-only
@@ -124,7 +124,7 @@ class AutoUpdateMixin:
             self.upd_notice = dict(res, z=bool(getattr(self, "update_checker", None))) if res else None
             self.upd_last_text = stamp + (" - %s available" % res["version"] if res else " - up to date")
             if res and (not old or old.get("version") != res["version"]):
-                self._append("[update] %s is available - click the notice in the Settings row (nothing is installed "
+                self._append("[update] %s is available - click the notice in the bottom bar (nothing is installed "
                              "automatically)\n" % res["version"])
             elif manual and not res:
                 self._append("[update] no newer version than %s\n" % core.VERSION)
@@ -144,12 +144,14 @@ class AutoUpdateMixin:
                     lab.grid_remove()
             except Exception as e:
                 core.log_exc("update check: notice", e)
-        st = getattr(self, "_upd_about_status", None)
-        if st is not None:
+        keep = []
+        for st in getattr(self, "_upd_status_labels", []):  # 1.0.0: Setup page + About box (each one built)
             try:
                 st.configure(text="Last check: %s" % self.upd_last_text)
-            except Exception:
-                self._upd_about_status = None
+                keep.append(st)
+            except Exception as e:  # its window closed
+                core.log_exc("update check: status label gone", e)
+        self._upd_status_labels = keep
 
     def open_update_notice(self, _e=None):
         n = self.upd_notice
@@ -175,8 +177,11 @@ class AutoUpdateMixin:
 
         c = cfg(self.s)
         lf = ttk.LabelFrame(parent, text="Updates", padding=6)
-        v_on = tk.BooleanVar(value=c["auto"])
-        v_h = tk.StringVar(value=("%g" % c["hours"]))
+        if getattr(self, "_upd_vars", None):  # 1.0.0: Setup page and About box share one setting
+            v_on, v_h = self._upd_vars[:2]
+        else:
+            v_on = tk.BooleanVar(value=c["auto"])
+            v_h = tk.StringVar(value=("%g" % c["hours"]))
 
         def save(*_):
             u = self.s.setdefault("update", {})
@@ -194,9 +199,11 @@ class AutoUpdateMixin:
         sp.bind("<FocusOut>", save)
         ttk.Label(lf, text="hours)").grid(row=0, column=2, sticky="w")
         ttk.Button(lf, text="Check now", command=lambda: self.update_check_now(manual=True)).grid(row=0, column=3, padx=8)
-        ttk.Label(lf, text="Only shows a notice (PC Settings row + phone). Nothing is ever installed automatically.",
+        ttk.Label(lf, text="Only shows a notice (PC bottom bar + phone). Nothing is ever installed automatically.",
                   style="Dim.TLabel").grid(row=1, column=0, columnspan=4, sticky="w")
-        self._upd_about_status = ttk.Label(lf, text="Last check: %s" % self.upd_last_text, style="Dim.TLabel")
+        self._upd_about_status = ttk.Label(lf, text="Last check: %s" % getattr(self, "upd_last_text", "never"), style="Dim.TLabel")
         self._upd_about_status.grid(row=2, column=0, columnspan=4, sticky="w")
+        self._upd_status_labels = [w for w in getattr(self, "_upd_status_labels", []) if w.winfo_exists()]
+        self._upd_status_labels.append(self._upd_about_status)
         self._upd_vars = (v_on, v_h, save)
         return lf
