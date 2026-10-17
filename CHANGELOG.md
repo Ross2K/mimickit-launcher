@@ -34,6 +34,11 @@ every safety rule work exactly as before; only where things sit has changed.
   "63 % to plateau · ~2 h 10 m" once there is an estimate. At 125 % the stats stay on one row (compact tiles).
 - Chart fonts follow Windows scaling once (they were scaled twice at 125 %). Light theme: the event list matches the
   panels. Setup is one centred column. Results shows "No runs yet. Start one on the Train page." when empty.
+- **Windows taskbar icon**: the launcher now has its own taskbar identity (`curelessSky.MimicKitLauncher`, `.Z` in
+  the Z build; the old ID had Python's icon cached), the Start-menu shortcut gets the same ID and is recreated when the
+  ID, folder, Python or icon changes, and the multi-size `assets/icon.ico` is also set natively (big + small) on the
+  main window and every dialog. Works from MimicKit Launcher.exe, launch.bat, the .pyw and shortcuts. If an old
+  pinned button still shows Python's icon: unpin it, start the launcher once, pin it again.
 - Every pre-1.0 control is kept (a test checks each one is reachable on its page and keeps its hover help). Keyboard
   shortcuts, light/OLED themes and all safety checks are unchanged.
 - Version numbers drop the `a` prefix (1.0.0 / 1.0.0Z). a0.9.x installs see 1.0.0 as the newer version.

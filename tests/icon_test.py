@@ -67,4 +67,42 @@ src = open(os.path.join(os.path.dirname(icon.__file__), "..", "mimickit_launcher
 check("App applies the icon in __init__", "icon.apply_icon(root)" in src)
 bat = open(os.path.join(os.path.dirname(icon.ICON_ICO), "..", "launch.bat")).read()
 check("launch.bat prefers pythonw (no console window on the taskbar)", bat.find("pythonw") < bat.find("where python >"))
+
+# 1.0.0 taskbar fix: one app ID shared by the process and the shortcut script; Z gets its own
+check("APP_ID is the 1.0.0 id (+.Z in the Z build)", icon.APP_ID == "curelessSky.MimicKitLauncher" + (
+    ".Z" if os.path.isfile(os.path.join(icon.APP_DIR, "launcher_profile.py")) else ""), icon.APP_ID)
+ps1 = open(os.path.join(icon.APP_DIR, "tools", "make_shortcut.ps1"), encoding="utf-8-sig").read()
+check("make_shortcut.ps1 derives the same id", '"curelessSky.MimicKitLauncher"' in ps1 and 'launcher_profile.py' in ps1
+      and '+= ".Z"' in ps1 and "MimicKitLauncher.Launcher\"" not in ps1)
+isrc = open(icon.__file__).read()
+check("Start-menu shortcut gets -AppId APP_ID", '"-AppId", APP_ID' in isrc)
+check("shortcut recreated when app id / folder / pythonw changes",
+      set(icon._shortcut_wanted("x")) == {"app_id", "pythonw", "app_dir", "icon_mtime"}
+      and icon._shortcut_wanted("x")["app_id"] == icon.APP_ID)
+# non-Windows: every Windows-only step is a guarded no-op
+if sys.platform != "win32":
+    check("off Windows: shortcut / native icon / dpi are no-ops",
+          icon.ensure_start_menu_shortcut() == "" and icon.set_native_icons(None) is False
+          and icon.set_dpi_aware() is False and icon.hide_own_console() is False)
+seen = []
+real_ip = tk.Wm.iconphoto
+tk.Wm.iconphoto = lambda self, default, *imgs: (seen.append((default, [i.width() for i in imgs])), real_ip(self, default, *imgs))
+try:
+    root = tk.Tk()
+    icon.apply_icon(root)
+    top = tk.Toplevel(root)
+    root.update()
+finally:
+    tk.Wm.iconphoto = real_ip
+check("iconphoto(default=True, 256..16): every later Toplevel gets the icon",
+      seen and seen[0][0] is True and seen[0][1][0] == 256 and min(seen[0][1]) <= 16, str(seen))
+check("native-icon <Map> hooks only on Windows", bool(root.bind_class("Toplevel", "<Map>")) == (sys.platform == "win32"))
+root.destroy()
+# the .exe starter only starts pythonw and steps aside: no window of its own (so no own taskbar group) and it never
+# waits for the launcher to end; the launcher sets its own AppUserModelID, so the exe's icon resource is Explorer-only
+c = open(os.path.join(icon.APP_DIR, "tools", "exe-starter", "launcher.c")).read()
+check("exe starter: no window, no AppID of its own, short wait only",
+      "CreateWindow" not in c and "AppUserModelID" not in c and "INFINITE" not in c and "CreateProcessW" in c)
+pyw = open(os.path.join(icon.APP_DIR, "mimickit_launcher.pyw")).read()
+check(".pyw goes through mimickit_launcher.main (same app id + icon)", "mimickit_launcher.main()" in pyw)
 print("RESULT: %d/%d" % (sum(ok), len(ok)))

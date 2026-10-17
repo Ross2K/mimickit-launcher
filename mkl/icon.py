@@ -9,10 +9,15 @@ import sys
 from mimickit_util import log_exc
 
 # relative to this file, never the current folder (the .exe starter / shortcuts may start us from anywhere)
-ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSETS = os.path.join(APP_DIR, "assets")
 ICON_PNG = os.path.join(ASSETS, "icon.png")
 ICON_ICO = os.path.join(ASSETS, "icon.ico")
-APP_ID = "MimicKitLauncher.Launcher"
+# Taskbar identity. Same rule in tools/make_shortcut.ps1 (Start-menu/Desktop shortcut AppUserModelID): the Z build
+# (has launcher_profile.py) gets its own ID so Z and public never share one taskbar button / cached icon.
+# 1.0.0: new ID (was "MimicKitLauncher.Launcher") - Windows caches a button's icon per ID, and pins made before the
+# shortcut existed had cached python's icon under the old one.
+APP_ID = "curelessSky.MimicKitLauncher" + (".Z" if os.path.isfile(os.path.join(APP_DIR, "launcher_profile.py")) else "")
 PHOTO_SIZES = (16, 32, 48, 256)  # Windows takes ICON_SMALL / ICON_BIG from these
 
 
@@ -106,33 +111,60 @@ def _start_menu_lnk():
     return os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", START_LNK)
 
 
+def _shortcut_stamp_path():
+    return os.path.join(os.environ.get("APPDATA", ""), "mimickit-launcher", "start_menu_shortcut.json")
+
+
+def _shortcut_wanted(exe):
+    """What the Start-menu shortcut must carry; any change (new app ID, moved folder, other pythonw, new icon)
+    means it is recreated."""
+    ico_m = int(os.path.getmtime(ICON_ICO)) if os.path.isfile(ICON_ICO) else 0
+    return {"app_id": APP_ID, "pythonw": exe, "app_dir": APP_DIR, "icon_mtime": ico_m}
+
+
+def _pythonw():
+    exe = sys.executable
+    if exe.lower().endswith("python.exe") and os.path.isfile(exe[:-10] + "pythonw.exe"):
+        exe = exe[:-10] + "pythonw.exe"
+    return exe
+
+
 def ensure_start_menu_shortcut(log=None):
     """Windows only, call from a worker thread. Root cause of 'taskbar still shows Python's icon' (a0.8.0Z): the
     taskbar takes the icon AND the relaunch command of a pinned button from a Start-menu shortcut carrying the same
     AppUserModelID. Without one (user never ran 'Create desktop shortcut.bat', or started via the .exe / launch.bat)
-    a pin falls back to pythonw.exe with its icon. So: if the Start-menu shortcut is missing, (re)create it - Start
-    menu only, no Desktop clutter - with our icon + AppUserModelID. Returns a plain-language result or ''."""
+    a pin falls back to pythonw.exe with its icon. So: if the Start-menu shortcut is missing or stale (other app ID,
+    folder, pythonw or icon than recorded in the stamp file), (re)create it - Start menu only, no Desktop clutter -
+    with our icon + AppUserModelID. Returns a plain-language result or ''."""
     if sys.platform != "win32":
         return ""
+    import mimickit_util as U
+
     lnk = _start_menu_lnk()
-    if os.path.isfile(lnk) and os.path.getmtime(lnk) >= os.path.getmtime(ICON_ICO if os.path.isfile(ICON_ICO) else lnk):
+    exe = _pythonw()
+    want = _shortcut_wanted(exe)
+    stamp = _shortcut_stamp_path()
+    have = U.load_json_or(stamp, None, "icon: shortcut stamp")
+    if os.path.isfile(lnk) and have == want:
         return ""
-    exe = sys.executable
-    if exe.lower().endswith("python.exe") and os.path.isfile(exe[:-10] + "pythonw.exe"):
-        exe = exe[:-10] + "pythonw.exe"
-    ps1 = os.path.join(os.path.dirname(ASSETS), "tools", "make_shortcut.ps1")
+    ps1 = os.path.join(APP_DIR, "tools", "make_shortcut.ps1")
     if not os.path.isfile(ps1):
         return ""
     try:
         import subprocess
 
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1, "-Pythonw", exe,
-                            "-StartMenuOnly"], capture_output=True, text=True, timeout=60, creationflags=0x08000000)
+                            "-AppId", APP_ID, "-StartMenuOnly"],
+                           capture_output=True, text=True, timeout=60, creationflags=0x08000000)
         msg = (r.stdout + r.stderr).strip()
         if r.returncode:
             log_exc("icon: Start-menu shortcut", RuntimeError(msg[-400:]))
             return "Couldn't create the Start-menu shortcut (taskbar icon may show Python's). Details: " + msg[-200:]
-        return "Created the Start-menu shortcut so the taskbar shows the launcher icon."
+        try:
+            U.save_json(stamp, want, backup=False)
+        except (OSError, TypeError, ValueError) as e:
+            log_exc("icon: shortcut stamp", e)
+        return "Updated the Start-menu shortcut so the taskbar shows the launcher icon."
     except Exception as e:
         log_exc("icon: Start-menu shortcut", e)
         return "Couldn't create the Start-menu shortcut: %s" % e
@@ -161,4 +193,56 @@ def apply_icon(root):
             done = True
         except Exception as e:
             log_exc("icon: iconbitmap", e)
+    if sys.platform == "win32" and os.path.isfile(ICON_ICO):
+        # belt and braces for the taskbar: Tk's iconbitmap may hand Windows a 32 px ICON_BIG that the taskbar
+        # (125-200 % scaling) blows up or ignores. Load the .ico at the real system sizes and WM_SETICON them on
+        # every top-level wrapper window (root now, each Toplevel when it is mapped).
+        try:
+            for cls in ("Tk", "Toplevel"):  # class bindings: App's own <Map> bindings can't replace them
+                root.bind_class(cls, "<Map>", lambda e: set_native_icons(e.widget), add="+")
+        except Exception as e:
+            log_exc("icon: native icons", e)
     return done
+
+
+_HICONS = {}  # (cx, cy) -> HICON, loaded once and never freed (shared by all windows)
+
+
+def _hicon(cx, cy):
+    import ctypes
+
+    if (cx, cy) not in _HICONS:
+        u = ctypes.windll.user32
+        u.LoadImageW.restype = ctypes.c_void_p
+        u.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_int, ctypes.c_int,
+                                 ctypes.c_uint]
+        _HICONS[(cx, cy)] = u.LoadImageW(None, ICON_ICO, 1, cx, cy, 0x10)  # IMAGE_ICON, LR_LOADFROMFILE
+    return _HICONS[(cx, cy)]
+
+
+def set_native_icons(win):
+    """Windows only: WM_SETICON big + small from the multi-size .ico on win's top-level wrapper. No-op elsewhere
+    or for non-toplevel widgets; returns True if both were sent."""
+    if sys.platform != "win32" or not os.path.isfile(ICON_ICO):
+        return False
+    try:
+        if win.winfo_toplevel() is not win or getattr(win, "_mk_native_icon", False):
+            return False
+        import ctypes
+
+        u = ctypes.windll.user32
+        hwnd = int(win.wm_frame(), 16) or u.GetParent(win.winfo_id())
+        if not hwnd:
+            return False
+        big = _hicon(u.GetSystemMetrics(11), u.GetSystemMetrics(12))  # SM_CXICON / SM_CYICON
+        small = _hicon(u.GetSystemMetrics(49), u.GetSystemMetrics(50))  # SM_CXSMICON / SM_CYSMICON
+        u.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+        if big:
+            u.SendMessageW(hwnd, 0x80, 1, big)  # WM_SETICON, ICON_BIG
+        if small:
+            u.SendMessageW(hwnd, 0x80, 0, small)  # ICON_SMALL
+        win._mk_native_icon = True
+        return bool(big and small)
+    except Exception as e:
+        log_exc("icon: WM_SETICON", e)
+        return False
