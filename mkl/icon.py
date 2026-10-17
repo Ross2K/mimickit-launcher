@@ -198,8 +198,11 @@ def apply_icon(root):
         # (125-200 % scaling) blows up or ignores. Load the .ico at the real system sizes and WM_SETICON them on
         # every top-level wrapper window (root now, each Toplevel when it is mapped).
         try:
-            for cls in ("Tk", "Toplevel"):  # class bindings: App's own <Map> bindings can't replace them
-                root.bind_class(cls, "<Map>", lambda e: set_native_icons(e.widget), add="+")
+            # class bindings: App's own <Map> bindings can't replace them. The main window (class Tk) also gets the
+            # window-level taskbar identity (the real 1.0.1 fix, see set_window_identity).
+            root.bind_class("Toplevel", "<Map>", lambda e: set_native_icons(e.widget), add="+")
+            root.bind_class("Tk", "<Map>", lambda e: (set_native_icons(e.widget), set_window_identity(e.widget)),
+                            add="+")
         except Exception as e:
             log_exc("icon: native icons", e)
     return done
@@ -226,13 +229,13 @@ def set_native_icons(win):
     if sys.platform != "win32" or not os.path.isfile(ICON_ICO):
         return False
     try:
-        if win.winfo_toplevel() is not win or getattr(win, "_mk_native_icon", False):
+        if win.winfo_toplevel() is not win:
             return False
         import ctypes
 
         u = ctypes.windll.user32
-        hwnd = int(win.wm_frame(), 16) or u.GetParent(win.winfo_id())
-        if not hwnd:
+        hwnd = _toplevel_hwnd(win)
+        if not hwnd or getattr(win, "_mk_native_icon", None) == hwnd:
             return False
         big = _hicon(u.GetSystemMetrics(11), u.GetSystemMetrics(12))  # SM_CXICON / SM_CYICON
         small = _hicon(u.GetSystemMetrics(49), u.GetSystemMetrics(50))  # SM_CXSMICON / SM_CYSMICON
@@ -241,8 +244,181 @@ def set_native_icons(win):
             u.SendMessageW(hwnd, 0x80, 1, big)  # WM_SETICON, ICON_BIG
         if small:
             u.SendMessageW(hwnd, 0x80, 0, small)  # ICON_SMALL
-        win._mk_native_icon = True
+        win._mk_native_icon = hwnd
         return bool(big and small)
     except Exception as e:
         log_exc("icon: WM_SETICON", e)
         return False
+
+
+# ---- 1.0.1: window-level taskbar identity -------------------------------------------------------------------------
+# Root cause of "the running window shows the Python FILE icon on the taskbar" (all versions up to 1.0.0): once a
+# process has an explicit AppUserModelID, the taskbar no longer uses the window's own icon (so iconphoto / iconbitmap
+# / WM_SETICON never mattered). It looks for a Start-menu shortcut with the same ID and takes ITS icon; with no
+# matching shortcut it builds the button from the process command line - pythonw.exe "...\mimickit_launcher.py" -
+# and shows the .py file-type icon. The matching shortcut was never reliable: the PowerShell step that writes the ID
+# into the .lnk could fail silently, it runs in a background thread AFTER the window is already on the taskbar, and
+# a start through MimicKit Launcher.exe -> venv pythonw.exe (a redirector that runs the base pythonw.exe as a child)
+# never involves the shortcut at all. Fix: put the identity ON THE WINDOW (SHGetPropertyStoreForWindow): the
+# AppUserModelID plus RelaunchIconResource (our .ico), RelaunchCommand and RelaunchDisplayNameResource. Windows
+# documents these as the source of the taskbar button's icon/name when no shortcut supplies them, they are read from
+# the window itself (so the redirector / start path doesn't matter), and setting the ID makes the taskbar refresh.
+
+_PKEY_FMTID = "{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}"
+PKEY_PIDS = {"RelaunchCommand": 2, "RelaunchIconResource": 3, "RelaunchDisplayNameResource": 4, "ID": 5}
+IDENTITY_STATE = {"window": None, "error": ""}  # what set_window_identity did (logged + shown by the diagnostic)
+
+
+def relaunch_command():
+    """Command the taskbar would use to start us again: the starter .exe (carries our icon) if present, else
+    pythonw.exe + the script."""
+    exe = os.path.join(APP_DIR, "MimicKit Launcher.exe")
+    if os.path.isfile(exe):
+        return '"%s"' % exe
+    py = sys.executable or "pythonw.exe"
+    if py.lower().endswith("python.exe") and os.path.isfile(py[:-10] + "pythonw.exe"):
+        py = py[:-10] + "pythonw.exe"
+    return '"%s" "%s"' % (py, os.path.join(APP_DIR, "mimickit_launcher.py"))
+
+
+def window_identity_values():
+    return {"RelaunchCommand": relaunch_command(), "RelaunchIconResource": ICON_ICO + ",0",
+            "RelaunchDisplayNameResource": "MimicKit Launcher", "ID": APP_ID}
+
+
+def _win_ps_api():
+    """ctypes plumbing for a window's IPropertyStore (Windows only)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("d1", ctypes.c_ulong), ("d2", ctypes.c_ushort), ("d3", ctypes.c_ushort), ("d4", ctypes.c_ubyte * 8)]
+
+    class PROPERTYKEY(ctypes.Structure):
+        _fields_ = [("fmtid", GUID), ("pid", wintypes.DWORD)]
+
+    class PROPVARIANT(ctypes.Structure):  # 24 bytes on x64 / 16 on x86; we only use vt + the string pointer
+        _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort), ("r3", ctypes.c_ushort),
+                    ("p", ctypes.c_void_p), ("pad", ctypes.c_void_p)]
+
+    ole32 = ctypes.windll.ole32
+
+    def guid(s):
+        g = GUID()
+        ole32.CLSIDFromString(ctypes.c_wchar_p(s), ctypes.byref(g))
+        return g
+
+    def store(hwnd):
+        ole32.CoInitialize(None)  # S_FALSE if already initialised on this thread: fine
+        iid = guid("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")  # IID_IPropertyStore
+        ps = ctypes.c_void_p()
+        f = ctypes.windll.shell32.SHGetPropertyStoreForWindow
+        f.argtypes = [ctypes.c_void_p, ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)]
+        f.restype = ctypes.c_long
+        hr = f(hwnd, ctypes.byref(iid), ctypes.byref(ps))
+        if hr != 0 or not ps:
+            raise OSError("SHGetPropertyStoreForWindow HRESULT 0x%08x" % (hr & 0xFFFFFFFF))
+        return ps
+
+    def method(ps, idx, *argtypes):
+        vtbl = ctypes.cast(ps, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)(vtbl[idx])
+
+    def key(name):
+        return PROPERTYKEY(guid(_PKEY_FMTID), PKEY_PIDS[name])
+
+    return ctypes, PROPERTYKEY, PROPVARIANT, store, method, key
+
+
+def _toplevel_hwnd(win):
+    import ctypes
+
+    return int(win.wm_frame(), 16) or ctypes.windll.user32.GetParent(win.winfo_id())
+
+
+def set_window_identity(win, hwnd=None):
+    """Windows only: AppUserModelID + relaunch icon/command/name on the main window's property store (relaunch
+    properties first, the ID last - setting the ID makes the taskbar re-read the button). Once per window.
+    Returns True on success; the outcome is kept in IDENTITY_STATE."""
+    if sys.platform != "win32":
+        return False
+    try:
+        if hwnd is None:
+            if win.winfo_toplevel() is not win:
+                return False
+            hwnd = _toplevel_hwnd(win)
+            if getattr(win, "_mk_identity", None) == hwnd:
+                return False  # already on this wrapper (Tk can recreate the wrapper window: then we set it again)
+        ctypes, PROPERTYKEY, PROPVARIANT, store, method, key = _win_ps_api()
+        ps = store(hwnd)
+        try:
+            set_value = method(ps, 6, ctypes.POINTER(PROPERTYKEY), ctypes.POINTER(PROPVARIANT))
+            commit = method(ps, 7)
+            vals = window_identity_values()
+            for name in ("RelaunchCommand", "RelaunchIconResource", "RelaunchDisplayNameResource", "ID"):
+                buf = ctypes.create_unicode_buffer(vals[name])  # SetValue copies the string
+                pv = PROPVARIANT(31, 0, 0, 0, ctypes.cast(buf, ctypes.c_void_p).value, None)  # VT_LPWSTR
+                k = key(name)
+                hr = set_value(ps, ctypes.byref(k), ctypes.byref(pv))
+                if hr != 0:
+                    raise OSError("SetValue(%s) HRESULT 0x%08x" % (name, hr & 0xFFFFFFFF))
+            commit(ps)
+        finally:
+            method(ps, 2)(ps)  # Release
+        if win is not None:
+            win._mk_identity = hwnd
+        IDENTITY_STATE.update(window=hex(hwnd), error="")
+        return True
+    except Exception as e:
+        IDENTITY_STATE.update(window=None, error=str(e))
+        log_exc("icon: window AppUserModelID", e)
+        return False
+
+
+def read_window_identity(hwnd):
+    """Windows only: {property: value or None} from any window's property store (also another process's)."""
+    out = {}
+    ctypes, PROPERTYKEY, PROPVARIANT, store, method, key = _win_ps_api()
+    ps = store(hwnd)
+    try:
+        get_value = method(ps, 5, ctypes.POINTER(PROPERTYKEY), ctypes.POINTER(PROPVARIANT))
+        for name in PKEY_PIDS:
+            pv = PROPVARIANT()
+            k = key(name)
+            if get_value(ps, ctypes.byref(k), ctypes.byref(pv)) == 0 and pv.vt == 31 and pv.p:
+                out[name] = ctypes.wstring_at(pv.p)
+            else:
+                out[name] = None
+            ctypes.windll.ole32.PropVariantClear(ctypes.byref(pv))
+    finally:
+        method(ps, 2)(ps)
+    return out
+
+
+def get_process_app_id():
+    """Windows only: this process's explicit AppUserModelID as Windows has it (None if not set)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+
+    p = ctypes.c_wchar_p()
+    f = ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID
+    f.argtypes = [ctypes.POINTER(ctypes.c_wchar_p)]
+    f.restype = ctypes.c_long
+    if f(ctypes.byref(p)) != 0:
+        return None
+    v = p.value
+    ctypes.windll.ole32.CoTaskMemFree(p)
+    return v
+
+
+def identity_log_line():
+    """One [gui] line for the log panel: what the taskbar sees (Windows)."""
+    try:
+        pid = get_process_app_id()
+    except Exception as e:
+        pid = "error: %s" % e
+    st = IDENTITY_STATE
+    win = ("set on window %s" % st["window"]) if st["window"] else ("NOT set (%s)" % (st["error"] or "not mapped yet"))
+    return "[gui] taskbar: app ID %s (process: %s), window identity %s, icon %s%s\n" % (
+        APP_ID, pid, win, ICON_ICO, "" if os.path.isfile(ICON_ICO) else " (MISSING)")

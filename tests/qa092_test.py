@@ -28,7 +28,7 @@ from mkl import updatecheck as UC
 check("1.0.0 is newer than a0.9.3 / a0.9.10, never the reverse",
       UC.newer("1.0.0", "a0.9.3") and UC.newer("1.0.0", "a0.9.10") and not UC.newer("a0.9.3", "1.0.0")
       and not UC.newer("1.0.0", "1.0.0") and UC.newer("1.0.1", "1.0.0") and UC.newer("v1.0.0", "a0.9.3"))
-check("this build is 1.0.0 (1.0.0Z in the Z build), newer than a0.9.3", UC.parse_version(core.VERSION) == (1, 0, 0)
+check("this build is 1.x (1.x.yZ in the Z build), newer than a0.9.3", UC.parse_version(core.VERSION)[:2] == (1, 0)
       and UC.newer(core.VERSION, "a0.9.3Z") and not UC.newer("a0.9.3", core.VERSION))
 check("grid up to 4 unchanged", [P.grid_shape(k) for k in (1, 2, 3, 4)] == [(1, 1), (1, 2), (2, 2), (2, 2)])
 check("31 clips -> 6x6 auto grid", P.grid_shape(31) == (6, 6), P.grid_shape(31))

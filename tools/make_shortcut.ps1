@@ -39,6 +39,7 @@ public static class MkAumid {
 }
 "@
 Add-Type -TypeDefinition $code
+$bad = $false
 $shell = New-Object -ComObject WScript.Shell
 $targets = @((Join-Path ([Environment]::GetFolderPath("Programs")) ""))
 if (-not $StartMenuOnly) { $targets += [Environment]::GetFolderPath("Desktop") }
@@ -52,5 +53,10 @@ foreach ($dir in $targets) {
   $s.Description = "MimicKit Launcher"
   $s.Save()
   try { [MkAumid]::Set($lnk, $AppId); $aid = "taskbar ID set" } catch { $aid = "taskbar ID not set (" + $_.Exception.Message + ")" }
-  Write-Host ("Created: " + $lnk + "  (" + $aid + ")")
+  # read it back the way Explorer does; a shortcut without the ID can't give the taskbar button our icon
+  $got = ""
+  try { $got = (New-Object -ComObject Shell.Application).NameSpace($dir).ParseName("MimicKit Launcher.lnk").ExtendedProperty("System.AppUserModel.ID") } catch {}
+  Write-Host ("Created: " + $lnk + "  (" + $aid + ", read back: '" + $got + "')")
+  if ($aid -ne "taskbar ID set") { $bad = $true }
 }
+if ($bad) { Write-Host "WARNING: the taskbar ID could not be written to the shortcut."; exit 2 }

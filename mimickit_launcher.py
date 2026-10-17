@@ -140,6 +140,8 @@ def _place_window(self):
         aw, ah, {True: "on", False: "OFF (Windows may blur/stretch the window)", None: "n/a"}[icon.DPI_STATE["aware"]]
         if sys.platform == "win32" else "n/a", scaling, scaling * 72, ", maximized" if zoom else ""))
     root.after(800, lambda: self._append(msg))
+    if sys.platform == "win32":
+        root.after(1500, lambda: self._append(icon.identity_log_line()))
 
 
 def _save_window_state(self):

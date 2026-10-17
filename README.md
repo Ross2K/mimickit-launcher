@@ -210,6 +210,11 @@ itself on first start. Old pins keep the cached Python icon, so once:
 3. Start the launcher from the new "MimicKit Launcher" shortcut, right-click its taskbar button - **Pin to taskbar**.
 If the icon is still old, sign out of Windows and back in (Explorer reloads its icon cache).
 
+**Running window shows the Python file icon?** Since 1.0.1 the launcher puts its taskbar ID and icon on its own
+window, so this should not happen any more. If it does, double-click **Check taskbar icon.bat** (with the launcher
+running): it shows a 3-second test window and writes `taskbar_icon_report.txt` (start chain, taskbar IDs, icons,
+shortcuts) - send that file.
+
 On first start, choose your MimicKit folder (the one containing `mimickit\run.py` and `args\`).
 The launcher runs MimicKit with the venv Python it finds (you can change it in **Settings**).
 

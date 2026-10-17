@@ -3,6 +3,20 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `X.Y.Z` from 1.0.0 on (before that: `aX.Y.Z`, alpha; the updater treats 1.0.0 as newer than every alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## 1.0.1
+
+- **Windows taskbar icon, real fix**: the running window showed the Python *file* icon on the taskbar. Cause: once
+  the launcher has its own taskbar ID, Windows ignores the window's icon and takes the icon from a Start-menu shortcut
+  with the same ID; without a matching shortcut it falls back to the start command (`pythonw.exe ...\mimickit_launcher.py`)
+  and shows the .py file icon. That shortcut was not dependable (written in the background after the window was already
+  on the taskbar, its ID write could fail without notice, and a start through MimicKit Launcher.exe and the venv's
+  pythonw.exe never uses it). Now the main window carries the taskbar ID itself together with the launcher icon,
+  name and start command (window properties), so the button shows the launcher icon whatever started it.
+- **Check taskbar icon.bat**: double-click diagnostic; writes `taskbar_icon_report.txt` (start chain with exe paths,
+  venv redirector yes/no, the taskbar ID Windows reports, window icons and properties, shortcuts, Python/Tk versions).
+- The log panel shows one `[gui] taskbar:` line (ID, window identity, icon file). Creating the Start-menu shortcut
+  now checks that the taskbar ID really landed in it and says so if not.
+
 ## 1.0.0
 
 First non-alpha release: a new window layout (the approved "Mockup D"). Training, previews, the phone dashboard and

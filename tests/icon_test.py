@@ -105,4 +105,34 @@ check("exe starter: no window, no AppID of its own, short wait only",
       "CreateWindow" not in c and "AppUserModelID" not in c and "INFINITE" not in c and "CreateProcessW" in c)
 pyw = open(os.path.join(icon.APP_DIR, "mimickit_launcher.pyw")).read()
 check(".pyw goes through mimickit_launcher.main (same app id + icon)", "mimickit_launcher.main()" in pyw)
+
+# 1.0.1: window-level taskbar identity (the real fix) + the diagnostic
+v = icon.window_identity_values()
+check("window identity: ID = APP_ID, icon = our .ico, name, start command", v["ID"] == icon.APP_ID
+      and v["RelaunchIconResource"] == icon.ICON_ICO + ",0" and v["RelaunchDisplayNameResource"] == "MimicKit Launcher"
+      and ("MimicKit Launcher.exe" in v["RelaunchCommand"] or "mimickit_launcher.py" in v["RelaunchCommand"]))
+check("relaunch props set before the ID (ID last makes the taskbar re-read)",
+      isrc.find('("RelaunchCommand", "RelaunchIconResource", "RelaunchDisplayNameResource", "ID")') > 0)
+check("PKEY_AppUserModel_* pids (ID 5, RelaunchCommand 2, Icon 3, Name 4)",
+      icon.PKEY_PIDS == {"RelaunchCommand": 2, "RelaunchIconResource": 3, "RelaunchDisplayNameResource": 4, "ID": 5})
+if sys.platform != "win32":
+    check("off Windows: identity / process ID are guarded no-ops",
+          icon.set_window_identity(None) is False and icon.get_process_app_id() is None)
+src_main = open(os.path.join(icon.APP_DIR, "mimickit_launcher.py")).read()
+check("main window gets the identity on <Map> (wrapper exists), log line on Windows",
+      'set_window_identity(e.widget)' in isrc and "identity_log_line" in src_main)
+check("identity log line names ID + icon", icon.APP_ID in icon.identity_log_line() and icon.ICON_ICO in icon.identity_log_line())
+check("make_shortcut.ps1 reads the ID back and fails loudly", "ExtendedProperty(\"System.AppUserModel.ID\")" in ps1
+      and "exit 2" in ps1)
+bat = open(os.path.join(icon.APP_DIR, "Check taskbar icon.bat"), "rb").read()
+check("Check taskbar icon.bat: CRLF, cd /d first, launcher's python, writes the report",
+      b"\r\n" in bat and b"\n" not in bat.replace(b"\r\n", b"") and b'cd /d "%~dp0"' in bat.split(b"setlocal")[0]
+      and b"find_launcher_python.ps1" in bat and b"check_taskbar_icon.py" in bat)
+import subprocess, tempfile
+rep = os.path.join(tempfile.mkdtemp(), "r.txt")
+r = subprocess.run([sys.executable, os.path.join(icon.APP_DIR, "tools", "check_taskbar_icon.py"), "--out", rep,
+                    "--no-window"], capture_output=True, text=True, timeout=60)
+txt = open(rep, encoding="utf-8").read() if os.path.isfile(rep) else ""
+check("diagnostic runs and reports app ID, icon file, venv, Tk", r.returncode == 0 and icon.APP_ID in txt
+      and "exists=True" in txt and "in a venv:" in txt and "Tcl " in txt, (r.stderr or "")[-300:])
 print("RESULT: %d/%d" % (sum(ok), len(ok)))
