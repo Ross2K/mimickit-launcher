@@ -261,7 +261,7 @@ class MainWindowMixin:
         order = [w for w in self._feed_parts if w is not None]
         for w in order:
             w.pack_forget()
-        for w in (a, b):
+        for w in (a, b) + ((self._feed_spacer,) if hasattr(self, "_feed_spacer") else ()):
             w.grid_forget()
         if mode == "3col":
             for w, opt in zip(order, self._feed_opts):
@@ -269,11 +269,32 @@ class MainWindowMixin:
         else:
             a.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
             b.grid(row=0, column=1, sticky="nsew")
+            if not hasattr(self, "_feed_spacer"):
+                # grow-only height while the width stays the same: the charts above don't jump as text changes
+                self._feed_spacer = tk.Frame(R, width=1, height=1, bd=0, highlightthickness=0)
+                self._feed_hold_w = None
+                for w in (a, b, R):
+                    w.bind("<Configure>", lambda e: self.root.after_idle(self._feed_hold), add="+")
+            self._feed_spacer.grid(row=0, column=2, sticky="ns")
+            self._feed_hold_w = None
             R.columnconfigure(0, weight=1, uniform="half")
             R.columnconfigure(1, weight=1, uniform="half")
             for w, opt in zip(order, self._feed_opts):
                 w.pack(in_=b if w in self._feed_right_half else a, **opt)
                 w.lift()  # the halves were created later: keep the parts above them
+
+    def _feed_hold(self):
+        sp = getattr(self, "_feed_spacer", None)
+        if sp is None or not sp.winfo_manager():
+            return
+        a, b = self._feed_halves
+        w = self._train_right.winfo_width()
+        if w != self._feed_hold_w:
+            self._feed_hold_w = w
+            sp.configure(height=1)
+        h = max(a.winfo_reqheight(), b.winfo_reqheight())
+        if h > int(sp.cget("height")):
+            sp.configure(height=h)
 
     def _feed_text_h(self, n):
         for w in (getattr(self, "st_events", None), getattr(self, "st_warn", None)):

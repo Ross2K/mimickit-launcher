@@ -4,6 +4,7 @@
 
 from mkl.core import *
 from mkl import status_model as SM
+import tkinter.font as tkfont
 
 BANNER_COL = {"idle": "dim", "info": "accent", "ok": "good", "warn": "warn", "error": "err"}
 MONO = ("DejaVu Sans Mono", 9) if not IS_WIN else ("Consolas", 9)
@@ -32,6 +33,11 @@ class StatusMixin:
         f = tk.Frame(self._tp_bannerhost, padx=8, pady=2)
         f.pack(side="left", fill="x", expand=True)
         self.ban_f = f
+        # keeps the strip from changing height while the window width stays the same (2 lines reserved, then
+        # grow-only): the charts above never jump when the health text gets longer (and a chart drag stays exact)
+        self._ban_spacer = tk.Frame(f, width=1, height=1, bd=0, highlightthickness=0)
+        self._ban_spacer.pack(side="left", fill="y")
+        self._ban_w = None
         self.ban_dot = tk.Label(f, text="\u25cf", font=("Segoe UI", 11))
         self.ban_dot.pack(side="left")
         self.ban_detail = tk.Label(f, text="", anchor="e")  # grey technical detail (exit code)
@@ -57,6 +63,23 @@ class StatusMixin:
         room = self.ban_f.winfo_width() - self.ban_dot.winfo_reqwidth() - self.ban_detail.winfo_reqwidth() - 30
         if int(self.ban_lab.cget("wraplength")) != max(160, room):
             self.ban_lab.configure(wraplength=max(160, room))
+        w = self.ban_f.winfo_width()
+        if w != self._ban_w:  # new width: back to the 2-line reservation, grow from there
+            self._ban_w = w
+            try:
+                ls = tkfont.Font(font=self.ban_lab.cget("font")).metrics("linespace")
+            except tk.TclError:
+                ls = 16
+            self._ban_spacer.configure(height=2 * ls + 2)
+        self.root.after_idle(self._ban_hold)
+
+    def _ban_hold(self):
+        try:
+            h = self.ban_lab.winfo_reqheight()
+            if h > int(self._ban_spacer.cget("height")):
+                self._ban_spacer.configure(height=h)
+        except tk.TclError:
+            pass
 
     def _build_cards(self, parent):
         self.cards_f = ttk.Frame(parent)  # packed above the charts while a card is shown (_show_card)
@@ -273,10 +296,12 @@ class StatusMixin:
         level = level or self.ban_level
         if text is not None:
             self.ban_lab.configure(text=text)
+            self.root.after_idle(self._ban_hold)
         self.ban_level = level
         col = T.get(BANNER_COL.get(level, "dim"), T["fg"])
         bg = T["panel"]
         self.ban_f.configure(bg=bg)
+        self._ban_spacer.configure(bg=bg)
         self.ban_ver.configure(bg=T["bg"], fg=T["dim"])
         self.ban_hint.configure(bg=T["bg"], fg=T["dim"])
         self.ban_detail.configure(bg=bg, fg=T["dim"])
