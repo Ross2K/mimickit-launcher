@@ -16,8 +16,9 @@ ICON_ICO = os.path.join(ASSETS, "icon.ico")
 # Taskbar identity. Same rule in tools/make_shortcut.ps1 (Start-menu/Desktop shortcut AppUserModelID): the Z build
 # (has launcher_profile.py) gets its own ID so Z and public never share one taskbar button / cached icon.
 # 1.0.0: new ID (was "MimicKitLauncher.Launcher") - Windows caches a button's icon per ID, and pins made before the
-# shortcut existed had cached python's icon under the old one.
-APP_ID = "curelessSky.MimicKitLauncher" + (".Z" if os.path.isfile(os.path.join(APP_DIR, "launcher_profile.py")) else "")
+# shortcut existed had cached python's icon under the old one. Unreleased: owner prefix changed to Ross2K (GitHub
+# owner rename); icon.py re-creates the Start-menu shortcut when the ID changes, pinned buttons must be re-pinned.
+APP_ID = "Ross2K.MimicKitLauncher" + (".Z" if os.path.isfile(os.path.join(APP_DIR, "launcher_profile.py")) else "")
 PHOTO_SIZES = (16, 32, 48, 256)  # Windows takes ICON_SMALL / ICON_BIG from these
 
 

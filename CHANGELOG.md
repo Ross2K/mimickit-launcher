@@ -3,6 +3,13 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `X.Y.Z` from 1.0.0 on (before that: `aX.Y.Z`, alpha; the updater treats 1.0.0 as newer than every alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
+## Unreleased
+
+- Owner renamed to Ross2K; Windows taskbar App ID changed to Ross2K.MimicKitLauncher (re-pin the launcher if
+  pinned). Copyright headers, LICENSE/NOTICE Required Notice and the contributor grant now name Ross2K; the build's
+  old-owner guard now fails on any remaining old owner name (only CHANGELOG history and the contributor grant's
+  "formerly" note are allowed).
+
 ## 1.0.1
 
 - **Windows taskbar icon, real fix**: the running window showed the Python *file* icon on the taskbar. Cause: once

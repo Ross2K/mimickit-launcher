@@ -1,5 +1,5 @@
 # MimicKit Launcher - 1.0.0 page layout (user-approved redesign "Mockup D")
-# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
+# Copyright (C) 2026 Ross2K. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """Four pages (Setup / Train / Preview / Results) picked with the bottom tabs (the ONLY navigation; Ctrl+1..4), a
 persistent transport strip above the tabs (Start, Resume menu, Stop after next save, STOP, progress to the plateau,
 live stats, VRAM), the Results page (console, exact command, runs list) and the picture of the last preview render.

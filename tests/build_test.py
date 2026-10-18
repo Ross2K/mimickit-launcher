@@ -57,21 +57,27 @@ check("BUILD -> commit shown", core.build_id() == "abc1234567")
 core.HERE = old
 src = open(os.path.join(ROOT, "mkl", "window.py")).read()
 check("About box shows the build", "build_id()" in src)
-# old GitHub owner guard (repo renamed to Ross2K)
+# old GitHub owner guard (repo renamed to Ross2K): everything flagged except CHANGELOG history + the CONTRIBUTING note
 o = tempfile.mkdtemp()
 old = build.OLD_OWNER
 os.makedirs(os.path.join(o, "mkl"))
+open(os.path.join(o, "CHANGELOG.md"), "w").write("- taskbar identity (`%s.MimicKitLauncher`)\n" % old)
+open(os.path.join(o, "CONTRIBUTING.md"), "w").write("2. You also grant Ross2K (formerly %s) a license\n" % old)
+check("owner guard: CHANGELOG history + CONTRIBUTING 'formerly' note allowed", build.old_owner_hits(o) == [],
+      build.old_owner_hits(o))
 open(os.path.join(o, "mkl", "icon.py"), "w").write('APP_ID = "%s.MimicKitLauncher"\n# Copyright (C) 2026 %s.\n' % (old, old))
-open(os.path.join(o, "LICENSE"), "w").write("Copyright %s\n" % old)
-check("owner guard: taskbar ID in icon.py + copyright + LICENSE allowed", build.old_owner_hits(o) == [])
+open(os.path.join(o, "LICENSE"), "w").write("Required Notice: Copyright (c) 2026 %s\n" % old)
+open(os.path.join(o, "NOTICE"), "w").write("https://github.com/%s\n" % old.lower())
 open(os.path.join(o, "mkl", "updatecheck.py"), "w").write('PUBLIC_REPO = "%s/mimickit-launcher"\n' % old)
-open(os.path.join(o, "README.md"), "w").write("https://github.com/%s/mimickit-launcher\n" % old)
-open(os.path.join(o, "mkl", "window.py"), "w").write('ID = "%s.MimicKitLauncher"  # not an allowlisted file\n' % old)
+open(os.path.join(o, "README.md"), "w").write("https://github.com/%s/mimickit-launcher\n" % old.upper())
+open(os.path.join(o, "mkl", "window.py"), "w").write('ID = "%s.MimicKitLauncher"\n' % old)
 h = build.old_owner_hits(o)
-check("owner guard: REPO constant, URL, ID outside the allowlist -> flagged",
-      sorted(x[0] for x in h) == ["README.md", "mkl/updatecheck.py", "mkl/window.py"], h)
-open(os.path.join(o, "mkl", "icon.py"), "a").write('URL = "https://api.github.com/repos/%s/x"\n' % old)
-check("owner guard: URL inside an allowlisted file still flagged", any(x[0] == "mkl/icon.py" for x in build.old_owner_hits(o)))
+check("owner guard: App ID, copyright, LICENSE/NOTICE, REPO constant, URL (any case) -> flagged",
+      sorted(x[0] for x in h) == ["LICENSE", "NOTICE", "README.md", "mkl/icon.py", "mkl/icon.py", "mkl/updatecheck.py",
+                                  "mkl/window.py"], h)
+open(os.path.join(o, "CONTRIBUTING.md"), "a").write("3. Contact %s\n" % old)
+check("owner guard: old name in CONTRIBUTING outside the 'formerly' note flagged",
+      [x[:2] for x in build.old_owner_hits(o) if x[0] == "CONTRIBUTING.md"] == [("CONTRIBUTING.md", 2)])
 build.HERE = ROOT
 check("owner guard: this repo is clean", build.old_owner_hits(ROOT, build.git("ls-files").splitlines()) == [],
       build.old_owner_hits(ROOT, build.git("ls-files").splitlines())[:3])

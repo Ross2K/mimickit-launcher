@@ -1,5 +1,5 @@
 # MimicKit Launcher - shared helpers: atomic JSON files and logging of swallowed errors.
-# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
+# Copyright (C) 2026 Ross2K. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """save_json(): write to a temp file, fsync, keep the previous good file as <name>.bak, then os.replace() -
 a crash or full disk mid-write never leaves a half-written file. load_json(): raises JsonDamaged for a corrupt
 file (callers decide), load_json_or(): returns a default and logs instead.

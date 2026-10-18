@@ -19,6 +19,7 @@ This project is source-available under the PolyForm Noncommercial License 1.0.0 
 By submitting a contribution (pull request, patch, or code in an issue), you agree that:
 
 1. Your contribution is licensed under the same PolyForm Noncommercial License 1.0.0 terms as the project.
-2. You also grant curelessSky a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use,
-   modify, sublicense, and relicense your contribution under any terms, including commercial licenses.
+2. You also grant Ross2K (formerly curelessSky) a perpetual, worldwide, non-exclusive, royalty-free, irrevocable
+   license to use, modify, sublicense, and relicense your contribution under any terms, including commercial
+   licenses.
 3. The contribution is your own work (or you have the right to submit it), and you keep your copyright in it.

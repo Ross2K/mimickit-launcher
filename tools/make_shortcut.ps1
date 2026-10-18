@@ -1,13 +1,13 @@
 # Creates "MimicKit Launcher" shortcuts (Desktop + Start menu) that start the launcher with pythonw.exe (no console
 # window), show assets\icon.ico, and carry the same AppUserModelID the launcher sets for itself
-# (curelessSky.MimicKitLauncher, + ".Z" in the Z build - same rule as APP_ID in mkl/icon.py), so a pinned taskbar
+# (Ross2K.MimicKitLauncher, + ".Z" in the Z build - same rule as APP_ID in mkl/icon.py), so a pinned taskbar
 # icon and the running window are one button with our icon.
 # Called by "Create desktop shortcut.bat" - double-click that file instead of running this directly.
 param([Parameter(Mandatory=$true)][string]$Pythonw, [string]$AppId = "", [switch]$StartMenuOnly)
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not $AppId) {
-  $AppId = "curelessSky.MimicKitLauncher"
+  $AppId = "Ross2K.MimicKitLauncher"
   if (Test-Path (Join-Path $here "launcher_profile.py")) { $AppId += ".Z" }
 }
 $script = Join-Path $here "mimickit_launcher.py"

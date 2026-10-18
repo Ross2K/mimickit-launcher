@@ -1,7 +1,7 @@
 """MimicKit Launcher - a small desktop GUI for running MimicKit (https://github.com/xbpeng/MimicKit).
 
 Unofficial and unaffiliated with MimicKit. Vibe coded; see README.md.
-Copyright (c) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+Copyright (c) 2026 Ross2K. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 Run with any Python 3.9+ that has tkinter and matplotlib:  python mimickit_launcher.py
 """
 
