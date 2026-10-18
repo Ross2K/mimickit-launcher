@@ -403,3 +403,7 @@ Copyright (c) 2026 Ross2K. **Source-available** under the
 - This is not an OSI "open source" license.
 - Versions released before this change (up to git tag `last-gpl`) remain available under GPL-3.0-or-later.
 - Third-party notices (MimicKit, Apache-2.0) are in [NOTICE](NOTICE).
+
+## Support this project
+
+MimicKit Launcher is free and always will be. If it's useful to you and you'd like to help me keep building, you can chip in through [GitHub Sponsors](https://github.com/sponsors/Ross2K). Donations are completely optional, and nothing is locked behind them. Thank you!
