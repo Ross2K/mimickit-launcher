@@ -69,10 +69,10 @@ bat = open(os.path.join(os.path.dirname(icon.ICON_ICO), "..", "launch.bat")).rea
 check("launch.bat prefers pythonw (no console window on the taskbar)", bat.find("pythonw") < bat.find("where python >"))
 
 # 1.0.0 taskbar fix: one app ID shared by the process and the shortcut script; Z gets its own
-check("APP_ID is the 1.0.0 id (+.Z in the Z build)", icon.APP_ID == "curelessSky.MimicKitLauncher" + (
+check("APP_ID is Ross2K.MimicKitLauncher (+.Z in the Z build)", icon.APP_ID == "Ross2K.MimicKitLauncher" + (
     ".Z" if os.path.isfile(os.path.join(icon.APP_DIR, "launcher_profile.py")) else ""), icon.APP_ID)
 ps1 = open(os.path.join(icon.APP_DIR, "tools", "make_shortcut.ps1"), encoding="utf-8-sig").read()
-check("make_shortcut.ps1 derives the same id", '"curelessSky.MimicKitLauncher"' in ps1 and 'launcher_profile.py' in ps1
+check("make_shortcut.ps1 derives the same id", '"Ross2K.MimicKitLauncher"' in ps1 and 'launcher_profile.py' in ps1
       and '+= ".Z"' in ps1 and "MimicKitLauncher.Launcher\"" not in ps1)
 isrc = open(icon.__file__).read()
 check("Start-menu shortcut gets -AppId APP_ID", '"-AppId", APP_ID' in isrc)

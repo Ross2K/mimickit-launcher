@@ -1,5 +1,5 @@
 # MimicKit Launcher - training progress
-# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
+# Copyright (C) 2026 Ross2K. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 import numpy as np
 
 from mkl.core import *  # noqa: F401,F403 - shared helpers/constants

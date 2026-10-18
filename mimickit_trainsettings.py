@@ -1,5 +1,5 @@
 # MimicKit Launcher - Training settings: edit copies of a config's env/agent yaml and motion clips.
-# Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
+# Copyright (C) 2026 Ross2K. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """The originals are never modified. Every Save writes a NEW folder
     <MimicKit>/output/_launcher_configs/<config>/<timestamp>/  (env.yaml, agent.yaml, motions/, dataset.yaml)
 plus current.json pointing at it, and the first Save also copies the untouched originals to .../originals/.

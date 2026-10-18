@@ -393,7 +393,7 @@ xvfb-run -a python tests/remote_test.py   # phone dashboard (token, range reques
 
 ## License
 
-Copyright (c) 2026 curelessSky. **Source-available** under the
+Copyright (c) 2026 Ross2K. **Source-available** under the
 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) - see [LICENSE](LICENSE).
 
 - **Free for non-commercial use:** personal, hobby, research, education, and non-profit use are all fine.

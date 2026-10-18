@@ -135,41 +135,41 @@ def zip_dir(d, dst, prefix):
 
 
 OLD_OWNER = "cureless" + "Sky"  # GitHub owner before the rename to Ross2K (split so this file doesn't match itself)
-# The ONLY places the old name may stay: the Windows taskbar ID string (changing it splits the taskbar button) and
-# copyright / license lines. Anything else (URLs, REPO / PUBLIC_REPO, guide and About text) fails the build.
+# Any old-owner reference (any case: URLs, REPO / PUBLIC_REPO, App ID, copyright, LICENSE / NOTICE, docs) fails the
+# build. Only two exceptions: CHANGELOG.md (release history is left as written) and the contributor grant's
+# "Ross2K (formerly <old>)" note in CONTRIBUTING.md (keeps earlier grants clearly to the same party).
 OWNER_ALLOW = (
-    (("mkl/icon.py", "tools/make_shortcut.ps1", "tests/icon_test.py", "CHANGELOG.md"), OLD_OWNER + ".MimicKitLauncher"),
-    (None, "Copyright"),
-    (("CONTRIBUTING.md",), "grant " + OLD_OWNER),  # contributor license grant (legal text)
+    (("CHANGELOG.md",), None),  # whole file: history
+    (("CONTRIBUTING.md",), "Ross2K (formerly " + OLD_OWNER + ")"),
 )
 
 
 def old_owner_hits(d, files=None):
-    """[(file, line no, text)] of old-owner references outside the allowlist in folder d."""
+    """[(file, line no, text)] of old-owner references (case-insensitive) outside the allowlist in folder d."""
     if files is None:
         files = []
         for root, dirs, fs in os.walk(d):
             dirs[:] = [x for x in dirs if x not in ("__pycache__", ".git", "output")]
             files += [os.path.relpath(os.path.join(root, f), d).replace(os.sep, "/") for f in fs]
+    old = OLD_OWNER.lower()
     hits = []
     for rel in files:
-        if rel in ("LICENSE", "NOTICE") or rel.endswith((".pyc", ".png", ".ico", ".exe", ".pkl", ".zip")):
+        if rel.endswith((".pyc", ".png", ".ico", ".exe", ".pkl", ".zip")):
+            continue
+        rules = [pat for where, pat in OWNER_ALLOW if rel in where]
+        if None in rules:
             continue
         try:
             text = open(os.path.join(d, rel), encoding="utf-8").read()
         except (UnicodeDecodeError, OSError):
             continue
         for n, line in enumerate(text.splitlines(), 1):
-            if OLD_OWNER not in line:
+            if old not in line.lower():
                 continue
             rest = line
-            for where, pat in OWNER_ALLOW:
-                if where is None or rel in where:
-                    if pat == "Copyright" and pat in line:
-                        rest = ""
-                    else:
-                        rest = rest.replace(pat, "")
-            if OLD_OWNER in rest:
+            for pat in rules:
+                rest = rest.replace(pat, "")
+            if old in rest.lower():
                 hits.append((rel, n, line.strip()[:120]))
     return hits
 

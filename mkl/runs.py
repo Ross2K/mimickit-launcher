@@ -1,5 +1,5 @@
 # MimicKit Launcher - phone 'Runs' + 'Patches' controls (a0.8.0): start a new training, continue from an earlier
-# run, apply / revert MimicKit patches. Copyright (C) 2026 curelessSky. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
+# run, apply / revert MimicKit patches. Copyright (C) 2026 Ross2K. SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 (see LICENSE).
 """The phone only ever sends names and keys from the lists the PC published; everything is validated again on the
 PC (server thread, then once more on the GUI thread right before acting). Same states and refusals as the PC buttons:
 nothing starts while something runs, a used output folder needs an explicit 'overwrite', patches that change
