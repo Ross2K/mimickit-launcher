@@ -3,7 +3,9 @@
 All notable changes to MimicKit Launcher, newest first. Versions are `X.Y.Z` from 1.0.0 on (before that: `aX.Y.Z`, alpha; the updater treats 1.0.0 as newer than every alpha). The version string lives in one
 place: `VERSION` in `mkl/core.py`.
 
-## Unreleased
+## 1.0.2
+
+2026-11-08
 
 - Owner renamed to Ross2K; Windows taskbar App ID changed to Ross2K.MimicKitLauncher (re-pin the launcher if
   pinned). Copyright headers, LICENSE/NOTICE Required Notice and the contributor grant now name Ross2K; the build's
